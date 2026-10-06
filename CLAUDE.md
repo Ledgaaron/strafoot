@@ -16,6 +16,9 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - Pas de lib UI, pas de state manager, pas d'ORM, pas de lib de formulaires en v1
 - react-native-svg (version du SDK, installée par `npx expo install`) : seule lib de dessin,
   importée uniquement dans app/measure/ pour la courbe d'une mesure ; pas de lib de charts
+- @expo/vector-icons (version du SDK, installée par `npx expo install` : le SDK 57 ne
+  l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation) ;
+  aucune autre lib d'icônes
 
 ## Environnement de dev
 
@@ -43,7 +46,10 @@ measure/_layout.tsx garde d'auth ; measure/[testId].tsx courbe, historique et su
 lib/
 supabase.ts client unique
 auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth
-dates.ts jours locaux YYYY-MM-DD et libellés : seul endroit où un jour est calculé
+theme.ts tokens du design system (couleurs, tailles, interlignes, espacements, rayons,
+dimensions, styles de texte et de champ, thème de navigation) : seule source de style avec components/
+dates.ts jours locaux YYYY-MM-DD et libellés, dont relativeDay (« auj. », « hier », « il y a 3 j »,
+puis absolu) : seul endroit où un jour est calculé ; relativeDay testé par dates.test.ts
 modules.ts liste fermée des modules de séance (MODULE_KEYS)
 quiz-taxonomy.ts listes fermées du quizz : thèmes, postes, barème
 profile-taxonomy.ts postes du profil (ceux du quizz sans 'tous') et pieds forts
@@ -56,9 +62,15 @@ db/ une fonction par requête, typée (sessions.ts, answers.ts, questions.ts, tr
 test-results.ts, profiles.ts) ; result.ts : contrat { data, error }
 streak.ts calcul pur, testable, sans dépendance
 types.ts types générés depuis Supabase (npx supabase gen types)
-components/ composants réutilisés par ≥ 2 écrans uniquement
+components/ design system et composants réutilisés par ≥ 2 écrans uniquement
+screen.tsx cadre d'écran : fond, marges, zones sûres, clavier, titre 28, pied fixe de l'action principale
+card.tsx carte (surface), tappable avec onPress, mise en évidence par bordure accent
+chip.tsx puce de choix, la seule de l'app (44 px, zone tactile 48 px)
+button.tsx bouton primary / secondary / danger, états pressé, désactivé, loading
+stat.tsx chiffre dominant 44 px, libellé et unité en secondaire
+empty-state.tsx état vide : ce qui manque, quoi faire, le bouton pour le faire
+field-error.tsx erreur sous un champ ou au-dessus de l'action qui a échoué
 session-form.tsx formulaire de séance partagé par session/new et session/[id]
-action-button.tsx bouton texte à zone tactile ≥ 44 px
 scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts, build-seed-sheets.ts)
 supabase/
 migrations/NNN_description.sql
@@ -145,7 +157,7 @@ ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logiqu
    difficulté optionnelle = 3 si vide, nom auto modifiable, commentaire optionnel) ;
    calendrier du mois (points entraînement / quizz) ; tap sur un jour → séances du jour →
    édition / suppression.
-2. **Quizz** : filtre thème / poste (mémorisé tant que l'app tourne), stats (total, moyenne
+2. **Quizz** : filtre thème / poste (replié par défaut, mémorisé tant que l'app tourne), stats (total, moyenne
    sur 7 jours, streak) ; séries de 5 questions QCM 4 options (jamais vues, puis dernier
    score ≤ 1, puis les plus anciennes) ; après réponse, affichage du score de l'option
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
@@ -165,11 +177,36 @@ ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logiqu
 ## Hors périmètre v1 — ne pas proposer, ne pas préparer
 
 API FFF, Elo, génération d'exercices paramétrable, plans d'entraînement, notifications,
-écrans multi-utilisateurs, partage, mode hors-ligne, travail esthétique (thème, animations,
-icônes custom, lib UI). Si une demande relève de cette liste, le signaler et ne pas coder.
+écrans multi-utilisateurs, partage, mode hors-ligne. Si une demande relève de cette liste,
+le signaler et ne pas coder.
 
-Priorité absolue : fonctionnel > beau. Composants natifs par défaut, style minimal
-(lisibilité, zones tactiles ≥ 44 px), rien de plus.
+## Design system et règles UX
+
+Design system : lib/theme.ts et components/ sont la seule source de style. Aucune couleur,
+taille ou espacement en dur dans un écran. Aucune lib UI, aucune police custom, aucune
+animation hors état pressé. Les 14 règles UX ci-dessous s'appliquent à tout nouvel écran.
+
+Règles UX (figées : tout écran nouveau ou modifié est relu contre cette liste) :
+
+1. Une action principale par écran, en bas, zone du pouce ; le reste visuellement secondaire.
+2. Logger une séance : 2 taps avec les défauts ; champs supplémentaires optionnels.
+3. Cibles tactiles ≥ 48 px, ≥ 8 px entre deux cibles.
+4. Corps ≥ 16 px, secondaire ≥ 14 px, interligne 1,4, contraste ≥ 4,5:1 partout.
+5. Un chiffre dominant par carte ; unité et date en secondaire ; 3 niveaux de hiérarchie max.
+6. Retour visible < 400 ms : état pressé sur tout élément tappable, confirmation visible.
+7. Zéro code : libellés en français, unité collée à la valeur, dates relatives < 7 jours
+   (« auj. », « hier », « il y a 3 j »), absolues ensuite.
+8. Un même objet = un même composant partout.
+9. Un état vide dit quoi faire et porte le bouton pour le faire.
+10. Erreur en français, à côté du champ, saisie conservée.
+11. Profondeur de navigation ≤ 2 depuis un onglet ; retour toujours visible.
+12. Filtres repliés par défaut, dernier choix mémorisé.
+13. Sombre par défaut, pas de mode clair.
+14. Nombres grands, alignés, scannables verticalement.
+
+Valeurs des tokens qui s'écartent de la demande du chantier 6, pour respecter la règle 4 :
+`fontSize.meta` = 14 (13 demandé), `colors.danger` = #E85052 (#E5383B demandé : 4,34:1 sur
+surface). Les messages bruts de Supabase restent en anglais (erreur jamais avalée).
 
 ## Méthode de travail
 
@@ -192,10 +229,12 @@ Priorité absolue : fonctionnel > beau. Composants natifs par défaut, style min
 
 ## Commandes
 
-- `npx expo start` puis `w` / `a`
+- `npx expo start` puis `w` / `a` (`npx expo start --clear` après l'ajout d'une dépendance)
 - `npx tsc --noEmit` avant chaque fin de chantier, zéro erreur exigée
 - `npx tsx lib/streak.test.ts`, `npx tsx lib/quiz-select.test.ts`,
-  `npx tsx lib/measure-delta.test.ts` (tests purs, sans framework)
+  `npx tsx lib/measure-delta.test.ts`, `npx tsx lib/dates.test.ts` (tests purs, sans framework)
+- Contrôle du design system (aucune ligne attendue) :
+  `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx -Exclude theme.ts | Select-String -Pattern '#[0-9A-Fa-f]{3,8}\b'`
 - `npx tsx scripts/build-seed-questions.ts`, `npx tsx scripts/build-seed-sheets.ts`
   (régénèrent les seeds depuis supabase/content/)
 - `npx supabase gen types typescript --project-id <id> | Out-File -Encoding utf8 lib/types.ts`

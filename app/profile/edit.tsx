@@ -1,9 +1,11 @@
 import { router, Stack } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 
-import { ActionButton } from '../../components/action-button';
+import { Button } from '../../components/button';
+import { Chip } from '../../components/chip';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
 import { formatNumericDay, localToday, parseNumericDay } from '../../lib/dates';
 import { getMyProfile, upsertMyProfile, type ProfileRow } from '../../lib/db/profiles';
 import {
@@ -14,6 +16,7 @@ import {
   type ProfilePositionKey,
   type StrongFootKey,
 } from '../../lib/profile-taxonomy';
+import { colors, input, inputProps, layout, text } from '../../lib/theme';
 
 const TITLE = 'Modifier le profil';
 const NO_PROFILE_MESSAGE = 'Supabase n’a renvoyé ni le profil ni d’erreur.';
@@ -41,9 +44,6 @@ type LoadState =
 
 /** Date de naissance lue dans la saisie ; day null : champ vide. */
 type BirthDateInput = { valid: true; day: string | null } | { valid: false };
-
-/** Objet neuf à chaque échec : l'effet remonte en haut même si le message n'a pas changé. */
-type FormError = { message: string };
 
 export default function EditProfileScreen() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
@@ -80,16 +80,18 @@ export default function EditProfileScreen() {
 
   if (state.status !== 'ready') {
     return (
-      <View style={styles.container}>
+      <>
         <Stack.Screen options={{ title: TITLE }} />
-        {state.status === 'loading' ? <ActivityIndicator /> : null}
-        {state.status === 'error' ? (
-          <>
-            <Text style={styles.error}>Erreur : {state.message}</Text>
-            <ActionButton label="Réessayer" onPress={reload} />
-          </>
-        ) : null}
-      </View>
+        <Screen>
+          {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
+          {state.status === 'error' ? (
+            <View style={layout.section}>
+              <FieldError message={`Erreur : ${state.message}`} />
+              <Button variant="secondary" label="Réessayer" onPress={reload} />
+            </View>
+          ) : null}
+        </Screen>
+      </>
     );
   }
 
@@ -144,21 +146,28 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
   const [clubLevel, setClubLevel] = useState(initialValues.clubLevel);
   const [birthDate, setBirthDate] = useState(initialValues.birthDate);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<FormError | null>(null);
+  // Erreurs de validation, chacune sous son champ, effacées dès que le champ change.
+  const [mainPositionError, setMainPositionError] = useState<string | null>(null);
+  const [birthDateError, setBirthDateError] = useState<string | null>(null);
+  // Refus de Supabase, au-dessus d'Enregistrer.
+  const [saveError, setSaveError] = useState<string | null>(null);
   // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
   const pendingRef = useRef(false);
-  const scrollRef = useRef<ScrollView>(null);
 
-  // L'erreur s'affiche en haut du contenu : on y remonte à chaque nouvelle erreur.
-  useEffect(() => {
-    if (error !== null) {
-      scrollRef.current?.scrollTo({ y: 0 });
-    }
-  }, [error]);
+  // Un champ en erreur peut être hors de l'écran : le pied, toujours visible, les résume.
+  const invalidFields: string[] = [];
+  if (mainPositionError !== null) {
+    invalidFields.push('poste principal');
+  }
+  if (birthDateError !== null) {
+    invalidFields.push('date de naissance');
+  }
+  const footerError = invalidFields.length > 0 ? `À corriger : ${invalidFields.join(', ')}.` : saveError;
 
   function selectMainPosition(key: ProfilePositionKey) {
     // Choix obligatoire : retaper la puce choisie ne la désélectionne pas.
     setMainPosition(key);
+    setMainPositionError(null);
     // Le secondaire devenu principal se vide : jamais deux fois le même poste.
     setSecondaryPosition((current) => (current === key ? null : current));
   }
@@ -171,29 +180,29 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
     setStrongFoot((current) => (current === key ? null : key));
   }
 
+  function changeBirthDate(value: string) {
+    setBirthDate(value);
+    setBirthDateError(null);
+  }
+
   async function handleSubmit() {
     if (pendingRef.current) {
       return;
     }
-    // Validation avant tout envoi : tous les problèmes d'un coup, un par ligne.
+    // Validation avant tout envoi : tous les problèmes d'un coup, chacun sous son champ.
     const birth = readBirthDate(birthDate, localToday());
-    const problems: string[] = [];
-    if (mainPosition === null) {
-      problems.push(MISSING_MAIN_POSITION_MESSAGE);
-    }
-    if (!birth.valid) {
-      problems.push(INVALID_BIRTH_DATE_MESSAGE);
-    }
+    setMainPositionError(mainPosition === null ? MISSING_MAIN_POSITION_MESSAGE : null);
+    setBirthDateError(birth.valid ? null : INVALID_BIRTH_DATE_MESSAGE);
+    // Le refus précédent de Supabase ne vaut plus : nouvel essai ou champs à corriger.
+    setSaveError(null);
     if (mainPosition === null || !birth.valid) {
-      setError({ message: problems.join('\n') });
       return;
     }
 
     pendingRef.current = true;
     setSaving(true);
-    setError(null);
     // Jamais de user_id : la base le tire du JWT.
-    const { data, error: saveError } = await upsertMyProfile({
+    const { data, error } = await upsertMyProfile({
       main_position: mainPosition,
       secondary_position: secondaryPosition,
       strong_foot: strongFoot,
@@ -201,11 +210,11 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
       club_level: clubLevel.trim() || null,
       birth_date: birth.day,
     });
-    if (saveError !== null || data === null) {
+    if (error !== null || data === null) {
       // Saisie conservée, envoi de nouveau possible.
       pendingRef.current = false;
       setSaving(false);
-      setError({ message: saveError ?? NO_PROFILE_MESSAGE });
+      setSaveError(error ?? NO_PROFILE_MESSAGE);
       return;
     }
     // pendingRef et saving restent vrais : l'écran se ferme, pas de second envoi possible.
@@ -214,31 +223,19 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
   }
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
-      <Stack.Screen
-        options={{
-          title: TITLE,
-          // Dans l'en-tête : visible sans défiler, même clavier ouvert.
-          headerRight: () => (
-            <Pressable
-              role="button"
-              accessibilityLabel="Enregistrer"
-              aria-disabled={saving}
-              disabled={saving}
-              onPress={handleSubmit}
-              style={({ pressed }) => [styles.headerButton, (pressed || saving) && styles.dimmed]}
-            >
-              <Text style={styles.headerButtonLabel}>{saving ? 'Enregistrement…' : 'Enregistrer'}</Text>
-            </Pressable>
-          ),
-        }}
-      />
-      <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-        {error !== null ? <Text style={styles.error}>{error.message}</Text> : null}
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Poste principal</Text>
-          <View style={styles.wrapRow}>
+    <>
+      <Stack.Screen options={{ title: TITLE }} />
+      <Screen
+        footer={
+          <>
+            <FieldError message={footerError} />
+            <Button label="Enregistrer" onPress={handleSubmit} loading={saving} />
+          </>
+        }
+      >
+        <View style={layout.section}>
+          <Text style={text.overline}>Poste principal</Text>
+          <View style={layout.chipRow}>
             {PROFILE_POSITIONS.map((entry) => (
               <Chip
                 key={entry.key}
@@ -249,11 +246,15 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
               />
             ))}
           </View>
+          <FieldError message={mainPositionError} />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Poste secondaire (facultatif)</Text>
-          <View style={styles.wrapRow}>
+        <View style={layout.section}>
+          <View>
+            <Text style={text.overline}>Poste secondaire</Text>
+            <Text style={text.meta}>Facultatif.</Text>
+          </View>
+          <View style={layout.chipRow}>
             {PROFILE_POSITIONS.map((entry) => (
               <Chip
                 key={entry.key}
@@ -268,9 +269,12 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Pied fort (facultatif)</Text>
-          <View style={styles.wrapRow}>
+        <View style={layout.section}>
+          <View>
+            <Text style={text.overline}>Pied fort</Text>
+            <Text style={text.meta}>Facultatif.</Text>
+          </View>
+          <View style={layout.chipRow}>
             {STRONG_FEET.map((entry) => (
               <Chip
                 key={entry.key}
@@ -282,10 +286,11 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Club</Text>
+        <View style={layout.section}>
+          <Text style={text.overline}>Club</Text>
           <TextInput
-            style={styles.input}
+            {...inputProps}
+            style={input.field}
             value={club}
             onChangeText={setClub}
             placeholder="Club (facultatif)"
@@ -293,10 +298,11 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
           />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Niveau</Text>
+        <View style={layout.section}>
+          <Text style={text.overline}>Niveau</Text>
           <TextInput
-            style={styles.input}
+            {...inputProps}
+            style={input.field}
             value={clubLevel}
             onChangeText={setClubLevel}
             maxLength={CLUB_LEVEL_MAX_LENGTH}
@@ -305,114 +311,21 @@ function ProfileForm({ initialValues }: { initialValues: ProfileFormValues }) {
           />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Date de naissance</Text>
+        <View style={layout.section}>
+          <Text style={text.overline}>Date de naissance</Text>
           {/* Clavier par défaut : le pavé numérique n'a pas de « / ». */}
           <TextInput
-            style={styles.input}
+            {...inputProps}
+            style={[input.field, birthDateError !== null && input.invalid]}
             value={birthDate}
-            onChangeText={setBirthDate}
+            onChangeText={changeBirthDate}
             maxLength={BIRTH_DATE_MAX_LENGTH}
             placeholder="JJ/MM/AAAA"
             accessibilityLabel="Date de naissance"
           />
+          <FieldError message={birthDateError} />
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </Screen>
+    </>
   );
 }
-
-type ChipProps = {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-  accessibilityLabel?: string;
-  disabled?: boolean;
-};
-
-/** Puce de choix : fond sombre si sélectionnée, bordure seule sinon ; grisée et inerte si désactivée. */
-function Chip({ label, selected, onPress, accessibilityLabel, disabled = false }: ChipProps) {
-  return (
-    <Pressable
-      role="button"
-      accessibilityLabel={accessibilityLabel}
-      aria-disabled={disabled}
-      accessibilityState={{ selected, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.box, selected && styles.boxSelected, (pressed || disabled) && styles.dimmed]}
-    >
-      <Text style={[styles.boxLabel, selected && styles.boxLabelSelected]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-    gap: 12,
-  },
-  content: {
-    padding: 16,
-    gap: 16,
-  },
-  error: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#b00020',
-  },
-  section: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  wrapRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  box: {
-    minWidth: 44,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  boxSelected: {
-    backgroundColor: '#222',
-    borderColor: '#222',
-  },
-  boxLabel: {
-    fontSize: 16,
-  },
-  boxLabelSelected: {
-    color: '#fff',
-  },
-  input: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    fontSize: 16,
-  },
-  headerButton: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  headerButtonLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  dimmed: {
-    opacity: 0.5,
-  },
-});

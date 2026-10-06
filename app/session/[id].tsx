@@ -1,7 +1,11 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, View } from 'react-native';
 
+import { Button } from '../../components/button';
+import { EmptyState } from '../../components/empty-state';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
 import { SessionForm, sessionFormValuesFromRow, type SessionFormResult } from '../../components/session-form';
 import { localToday } from '../../lib/dates';
 import {
@@ -12,6 +16,7 @@ import {
   type SessionRow,
 } from '../../lib/db/sessions';
 import { getModule } from '../../lib/modules';
+import { colors, layout } from '../../lib/theme';
 
 type State =
   | { status: 'loading' }
@@ -25,6 +30,8 @@ export default function EditSessionScreen() {
   // Jour figé à l'ouverture : les puces de date ne bougent pas pendant la saisie.
   const [today] = useState(localToday);
   const [state, setState] = useState<State>(sessionId ? { status: 'loading' } : { status: 'empty' });
+  // Incrémenté par « Réessayer » : relance le chargement.
+  const [loadCount, setLoadCount] = useState(0);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,21 +56,39 @@ export default function EditSessionScreen() {
     return () => {
       active = false;
     };
-  }, [sessionId]);
+  }, [sessionId, loadCount]);
+
+  function reload() {
+    setState({ status: 'loading' });
+    setLoadCount((count) => count + 1);
+  }
 
   if (state.status !== 'ready') {
     return (
-      <View style={styles.container}>
+      <>
         <Stack.Screen options={{ title: 'Séance' }} />
-        {state.status === 'loading' ? <ActivityIndicator /> : null}
-        {state.status === 'error' ? <Text style={styles.error}>{state.message}</Text> : null}
-        {state.status === 'empty' ? <Text>Séance introuvable.</Text> : null}
-      </View>
+        <Screen>
+          {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
+          {state.status === 'error' ? (
+            <View style={layout.section}>
+              <FieldError message={`Erreur : ${state.message}`} />
+              <Button variant="secondary" label="Réessayer" onPress={reload} />
+            </View>
+          ) : null}
+          {state.status === 'empty' ? (
+            <EmptyState
+              title="Séance introuvable"
+              message="Elle a peut-être déjà été supprimée."
+              action={{ label: 'Retour', onPress: goBack }}
+            />
+          ) : null}
+        </Screen>
+      </>
     );
   }
 
   const row = state.row;
-  // Une requête à la fois : enregistrer et supprimer sont désactivés ensemble.
+  // Une requête à la fois : pendant l'enregistrement ou la suppression, l'autre bouton est désactivé.
   const busy = saving || deleting;
 
   async function handleSave(result: SessionFormResult) {
@@ -127,47 +152,28 @@ export default function EditSessionScreen() {
       title="Modifier la séance"
       today={today}
       initialValues={sessionFormValuesFromRow(row)}
-      submitting={busy}
+      submitting={saving}
+      disabled={deleting}
       error={error}
       onSubmit={handleSave}
       footer={
-        <Pressable
-          role="button"
-          aria-disabled={busy}
-          disabled={busy}
+        <Button
+          variant="danger"
+          label="Supprimer la séance"
           onPress={confirmDelete}
-          style={({ pressed }) => [styles.deleteButton, (pressed || busy) && styles.dimmed]}
-        >
-          <Text style={styles.deleteLabel}>{deleting ? 'Suppression…' : 'Supprimer la séance'}</Text>
-        </Pressable>
+          loading={deleting}
+          disabled={saving}
+        />
       }
     />
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-    gap: 12,
-  },
-  error: {
-    color: '#b00020',
-  },
-  deleteButton: {
-    minHeight: 44,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-    borderColor: '#b00020',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteLabel: {
-    fontSize: 16,
-    color: '#b00020',
-  },
-  dimmed: {
-    opacity: 0.5,
-  },
-});
+/** Retour à l'écran précédent ; sans historique (lien ouvert directement), l'Accueil. */
+function goBack() {
+  if (router.canGoBack()) {
+    router.back();
+  } else {
+    router.replace('/');
+  }
+}

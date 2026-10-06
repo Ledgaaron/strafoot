@@ -1,11 +1,15 @@
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 
-import { ActionButton } from '../../components/action-button';
-import { formatNumericDay } from '../../lib/dates';
+import { Button } from '../../components/button';
+import { Card } from '../../components/card';
+import { EmptyState } from '../../components/empty-state';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
+import { Stat } from '../../components/stat';
+import { formatShortDay, localToday, relativeDay } from '../../lib/dates';
 import {
   deleteTestResult,
   getTest,
@@ -14,14 +18,26 @@ import {
   type TestRow,
 } from '../../lib/db/test-results';
 import { formatDecimal, formatMeasure } from '../../lib/measure-delta';
+import { colors, fontSize, layout, lineHeight, radius, size, spacing, text } from '../../lib/theme';
 
 const NO_DELETE_MESSAGE = 'Supabase n’a renvoyé ni le résultat supprimé ni d’erreur.';
 /** Hauteur de la courbe ; sa largeur est celle du conteneur, mesurée par onLayout. */
 const CHART_HEIGHT = 200;
-/** Marges intérieures : étiquettes Y à gauche, dernière valeur en haut, dates en bas. */
-const CHART_PADDING = { left: 48, right: 16, top: 28, bottom: 28 } as const;
-const CHART_INK = '#222';
-const GUIDE_COLOR = '#999';
+/** Bande d'étiquettes au-dessus et au-dessous du tracé : une ligne meta et son écart. */
+const LABEL_BAND = lineHeight.meta + spacing.sm;
+/** Étiquettes Y : jusqu'à 5 caractères (« 12,45 ») d'environ 0,6 em en fontSize.meta. */
+const Y_LABEL_WIDTH = 5 * 0.6 * fontSize.meta;
+/** Marges intérieures : étiquettes Y à gauche, dernière valeur en haut, dates en bas, dernier point à droite. */
+const CHART_PADDING = {
+  left: Y_LABEL_WIDTH + spacing.sm,
+  right: spacing.sm,
+  top: LABEL_BAND,
+  bottom: LABEL_BAND,
+} as const;
+/** Chiffres centrés sur leur repère : ligne de base abaissée de la moitié de leur hauteur (environ 0,7 em). */
+const DIGIT_CENTER_OFFSET = 0.35 * fontSize.meta;
+/** Repères en pointillés : traits et vides de 4 px. */
+const GUIDE_DASH = [spacing.xs, spacing.xs] as const;
 /**
  * Sur web, le texte SVG hérite de la police par défaut du navigateur, à
  * empattements : police sans empattement explicite. Sur natif, police système.
@@ -89,17 +105,23 @@ export default function MeasureScreen() {
 
   if (state.status !== 'ready') {
     return (
-      <View style={styles.container}>
+      <Screen>
         <Stack.Screen options={{ title: 'Mesure' }} />
-        {state.status === 'loading' ? <ActivityIndicator /> : null}
+        {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
         {state.status === 'error' ? (
-          <>
-            <Text style={styles.error}>Erreur : {state.message}</Text>
-            <ActionButton label="Réessayer" onPress={reload} />
-          </>
+          <View style={layout.section}>
+            <FieldError message={'Erreur : ' + state.message} />
+            <Button variant="secondary" label="Réessayer" onPress={reload} />
+          </View>
         ) : null}
-        {state.status === 'missing' ? <Text style={styles.text}>Mesure introuvable.</Text> : null}
-      </View>
+        {state.status === 'missing' ? (
+          <EmptyState
+            title="Mesure introuvable"
+            message="Elle a peut-être été retirée du catalogue."
+            action={{ label: 'Retour', onPress: leaveMeasure }}
+          />
+        ) : null}
+      </Screen>
     );
   }
 
@@ -127,6 +149,15 @@ async function loadMeasure(testId: string): Promise<LoadState> {
   return { status: 'ready', test: test.data, results: results.data ?? [] };
 }
 
+/** Retour à l'écran précédent ; sans historique (lien direct, rechargement web) : l'onglet Profil. */
+function leaveMeasure() {
+  if (router.canGoBack()) {
+    router.back();
+  } else {
+    router.replace('/profile');
+  }
+}
+
 type MeasureDetailProps = {
   test: TestRow;
   /** Du plus récent au plus ancien. */
@@ -135,24 +166,18 @@ type MeasureDetailProps = {
   onDeleted: (resultId: string) => void;
 };
 
-/** Mesure chargée : en-tête, courbe (ou valeur seule), historique avec suppression. */
+/** Échec d'une suppression : la ligne reste, sa carte affiche le message. */
+type DeleteError = { resultId: string; message: string };
+
+/** Mesure chargée : en-tête, dernier résultat, courbe, historique avec suppression. */
 function MeasureDetail({ test, results, onDeleted }: MeasureDetailProps) {
+  // Référence des dates relatives, lue au montage.
+  const [today] = useState(localToday);
   // Résultat en cours de suppression ; null : aucun envoi en cours.
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<DeleteError | null>(null);
   // Garde synchrone en plus de l'état : deux appuis rapprochés peuvent voir le même rendu.
   const pendingRef = useRef(false);
-  const scrollRef = useRef<ScrollView>(null);
-  // Ordonnée de la section Historique dans le contenu défilant, relevée par onLayout.
-  const historyYRef = useRef(0);
-
-  // L'erreur s'affiche en tête de l'historique, hors de l'écran si la ligne
-  // supprimée était plus bas : on y remonte à chaque nouvelle erreur.
-  useEffect(() => {
-    if (deleteError !== null) {
-      scrollRef.current?.scrollTo({ y: historyYRef.current, animated: false });
-    }
-  }, [deleteError]);
 
   // Une suppression à la fois : tous les boutons Supprimer et les appuis longs sont inactifs pendant l'envoi.
   const busy = deletingId !== null;
@@ -163,11 +188,11 @@ function MeasureDetail({ test, results, onDeleted }: MeasureDetailProps) {
     if (pendingRef.current) {
       return;
     }
-    const day = formatNumericDay(row.date);
+    const day = relativeDay(row.date, today);
     const value = formatMeasure(row.value, test.unit);
     // Alert.alert ne fait rien sur web : confirmation du navigateur à la place.
     if (Platform.OS === 'web') {
-      if (window.confirm(`Supprimer le résultat du ${day} (${value}) ? La séance liée reste.`)) {
+      if (window.confirm(`Supprimer ce résultat (${day}, ${value}) ? La séance liée reste.`)) {
         handleDelete(row.id);
       }
       return;
@@ -190,105 +215,131 @@ function MeasureDetail({ test, results, onDeleted }: MeasureDetailProps) {
     pendingRef.current = false;
     setDeletingId(null);
     if (error !== null || data === null) {
-      // Rien n'est retiré : la ligne reste, l'erreur s'affiche au-dessus de l'historique.
-      setDeleteError(error ?? NO_DELETE_MESSAGE);
+      // Rien n'est retiré : la ligne reste, l'erreur s'affiche dans sa carte.
+      setDeleteError({ resultId, message: error ?? NO_DELETE_MESSAGE });
       return;
     }
     onDeleted(resultId);
   }
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <Screen>
       <Stack.Screen options={{ title: test.name }} />
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-        <View style={styles.block}>
-          <Text style={styles.title}>{test.name}</Text>
-          <Text style={styles.text}>{test.protocol}</Text>
-          <Text style={styles.text}>
-            {`Unité : ${test.unit} · ${test.higher_is_better ? 'plus haut' : 'plus bas'} = mieux`}
+      <View style={styles.header}>
+        <Text style={text.meta}>{test.protocol}</Text>
+        <Text style={text.meta}>
+          {`Unité : ${test.unit} · ${test.higher_is_better ? 'plus haut' : 'plus bas'} = mieux`}
+        </Text>
+      </View>
+
+      {results.length > 0 ? (
+        <Stat
+          label={'Dernier résultat · ' + relativeDay(results[0].date, today)}
+          value={formatDecimal(results[0].value)}
+          unit={test.unit}
+          tone="accent"
+        />
+      ) : null}
+
+      {results.length >= 2 ? (
+        <Card>
+          <MeasureChart results={chronological} unit={test.unit} today={today} />
+        </Card>
+      ) : null}
+      {results.length === 1 ? (
+        <Text style={text.meta}>Un seul résultat : la courbe apparaîtra au deuxième.</Text>
+      ) : null}
+      {results.length === 0 ? (
+        <EmptyState
+          title="Aucun résultat"
+          message="Refais ce test depuis l’onglet Entraînement."
+          action={{ label: 'Voir les tests', onPress: () => router.dismissTo('/training') }}
+        />
+      ) : null}
+
+      {results.length > 0 ? (
+        <View style={layout.section}>
+          <Text role="heading" style={text.title}>
+            Historique
           </Text>
+          {results.map((row) => (
+            <ResultRow
+              key={row.id}
+              row={row}
+              unit={test.unit}
+              today={today}
+              busy={busy}
+              deleting={row.id === deletingId}
+              error={deleteError !== null && deleteError.resultId === row.id ? deleteError.message : null}
+              onDelete={() => confirmDelete(row)}
+            />
+          ))}
         </View>
-
-        {results.length >= 2 ? <MeasureChart results={chronological} unit={test.unit} /> : null}
-        {results.length === 1 ? (
-          <Text style={styles.text}>
-            {`Un seul résultat : ${formatMeasure(results[0].value, test.unit)} le ${formatNumericDay(results[0].date)}.`}
-          </Text>
-        ) : null}
-        {results.length === 0 ? <Text style={styles.text}>Aucun résultat pour cette mesure.</Text> : null}
-
-        {results.length > 0 ? (
-          <View
-            style={styles.section}
-            onLayout={(event) => {
-              historyYRef.current = event.nativeEvent.layout.y;
-            }}
-          >
-            {deleteError !== null ? <Text style={styles.error}>Erreur : {deleteError}</Text> : null}
-            <Text style={styles.heading}>Historique</Text>
-            {results.map((row) => (
-              <ResultRow
-                key={row.id}
-                row={row}
-                unit={test.unit}
-                busy={busy}
-                deleting={row.id === deletingId}
-                onDelete={() => confirmDelete(row)}
-              />
-            ))}
-          </View>
-        ) : null}
-      </ScrollView>
-    </SafeAreaView>
+      ) : null}
+    </Screen>
   );
 }
 
 type ResultRowProps = {
   row: TestResultWithSession;
   unit: string;
+  /** Référence des dates relatives. */
+  today: string;
   /** Une suppression est en cours, sur cette ligne ou une autre. */
   busy: boolean;
   /** Cette ligne est celle en cours de suppression. */
   deleting: boolean;
+  /** Message du dernier échec de suppression de cette ligne ; null sinon. */
+  error: string | null;
   /** Ouvre la confirmation de suppression. */
   onDelete: () => void;
 };
 
-/** Ligne de l'historique : date, valeur, commentaire de la séance liée ; appui long ou bouton pour supprimer. */
-function ResultRow({ row, unit, busy, deleting, onDelete }: ResultRowProps) {
-  const day = formatNumericDay(row.date);
-  const value = formatMeasure(row.value, unit);
+/**
+ * Carte d'un résultat : valeur, date, commentaire de la séance liée ; appui long
+ * ou bouton pour supprimer ; un échec de suppression s'affiche dans la carte.
+ */
+function ResultRow({ row, unit, today, busy, deleting, error, onDelete }: ResultRowProps) {
   // Séance d'origine absente (résultat du seed, séance supprimée) ou sans commentaire : rien à afficher.
   const comment = row.session?.comment?.trim() ?? '';
   return (
-    <View style={styles.row}>
-      {/* Bouton à côté, pas dedans : deux zones tactiles voisines plutôt qu'imbriquées. */}
-      <Pressable
-        disabled={busy}
-        onLongPress={onDelete}
-        style={({ pressed }) => [styles.rowInfo, pressed && styles.dimmed]}
-      >
-        <Text style={styles.rowTitle}>{`${day} · ${value}`}</Text>
-        {comment !== '' ? <Text style={styles.text}>{comment}</Text> : null}
-      </Pressable>
-      <Pressable
-        role="button"
-        accessibilityLabel={`Supprimer le résultat du ${day} (${value})`}
-        aria-disabled={busy}
-        disabled={busy}
-        onPress={onDelete}
-        style={({ pressed }) => [styles.deleteButton, (pressed || busy) && styles.dimmed]}
-      >
-        <Text style={styles.deleteLabel}>{deleting ? 'Suppression…' : 'Supprimer'}</Text>
-      </Pressable>
-    </View>
+    <Card>
+      <View style={styles.row}>
+        {/* Bouton à côté, pas dedans : deux zones tactiles voisines plutôt qu'imbriquées. */}
+        <Pressable
+          role="button"
+          aria-disabled={busy}
+          disabled={busy}
+          onLongPress={onDelete}
+          style={({ pressed }) => [styles.rowInfo, pressed && styles.rowInfoPressed]}
+        >
+          <Text style={[text.title, text.tabular]}>
+            {formatDecimal(row.value)}
+            {unit !== '' ? <Text style={text.unit}>{` ${unit}`}</Text> : null}
+          </Text>
+          <Text style={text.meta}>{relativeDay(row.date, today)}</Text>
+          {comment !== '' ? <Text style={text.body}>{comment}</Text> : null}
+        </Pressable>
+        <Button
+          variant="danger"
+          label="Supprimer"
+          onPress={onDelete}
+          loading={deleting}
+          disabled={busy && !deleting}
+          accessibilityLabel={`Supprimer le résultat du ${formatShortDay(row.date)} (${formatMeasure(row.value, unit)})`}
+        />
+      </View>
+      <FieldError message={error === null ? null : 'Erreur : ' + error} />
+    </Card>
   );
 }
 
 type MeasureChartProps = {
-  /** Du plus ancien au plus récent ; deux résultats ou plus (en dessous, l'écran écrit la valeur). */
+  /** Du plus ancien au plus récent ; deux résultats ou plus (en dessous, pas de courbe). */
   results: readonly TestResultWithSession[];
   unit: string;
+  /** Référence des dates relatives. */
+  today: string;
 };
 
 /**
@@ -297,7 +348,7 @@ type MeasureChartProps = {
  * borné au minimum et au maximum avec une marge. Le libellé d'accessibilité
  * reprend ce que montre le dessin : le sens ne repose pas sur lui seul.
  */
-function MeasureChart({ results, unit }: MeasureChartProps) {
+function MeasureChart({ results, unit, today }: MeasureChartProps) {
   // Largeur du conteneur : rien n'est dessiné tant qu'elle vaut 0 (pas encore mesurée).
   const [width, setWidth] = useState(0);
 
@@ -323,11 +374,10 @@ function MeasureChart({ results, unit }: MeasureChartProps) {
   // Repères au minimum et au maximum ; un seul quand toutes les valeurs sont égales.
   const guides = maxValue > minValue ? [minValue, maxValue] : [maxValue];
 
-  const firstDay = formatNumericDay(first.date);
-  const lastDay = formatNumericDay(last.date);
   const lastLabel = formatMeasure(last.value, unit);
+  // Lu par le lecteur d'écran : dates complètes, « du auj. » ne se lirait pas.
   const summary =
-    `Courbe de ${results.length} résultats, du ${firstDay} au ${lastDay} : ` +
+    `Courbe de ${results.length} résultats, du ${formatShortDay(first.date)} au ${formatShortDay(last.date)} : ` +
     `minimum ${formatDecimal(minValue)}, maximum ${formatDecimal(maxValue)}, dernier ${lastLabel}.`;
 
   return (
@@ -347,12 +397,17 @@ function MeasureChart({ results, unit }: MeasureChartProps) {
                 y1={yOf(value)}
                 x2={right}
                 y2={yOf(value)}
-                stroke={GUIDE_COLOR}
-                strokeWidth={1}
-                strokeDasharray="4 4"
+                stroke={colors.border}
+                strokeWidth={size.border}
+                strokeDasharray={GUIDE_DASH}
               />
-              {/* + 4 : chiffres de 11 px centrés verticalement sur leur repère. */}
-              <SvgText x={left - 8} y={yOf(value) + 4} textAnchor="end" fontSize={11} fill={CHART_INK}>
+              <SvgText
+                x={left - spacing.sm}
+                y={yOf(value) + DIGIT_CENTER_OFFSET}
+                textAnchor="end"
+                fontSize={fontSize.meta}
+                fill={colors.textMuted}
+              >
                 {formatDecimal(value)}
               </SvgText>
             </Fragment>
@@ -360,27 +415,40 @@ function MeasureChart({ results, unit }: MeasureChartProps) {
           <Polyline
             points={points.map((point) => `${point.x},${point.y}`).join(' ')}
             fill="none"
-            stroke={CHART_INK}
-            strokeWidth={2}
+            stroke={colors.accent}
+            strokeWidth={size.chartStroke}
           />
           {points.map((point) => (
-            <Circle key={point.id} cx={point.x} cy={point.y} r={4} fill={CHART_INK} />
+            <Circle key={point.id} cx={point.x} cy={point.y} r={size.chartPoint} fill={colors.accent} />
           ))}
+          {/* Au-dessus du dernier point : son rayon, puis spacing.sm jusqu'à la ligne de base. */}
           <SvgText
             x={lastPoint.x}
-            y={lastPoint.y - 10}
+            y={lastPoint.y - size.chartPoint - spacing.sm}
             textAnchor="end"
-            fontSize={12}
-            fontWeight="bold"
-            fill={CHART_INK}
+            fontSize={fontSize.meta}
+            fontWeight="600"
+            fill={colors.text}
           >
             {lastLabel}
           </SvgText>
-          <SvgText x={firstPoint.x} y={CHART_HEIGHT - 8} textAnchor="start" fontSize={11} fill={CHART_INK}>
-            {firstDay}
+          <SvgText
+            x={firstPoint.x}
+            y={CHART_HEIGHT - spacing.sm}
+            textAnchor="start"
+            fontSize={fontSize.meta}
+            fill={colors.textMuted}
+          >
+            {relativeDay(first.date, today)}
           </SvgText>
-          <SvgText x={lastPoint.x} y={CHART_HEIGHT - 8} textAnchor="end" fontSize={11} fill={CHART_INK}>
-            {lastDay}
+          <SvgText
+            x={lastPoint.x}
+            y={CHART_HEIGHT - spacing.sm}
+            textAnchor="end"
+            fontSize={fontSize.meta}
+            fill={colors.textMuted}
+          >
+            {relativeDay(last.date, today)}
           </SvgText>
         </Svg>
       ) : null}
@@ -389,45 +457,8 @@ function MeasureChart({ results, unit }: MeasureChartProps) {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-    gap: 12,
-  },
-  content: {
-    padding: 16,
-    gap: 20,
-  },
-  text: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  error: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#b00020',
-  },
-  dimmed: {
-    opacity: 0.5,
-  },
-  title: {
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: 'bold',
-  },
-  heading: {
-    fontSize: 18,
-    lineHeight: 26,
-    fontWeight: 'bold',
-  },
-  block: {
-    gap: 4,
-  },
-  section: {
-    gap: 8,
+  header: {
+    gap: spacing.xs,
   },
   chart: {
     height: CHART_HEIGHT,
@@ -435,34 +466,21 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing.sm,
   },
   rowInfo: {
     flex: 1,
     // Toute la hauteur de la ligne répond à l'appui long, même quand le bouton est plus haut.
     alignSelf: 'stretch',
-    minHeight: 44,
-    paddingVertical: 8,
+    minHeight: size.touch,
     justifyContent: 'center',
+    gap: spacing.xs,
+    // Le fond pressé déborde un peu du texte au lieu de le coller.
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.button,
   },
-  rowTitle: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: 'bold',
-  },
-  deleteButton: {
-    minHeight: 44,
-    marginVertical: 8,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-    borderColor: '#b00020',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteLabel: {
-    fontSize: 16,
-    color: '#b00020',
+  rowInfoPressed: {
+    backgroundColor: colors.surface2,
   },
 });

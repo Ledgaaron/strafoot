@@ -1,7 +1,15 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import { Button } from '../../components/button';
+import { Card } from '../../components/card';
+import { Chip } from '../../components/chip';
+import { EmptyState } from '../../components/empty-state';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
+import { Stat } from '../../components/stat';
 import { localToday } from '../../lib/dates';
 import { getQuizStats, listAnswerDays } from '../../lib/db/answers';
 import { listEligibleQuestions, type QuestionFilter } from '../../lib/db/questions';
@@ -9,12 +17,15 @@ import { RUN_LENGTH } from '../../lib/quiz-select';
 import {
   ALL_POSITIONS,
   MAX_OPTION_SCORE,
+  positionLabel,
   POSITIONS,
+  themeLabel,
   THEMES,
   type PositionKey,
   type ThemeKey,
 } from '../../lib/quiz-taxonomy';
 import { computeStreaks } from '../../lib/streak';
+import { colors, layout, size, spacing, text } from '../../lib/theme';
 
 // Toutes les réponses depuis le début : la streak courante n'a pas de limite de durée.
 const HISTORY_START = '2000-01-01';
@@ -54,8 +65,13 @@ type EligibleState =
 
 export default function QuizScreen() {
   const [filter, setFilter] = useState<FilterChoice>(() => lastFilter);
+  // Repliés à chaque montage : le résumé de la carte suffit à lire le filtre courant.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [statsState, setStatsState] = useState<StatsState>({ status: 'loading' });
   const [eligibleState, setEligibleState] = useState<EligibleState>({ status: 'loading' });
+  // Incrémentés par « Réessayer » : relancent la requête de leur bloc.
+  const [statsLoadCount, setStatsLoadCount] = useState(0);
+  const [eligibleLoadCount, setEligibleLoadCount] = useState(0);
   const { theme, position } = filter;
 
   useFocusEffect(
@@ -102,7 +118,7 @@ export default function QuizScreen() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [statsLoadCount]),
   );
 
   useFocusEffect(
@@ -130,10 +146,11 @@ export default function QuizScreen() {
       return () => {
         active = false;
       };
-    }, [theme, position]),
+    }, [theme, position, eligibleLoadCount]),
   );
 
   const stats = statsState.status === 'ready' ? statsState.stats : null;
+  const average = stats ? stats.last7DaysAvg : null;
   // Décompte d'un autre filtre : le filtre vient de changer, chargement jusqu'au sien.
   // Au simple retour sur l'onglet, le décompte du même filtre reste affiché jusqu'à la réponse.
   const shownEligible: EligibleState =
@@ -143,8 +160,7 @@ export default function QuizScreen() {
   const eligible = shownEligible.status === 'ready' ? shownEligible : null;
   const eligibleCount = eligible !== null ? eligible.count : 0;
   const canStart = eligibleCount > 0;
-  // Moins de RUN_LENGTH questions éligibles : la série les prend toutes.
-  const runLength = canStart ? Math.min(RUN_LENGTH, eligibleCount) : RUN_LENGTH;
+  const filterSummary = formatFilter(filter);
 
   function changeFilter(next: FilterChoice) {
     lastFilter = next;
@@ -156,95 +172,138 @@ export default function QuizScreen() {
     router.push({ pathname: '/quiz/run', params: toQuestionFilter(filter) });
   }
 
+  function retryStats() {
+    setStatsState({ status: 'loading' });
+    setStatsLoadCount((count) => count + 1);
+  }
+
+  function retryEligible() {
+    setEligibleState({ status: 'loading' });
+    setEligibleLoadCount((count) => count + 1);
+  }
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.heading}>Statistiques</Text>
-        <Text style={styles.text}>Questions répondues au total : {stats ? stats.total : PLACEHOLDER}</Text>
-        <Text style={styles.text}>
-          Score moyen sur 7 jours : {stats ? formatAverage(stats.last7DaysAvg) : PLACEHOLDER}
-        </Text>
-        <Text style={styles.text}>
-          Streak quizz : {stats ? formatCount(stats.currentStreak, 'jour', 'jours') : PLACEHOLDER}
-        </Text>
-        {statsState.status === 'loading' ? <ActivityIndicator /> : null}
+    <Screen title="Quizz" footer={<Button label="Lancer une série" onPress={startRun} disabled={!canStart} />}>
+      <View style={layout.section}>
+        {/* Sans carte : une carte porte un seul chiffre, et trois ne tiennent pas en largeur. */}
+        <View style={styles.statRow}>
+          <View style={styles.statCell}>
+            <Stat label="Répondues" value={stats ? stats.total : PLACEHOLDER} />
+          </View>
+          <View style={styles.statCell}>
+            <Stat
+              label="Moyenne 7 j"
+              value={formatAverage(average)}
+              unit={average !== null ? `/${MAX_OPTION_SCORE}` : undefined}
+            />
+          </View>
+          <View style={styles.statCell}>
+            <Stat
+              label="Streak"
+              value={stats ? stats.currentStreak : PLACEHOLDER}
+              unit={stats ? pluralize(stats.currentStreak, 'jour', 'jours') : undefined}
+              tone="quiz"
+            />
+          </View>
+        </View>
+        {statsState.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {statsState.status === 'error' ? (
-          <Text style={styles.error}>Erreur : {statsState.message}</Text>
+          <>
+            <FieldError message={`Erreur : ${statsState.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={retryStats} />
+          </>
         ) : null}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.heading}>Thème</Text>
-        <View style={styles.wrapRow}>
-          <Chip
-            label="Tous"
-            accessibilityLabel="Tous les thèmes"
-            selected={theme === null}
-            onPress={() => changeFilter({ theme: null, position })}
-          />
-          {THEMES.map((entry) => (
-            <Chip
-              key={entry.key}
-              label={entry.label}
-              selected={entry.key === theme}
-              onPress={() => changeFilter({ theme: entry.key, position })}
-            />
-          ))}
-        </View>
-      </View>
+      <View style={layout.section}>
+        <Card
+          onPress={() => setFiltersOpen((open) => !open)}
+          accessibilityLabel={`Filtres : ${filterSummary}`}
+          style={styles.filterHeader}
+        >
+          <View style={styles.filterText}>
+            <Text style={text.bodyStrong}>Filtres</Text>
+            <Text style={text.meta}>{filterSummary}</Text>
+          </View>
+          <Ionicons name={filtersOpen ? 'chevron-up' : 'chevron-down'} size={size.icon} color={colors.textMuted} />
+        </Card>
+        {filtersOpen ? (
+          <Card style={styles.filterPanel}>
+            <View style={layout.section}>
+              <Text style={text.overline}>Thème</Text>
+              <View style={layout.chipRow}>
+                <Chip
+                  label="Tous"
+                  accessibilityLabel="Tous les thèmes"
+                  selected={theme === null}
+                  onPress={() => changeFilter({ theme: null, position })}
+                />
+                {THEMES.map((entry) => (
+                  <Chip
+                    key={entry.key}
+                    label={entry.label}
+                    selected={entry.key === theme}
+                    onPress={() => changeFilter({ theme: entry.key, position })}
+                  />
+                ))}
+              </View>
+            </View>
+            <View style={layout.section}>
+              <Text style={text.overline}>Poste</Text>
+              <View style={layout.chipRow}>
+                <Chip
+                  label="Tous postes"
+                  selected={position === null}
+                  onPress={() => changeFilter({ theme, position: null })}
+                />
+                {POSITION_FILTERS.map((entry) => (
+                  <Chip
+                    key={entry.key}
+                    label={entry.label}
+                    selected={entry.key === position}
+                    onPress={() => changeFilter({ theme, position: entry.key })}
+                  />
+                ))}
+              </View>
+            </View>
+          </Card>
+        ) : null}
 
-      <View style={styles.section}>
-        <Text style={styles.heading}>Poste</Text>
-        <View style={styles.wrapRow}>
-          <Chip
-            label="Tous postes"
-            selected={position === null}
-            onPress={() => changeFilter({ theme, position: null })}
-          />
-          {POSITION_FILTERS.map((entry) => (
-            <Chip
-              key={entry.key}
-              label={entry.label}
-              selected={entry.key === position}
-              onPress={() => changeFilter({ theme, position: entry.key })}
-            />
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.heading}>Série</Text>
-        {shownEligible.status === 'loading' ? <ActivityIndicator /> : null}
+        {shownEligible.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {shownEligible.status === 'error' ? (
-          <Text style={styles.error}>Erreur : {shownEligible.message}</Text>
+          <>
+            <FieldError message={`Erreur : ${shownEligible.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={retryEligible} />
+          </>
         ) : null}
-        {/* Sans filtre, il n'y a rien à élargir : aucune question n'est disponible. */}
+        {/* Sans filtre, rien à élargir : le contenu du quizz vient du seed, aucun bouton n'y remédie. */}
         {eligible !== null && eligible.count === 0 ? (
-          <Text style={styles.text}>
-            {theme === null && position === null
-              ? 'Aucune question disponible.'
-              : 'Aucune question pour ce filtre. Élargis le thème ou le poste.'}
-          </Text>
+          theme === null && position === null ? (
+            <EmptyState
+              title="Aucune question disponible"
+              message="Le contenu du quizz n’est pas encore chargé dans la base."
+            />
+          ) : (
+            // Le pied est alors désactivé : « Retirer les filtres » reste la seule action principale active.
+            <EmptyState
+              title="Aucune question pour ce filtre"
+              message="Élargis le thème ou le poste."
+              action={{ label: 'Retirer les filtres', onPress: () => changeFilter({ theme: null, position: null }) }}
+            />
+          )
         ) : null}
         {eligible !== null && eligible.count > 0 ? (
-          <Text style={styles.text}>{formatEligible(eligible.count, eligible.unseenCount)}</Text>
+          <View>
+            <Text style={text.meta}>{formatEligible(eligible.count, eligible.unseenCount)}</Text>
+            {eligible.count < RUN_LENGTH ? (
+              <Text style={text.meta}>
+                {`Moins de ${RUN_LENGTH} questions éligibles : la série en comptera ${eligible.count}.`}
+              </Text>
+            ) : null}
+          </View>
         ) : null}
-        {eligible !== null && eligible.count > 0 && eligible.count < RUN_LENGTH ? (
-          <Text style={styles.text}>
-            {`Moins de ${RUN_LENGTH} questions éligibles : la série en comptera ${eligible.count}.`}
-          </Text>
-        ) : null}
-        <Pressable
-          role="button"
-          aria-disabled={!canStart}
-          disabled={!canStart}
-          onPress={startRun}
-          style={({ pressed }) => [styles.primaryButton, (pressed || !canStart) && styles.dimmed]}
-        >
-          <Text style={styles.primaryButtonLabel}>Lancer une série de {runLength}</Text>
-        </Pressable>
       </View>
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -264,9 +323,21 @@ function isSameFilter(a: FilterChoice, b: FilterChoice): boolean {
   return a.theme === b.theme && a.position === b.position;
 }
 
-/** Pluriel français, 0 et 1 au singulier : « 1 jour », « 2 jours ». */
+/** « Tactique · Tous postes » : le filtre courant, lisible les filtres repliés. */
+function formatFilter({ theme, position }: FilterChoice): string {
+  const themeText = theme === null ? 'Tous' : themeLabel(theme);
+  const positionText = position === null ? 'Tous postes' : positionLabel(position);
+  return `${themeText} · ${positionText}`;
+}
+
+/** Pluriel français, 0 et 1 au singulier : « jour », « jours ». */
+function pluralize(count: number, singular: string, plural: string): string {
+  return count >= 2 ? plural : singular;
+}
+
+/** Nombre et son mot : « 1 jour », « 2 jours ». */
 function formatCount(count: number, singular: string, plural: string): string {
-  return `${count} ${count >= 2 ? plural : singular}`;
+  return `${count} ${pluralize(count, singular, plural)}`;
 }
 
 /** « 12 questions éligibles, dont 5 jamais vues » */
@@ -277,96 +348,33 @@ function formatEligible(count: number, unseenCount: number): string {
 }
 
 /**
- * « 2,3/3 » ; « — » sans réponse. Virgule écrite à la main : Intl ne rend pas la
- * même chose sur web et sur Hermes.
+ * « 2,3 » (l'unité « /3 » est posée à part) ; « — » sans réponse. Virgule écrite à
+ * la main : Intl ne rend pas la même chose sur web et sur Hermes.
  */
 function formatAverage(average: number | null): string {
   if (average === null) {
     return PLACEHOLDER;
   }
-  return `${average.toFixed(1).replace('.', ',')}/${MAX_OPTION_SCORE}`;
-}
-
-type ChipProps = {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-  accessibilityLabel?: string;
-};
-
-/**
- * Puce de choix : fond sombre si sélectionnée, bordure seule sinon. Copie de la
- * puce privée de components/session-form.tsx.
- */
-function Chip({ label, selected, onPress, accessibilityLabel }: ChipProps) {
-  return (
-    <Pressable
-      role="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && styles.dimmed]}
-    >
-      <Text style={[styles.chipLabel, selected && styles.chipLabelSelected]}>{label}</Text>
-    </Pressable>
-  );
+  return average.toFixed(1).replace('.', ',');
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    gap: 16,
-  },
-  section: {
-    gap: 8,
-  },
-  heading: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  text: {
-    fontSize: 16,
-  },
-  error: {
-    color: '#b00020',
-  },
-  dimmed: {
-    opacity: 0.5,
-  },
-  wrapRow: {
+  statRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    gap: spacing.md,
   },
-  chip: {
-    minWidth: 44,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
+  statCell: {
+    flex: 1,
+  },
+  filterHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.md,
   },
-  chipSelected: {
-    backgroundColor: '#222',
-    borderColor: '#222',
+  filterText: {
+    flex: 1,
   },
-  chipLabel: {
-    fontSize: 16,
-  },
-  chipLabelSelected: {
-    color: '#fff',
-  },
-  primaryButton: {
-    minHeight: 48,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
+  filterPanel: {
+    gap: spacing.xl,
   },
 });

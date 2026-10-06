@@ -12,7 +12,8 @@ export default function ProfileLayout() {
   }
 
   // /profile reste l'onglet app/(tabs)/profile.tsx : cette pile ne porte que /profile/edit.
-  // En-tête natif par défaut (le layout racine masque le sien) : titre et bouton
-  // Enregistrer posés par l'écran d'édition, flèche retour fournie par la pile parente.
+  // En-tête natif par défaut (le layout racine masque le sien) : titre posé par
+  // l'écran d'édition, flèche retour fournie par la pile parente ; Enregistrer est
+  // dans le pied de l'écran.
   return <Stack />;
 }

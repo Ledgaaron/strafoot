@@ -1,10 +1,14 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { ActionButton } from '../../components/action-button';
+import { Button } from '../../components/button';
+import { Card } from '../../components/card';
+import { EmptyState } from '../../components/empty-state';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
 import { useAuth } from '../../lib/auth-context';
-import { formatNumericDay, localToday, shiftDay } from '../../lib/dates';
+import { formatNumericDay, formatShortDay, localToday, relativeDay, shiftDay } from '../../lib/dates';
 import { getMyProfile, type ProfileRow } from '../../lib/db/profiles';
 import { countByModule, type ModuleVolume } from '../../lib/db/sessions';
 import {
@@ -14,30 +18,46 @@ import {
   type TestRow,
 } from '../../lib/db/test-results';
 import { listSheets, type SheetRow } from '../../lib/db/training';
-import { describeDelta, formatMeasure } from '../../lib/measure-delta';
+import { describeDelta, formatDecimal, formatMeasure, type Delta } from '../../lib/measure-delta';
 import { moduleLabel } from '../../lib/modules';
 import { positionLabel, strongFootLabel } from '../../lib/profile-taxonomy';
 import { parseExercises } from '../../lib/sheet-types';
+import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
 
 const PLACEHOLDER = '—';
 const NOT_SET = 'non renseigné';
+const NEVER_MEASURED = 'jamais mesurée';
 /** Fenêtre de la colonne « 30 jours » : aujourd'hui et les 29 jours précédents. */
 const RECENT_DAY_COUNT = 30;
-const NO_RESULTS_TEXT = 'Aucun résultat. Fais ton premier test depuis l’onglet Entraînement.';
+/** Colonne « Module » du tableau des volumes : ses libellés sont plus longs que « 12 séances ». */
+const MODULE_COLUMN_FLEX = 1.4;
 
+type LoadingState = { status: 'loading' };
 type ErrorState = { status: 'error'; message: string };
 
 type IdentityField = { label: string; value: string };
 
-type IdentityState = { status: 'loading' } | ErrorState | { status: 'ready'; fields: IdentityField[] };
+type IdentityState = LoadingState | ErrorState | { status: 'ready'; fields: IdentityField[] };
+
+/** Dernier résultat d'une mesure, prêt à afficher. */
+type LatestLine = {
+  /** « 12,5 » : la valeur seule, l'unité s'affiche à côté en secondaire. */
+  value: string;
+  /** Unité du catalogue ; '' pour une mesure sans unité. */
+  unit: string;
+  /** « auj. », « il y a 3 j », « 30 sept. ». */
+  date: string;
+  /** Évolution depuis l'avant-dernier résultat ; direction none pour un premier résultat. */
+  delta: Delta;
+};
 
 /** Mesure du catalogue prête à afficher : une ligne tappable. */
 type MeasureLine = {
   testId: string;
   name: string;
-  /** « 25 touches · 06/10/2026 · +3 touches ↑ mieux » ; « — » si jamais testée. */
-  details: string;
-  tested: boolean;
+  /** null : mesure jamais prise. */
+  latest: LatestLine | null;
+  accessibilityLabel: string;
 };
 
 /** Mesures d'un test (fiche kind = test), dans l'ordre de ses blocs. */
@@ -50,7 +70,7 @@ type MeasureGroup = {
 };
 
 type MeasuresState =
-  | { status: 'loading' }
+  | LoadingState
   | ErrorState
   | { status: 'ready'; groups: MeasureGroup[]; hasResults: boolean };
 
@@ -66,7 +86,7 @@ type VolumeLine = {
 };
 
 type VolumesState =
-  | { status: 'loading' }
+  | LoadingState
   | ErrorState
   | { status: 'ready'; modules: VolumeLine[]; total: VolumeLine | null };
 
@@ -75,6 +95,8 @@ export default function ProfileScreen() {
   const [identity, setIdentity] = useState<IdentityState>({ status: 'loading' });
   const [measures, setMeasures] = useState<MeasuresState>({ status: 'loading' });
   const [volumes, setVolumes] = useState<VolumesState>({ status: 'loading' });
+  // Incrémenté par « Réessayer » : relance les lectures du focus.
+  const [reloadCount, setReloadCount] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
@@ -87,15 +109,22 @@ export default function ProfileScreen() {
       // Trois sections indépendantes : la panne de l'une n'empêche pas les autres de
       // s'afficher. Pas de retour à « chargement » : au retour sur l'onglet (après
       // l'édition du profil, un test, une suppression), les données précédentes
-      // restent affichées jusqu'à la réponse.
+      // restent affichées jusqu'à la réponse. Seul « Réessayer » repasse sa section
+      // à « chargement ».
       settle(loadIdentity(), isActive, setIdentity);
-      settle(loadMeasures(), isActive, setMeasures);
+      settle(loadMeasures(today), isActive, setMeasures);
       settle(loadVolumes(today), isActive, setVolumes);
       return () => {
         active = false;
       };
-    }, []),
+    }, [reloadCount]),
   );
+
+  /** « Réessayer » d'une section en erreur : elle repasse à « chargement », puis les trois sections se relisent. */
+  function retry(setSection: (state: LoadingState) => void) {
+    setSection({ status: 'loading' });
+    setReloadCount((count) => count + 1);
+  }
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -109,59 +138,83 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.heading}>Identité</Text>
-        <Text style={styles.text}>Email : {session?.user.email ?? PLACEHOLDER}</Text>
-        {identity.status === 'loading' ? <ActivityIndicator /> : null}
-        {identity.status === 'error' ? <Text style={styles.error}>Erreur : {identity.message}</Text> : null}
-        {identity.status === 'ready'
-          ? identity.fields.map((field) => (
-              <Text key={field.label} style={styles.text}>
-                {field.label} : {field.value}
-              </Text>
-            ))
-          : null}
-        {/* Toujours proposé : l'écran d'édition relit le profil lui-même. */}
-        <ActionButton label="Modifier" onPress={() => router.push('/profile/edit')} />
+    <Screen title="Profil">
+      <View style={layout.section}>
+        <Text role="heading" style={text.title}>
+          Identité
+        </Text>
+        <Card>
+          <IdentityRow label="Email" value={session?.user.email ?? PLACEHOLDER} />
+          {identity.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+          {identity.status === 'error' ? (
+            <>
+              <FieldError message={`Erreur : ${identity.message}`} />
+              <Button variant="secondary" label="Réessayer" onPress={() => retry(setIdentity)} />
+            </>
+          ) : null}
+          {identity.status === 'ready'
+            ? identity.fields.map((field) => <IdentityRow key={field.label} label={field.label} value={field.value} />)
+            : null}
+          {/* Toujours proposé : l'écran d'édition relit le profil lui-même. */}
+          <Button variant="secondary" label="Modifier" onPress={() => router.push('/profile/edit')} />
+        </Card>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.heading}>Mesures</Text>
-        {measures.status === 'loading' ? <ActivityIndicator /> : null}
-        {measures.status === 'error' ? <Text style={styles.error}>Erreur : {measures.message}</Text> : null}
-        {measures.status === 'ready' && !measures.hasResults ? <Text style={styles.text}>{NO_RESULTS_TEXT}</Text> : null}
+      <View style={layout.section}>
+        <Text role="heading" style={text.title}>
+          Mesures
+        </Text>
+        {measures.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+        {measures.status === 'error' ? (
+          <>
+            <FieldError message={`Erreur : ${measures.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={() => retry(setMeasures)} />
+          </>
+        ) : null}
+        {measures.status === 'ready' && !measures.hasResults ? (
+          // secondary : l'écran n'a pas d'action principale, et les deux sections peuvent être vides ensemble.
+          <EmptyState
+            title="Aucun résultat"
+            message="Fais ton premier test depuis l’onglet Entraînement."
+            action={{ label: 'Voir les tests', onPress: () => router.navigate('/training'), variant: 'secondary' }}
+          />
+        ) : null}
         {measures.status === 'ready'
           ? measures.groups.map((group) => (
               // Sans aucun résultat, seuls les problèmes restent affichés : 23 lignes « — » n'apprennent rien.
-              <MeasureGroupView key={group.sheetId} group={group} showLines={measures.hasResults} />
+              <MeasureGroupCard key={group.sheetId} group={group} showLines={measures.hasResults} />
             ))
           : null}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.heading}>Volumes</Text>
-        {volumes.status === 'loading' ? <ActivityIndicator /> : null}
-        {volumes.status === 'error' ? <Text style={styles.error}>Erreur : {volumes.message}</Text> : null}
-        {volumes.status === 'ready' && volumes.total === null ? <Text style={styles.text}>Aucune séance.</Text> : null}
+      <View style={layout.section}>
+        <Text role="heading" style={text.title}>
+          Volumes
+        </Text>
+        {volumes.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+        {volumes.status === 'error' ? (
+          <>
+            <FieldError message={`Erreur : ${volumes.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={() => retry(setVolumes)} />
+          </>
+        ) : null}
+        {volumes.status === 'ready' && volumes.total === null ? (
+          <EmptyState
+            title="Aucune séance"
+            message="Enregistre ta première séance depuis l’Accueil."
+            action={{ label: 'Nouvelle séance', onPress: () => router.push('/session/new'), variant: 'secondary' }}
+          />
+        ) : null}
         {volumes.status === 'ready' && volumes.total !== null ? (
-          <View>
-            <View style={styles.tableRow}>
-              <Text style={[styles.labelCell, styles.bold]}>Module</Text>
-              <Text style={[styles.valueCell, styles.bold]}>30 jours</Text>
-              <Text style={[styles.valueCell, styles.bold]}>Total</Text>
-            </View>
-            {volumes.modules.map((line) => (
-              <VolumeRow key={line.key} line={line} />
-            ))}
-            <VolumeRow line={volumes.total} bold />
-          </View>
+          <VolumeTable modules={volumes.modules} total={volumes.total} />
         ) : null}
       </View>
 
-      <ActionButton label="Déconnexion" onPress={handleSignOut} disabled={signingOut} />
-      {signOutError ? <Text style={styles.error}>{signOutError}</Text> : null}
-    </ScrollView>
+      <View style={layout.section}>
+        <Button variant="danger" label="Déconnexion" onPress={handleSignOut} loading={signingOut} />
+        <FieldError message={signOutError} />
+      </View>
+    </Screen>
   );
 }
 
@@ -213,7 +266,7 @@ function toIdentityFields(profile: ProfileRow | null): IdentityField[] {
   return fields.map(({ label, value }) => ({ label, value: value ?? NOT_SET }));
 }
 
-async function loadMeasures(): Promise<MeasuresState> {
+async function loadMeasures(today: string): Promise<MeasuresState> {
   const [sheets, catalog, latest] = await Promise.all([
     listSheets({ kind: 'test' }),
     listTestCatalog(),
@@ -224,11 +277,11 @@ async function loadMeasures(): Promise<MeasuresState> {
     // Une même panne (réseau, session expirée) remonte souvent sur les trois requêtes.
     return { status: 'error', message: [...new Set(errors)].join('\n') };
   }
-  const groups = buildMeasureGroups(sheets.data ?? [], catalog.data ?? [], latest.data ?? new Map());
+  const groups = buildMeasureGroups(sheets.data ?? [], catalog.data ?? [], latest.data ?? new Map(), today);
   return {
     status: 'ready',
     groups,
-    hasResults: groups.some((group) => group.lines.some((line) => line.tested)),
+    hasResults: groups.some((group) => group.lines.some((line) => line.latest !== null)),
   };
 }
 
@@ -243,6 +296,7 @@ function buildMeasureGroups(
   sheets: readonly SheetRow[],
   catalog: readonly TestRow[],
   latest: ReadonlyMap<string, LatestWithPrevious>,
+  today: string,
 ): MeasureGroup[] {
   const byKey = new Map<string, TestRow>();
   for (const row of catalog) {
@@ -263,13 +317,7 @@ function buildMeasureGroups(
         missing.push(measure.key);
         continue;
       }
-      const result = latest.get(test.id);
-      lines.push({
-        testId: test.id,
-        name: test.name,
-        details: result ? formatLatest(result, test) : PLACEHOLDER,
-        tested: result !== undefined,
-      });
+      lines.push(toMeasureLine(test, latest.get(test.id), today));
     }
     return {
       sheetId: sheet.id,
@@ -283,11 +331,29 @@ function buildMeasureGroups(
   });
 }
 
-/** « 25 touches · 06/10/2026 · +3 touches ↑ mieux » ; sans évolution pour un premier résultat. */
-function formatLatest(result: LatestWithPrevious, test: TestRow): string {
+/**
+ * Ligne d'une mesure : dernière valeur, unité, date relative à today et
+ * évolution (vide pour un premier résultat). Le libellé d'accessibilité dit
+ * tout d'un trait, date en absolu (formatShortDay) comme les autres libellés
+ * d'accessibilité.
+ */
+function toMeasureLine(test: TestRow, result: LatestWithPrevious | undefined, today: string): MeasureLine {
+  if (result === undefined) {
+    return { testId: test.id, name: test.name, latest: null, accessibilityLabel: `${test.name} : ${NEVER_MEASURED}` };
+  }
   const delta = describeDelta(result.value, result.previousValue, test.unit, test.higher_is_better);
-  const parts = [formatMeasure(result.value, test.unit), formatNumericDay(result.date)];
-  return (delta.direction === 'none' ? parts : [...parts, delta.text]).join(' · ');
+  const spoken = [formatMeasure(result.value, test.unit), formatShortDay(result.date)];
+  return {
+    testId: test.id,
+    name: test.name,
+    latest: {
+      value: formatDecimal(result.value),
+      unit: test.unit.trim(),
+      date: relativeDay(result.date, today),
+      delta,
+    },
+    accessibilityLabel: `${test.name} : ${(delta.direction === 'none' ? spoken : [...spoken, delta.text]).join(', ')}`,
+  };
 }
 
 async function loadVolumes(today: string): Promise<VolumesState> {
@@ -350,114 +416,179 @@ function formatMinutes(minutes: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${String(rest).padStart(2, '0')}`;
 }
 
-function MeasureGroupView({ group, showLines }: { group: MeasureGroup; showLines: boolean }) {
+/** Ligne de la carte Identité : libellé à gauche, valeur à droite. */
+function IdentityRow({ label, value }: IdentityField) {
+  return (
+    <View style={styles.identityRow}>
+      <Text style={text.meta}>{label}</Text>
+      <Text style={[text.body, styles.identityValue]}>{value}</Text>
+    </View>
+  );
+}
+
+function MeasureGroupCard({ group, showLines }: { group: MeasureGroup; showLines: boolean }) {
   if (!showLines && group.problem === null) {
     return null;
   }
   return (
-    <View style={styles.group}>
-      <Text style={styles.groupTitle}>{group.title}</Text>
-      {group.problem !== null ? <Text style={styles.error}>{group.problem}</Text> : null}
+    <Card>
+      <Text style={text.bodyStrong}>{group.title}</Text>
+      <FieldError message={group.problem} />
       {showLines ? group.lines.map((line) => <MeasureRow key={line.testId} line={line} />) : null}
-    </View>
+    </Card>
   );
 }
 
+/** Mesure : nom et date à gauche, dernière valeur et évolution alignées à droite ; ouvre la courbe. */
 function MeasureRow({ line }: { line: MeasureLine }) {
+  const { latest } = line;
   return (
     <Pressable
       role="button"
-      accessibilityLabel={`${line.name} : ${line.details}`}
+      accessibilityLabel={line.accessibilityLabel}
       onPress={() => router.push({ pathname: '/measure/[testId]', params: { testId: line.testId } })}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.measureRow, pressed && styles.pressed]}
     >
-      <Text style={[styles.text, styles.bold]}>{line.name}</Text>
-      <Text style={styles.text}>{line.details}</Text>
+      <View style={styles.measureName}>
+        <Text style={text.body}>{line.name}</Text>
+        <Text style={text.meta}>{latest !== null ? latest.date : NEVER_MEASURED}</Text>
+      </View>
+      <View style={styles.measureValue}>
+        {latest !== null ? (
+          <>
+            <Text style={[text.title, text.tabular]}>
+              {latest.value}
+              {latest.unit !== '' ? <Text style={text.unit}>{` ${latest.unit}`}</Text> : null}
+            </Text>
+            <DeltaText delta={latest.delta} />
+          </>
+        ) : (
+          <Text style={[text.title, text.tabular]}>{PLACEHOLDER}</Text>
+        )}
+      </View>
     </Pressable>
   );
 }
 
-function VolumeRow({ line, bold = false }: { line: VolumeLine; bold?: boolean }) {
+/** Évolution colorée, le sens restant écrit (« ↑ mieux ») ; rien pour un premier résultat. */
+function DeltaText({ delta }: { delta: Delta }) {
+  if (delta.direction === 'none') {
+    return null;
+  }
+  return <Text style={[text.meta, DELTA_STYLES[delta.direction]]}>{delta.text}</Text>;
+}
+
+function VolumeTable({ modules, total }: { modules: readonly VolumeLine[]; total: VolumeLine }) {
+  return (
+    <Card>
+      {/* Un seul enfant : l'écart entre enfants de la carte ne s'ajoute pas aux séparateurs. */}
+      <View>
+        <View style={styles.tableRow}>
+          <Text style={[text.meta, styles.moduleColumn]}>Module</Text>
+          <View style={styles.valueColumn}>
+            <Text style={text.meta}>30 jours</Text>
+          </View>
+          <View style={styles.valueColumn}>
+            <Text style={text.meta}>Total</Text>
+          </View>
+        </View>
+        {modules.map((line) => (
+          <VolumeRow key={line.key} line={line} />
+        ))}
+        <VolumeRow line={total} strong />
+      </View>
+    </Card>
+  );
+}
+
+function VolumeRow({ line, strong = false }: { line: VolumeLine; strong?: boolean }) {
   return (
     <View style={[styles.tableRow, styles.tableLine]}>
-      <Text style={[styles.labelCell, bold && styles.bold]}>{line.label}</Text>
-      <VolumeCellView cell={line.recent} bold={bold} />
-      <VolumeCellView cell={line.total} bold={bold} />
+      <Text style={[strong ? text.bodyStrong : text.body, styles.moduleColumn]}>{line.label}</Text>
+      <VolumeCellView cell={line.recent} strong={strong} />
+      <VolumeCellView cell={line.total} strong={strong} />
     </View>
   );
 }
 
-function VolumeCellView({ cell, bold }: { cell: VolumeCell | null; bold: boolean }) {
-  if (cell === null) {
-    return <Text style={[styles.valueCell, bold && styles.bold]}>{PLACEHOLDER}</Text>;
-  }
+/** Séances puis durée, l'une sous l'autre ; « — » sans séance. */
+function VolumeCellView({ cell, strong }: { cell: VolumeCell | null; strong: boolean }) {
+  const valueStyle = [text.meta, text.tabular, styles.right, strong && styles.strong];
   return (
-    <View style={styles.valueCell}>
-      <Text style={[styles.text, bold && styles.bold]}>{cell.sessions}</Text>
-      <Text style={[styles.text, bold && styles.bold]}>{cell.duration}</Text>
+    <View style={styles.valueColumn}>
+      {cell === null ? (
+        <Text style={valueStyle}>{PLACEHOLDER}</Text>
+      ) : (
+        <>
+          <Text style={valueStyle}>{cell.sessions}</Text>
+          <Text style={valueStyle}>{cell.duration}</Text>
+        </>
+      )}
     </View>
   );
 }
+
+const DELTA_STYLES = StyleSheet.create({
+  better: {
+    color: colors.success,
+  },
+  worse: {
+    color: colors.danger,
+  },
+  same: {
+    color: colors.textMuted,
+  },
+});
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    gap: 24,
+  identityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: spacing.md,
   },
-  section: {
-    gap: 8,
+  identityValue: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
-  heading: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: 'bold',
-  },
-  text: {
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  bold: {
-    fontWeight: 'bold',
-  },
-  error: {
-    fontSize: 16,
-    lineHeight: 22,
-    color: '#b00020',
+  measureRow: {
+    minHeight: size.touch,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.button,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
   },
   pressed: {
-    opacity: 0.5,
+    backgroundColor: colors.surface2,
   },
-  group: {
-    gap: 4,
+  measureName: {
+    flex: 1,
   },
-  groupTitle: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: 'bold',
-    marginTop: 8,
-  },
-  row: {
-    minHeight: 44,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    justifyContent: 'center',
+  measureValue: {
+    alignItems: 'flex-end',
   },
   tableRow: {
     flexDirection: 'row',
-    gap: 8,
-    paddingVertical: 6,
+    alignItems: 'baseline',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
   },
   tableLine: {
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: size.border,
+    borderTopColor: colors.border,
   },
-  labelCell: {
-    flex: 1.4,
-    fontSize: 16,
-    lineHeight: 22,
+  moduleColumn: {
+    flex: MODULE_COLUMN_FLEX,
   },
-  valueCell: {
+  valueColumn: {
     flex: 1,
-    fontSize: 16,
-    lineHeight: 22,
+    alignItems: 'flex-end',
+  },
+  right: {
+    textAlign: 'right',
+  },
+  strong: {
+    fontWeight: '600',
   },
 });

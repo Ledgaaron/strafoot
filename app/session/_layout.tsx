@@ -11,7 +11,7 @@ export default function SessionLayout() {
     return <Redirect href="/login" />;
   }
 
-  // En-tête natif par défaut (le layout racine masque le sien) : titre, flèche
-  // retour fournie par la pile parente, bouton Enregistrer posé par le formulaire.
+  // En-tête natif par défaut (le layout racine masque le sien) : titre et flèche
+  // retour fournie par la pile parente ; Enregistrer est dans le pied du formulaire.
   return <Stack />;
 }

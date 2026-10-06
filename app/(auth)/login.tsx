@@ -1,10 +1,12 @@
 import { Redirect } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text, TextInput, View } from 'react-native';
 
-import { ActionButton } from '../../components/action-button';
+import { Button } from '../../components/button';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
 import { useAuth } from '../../lib/auth-context';
+import { input, inputProps, layout, text } from '../../lib/theme';
 
 export default function LoginScreen() {
   const { session, signIn } = useAuth();
@@ -30,54 +32,38 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Strafoot</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="email"
-        inputMode="email"
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Mot de passe"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        autoCapitalize="none"
-        autoComplete="current-password"
-        onSubmitEditing={handleSubmit}
-      />
-      <ActionButton label="Connexion" onPress={handleSubmit} disabled={submitting} />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </SafeAreaView>
+    <Screen title="Strafoot" footer={<Button label="Connexion" onPress={handleSubmit} loading={submitting} />}>
+      {/* Libellé au-dessus du champ, repris en accessibilityLabel : il remplace le placeholder. */}
+      <View style={layout.section}>
+        <Text style={text.overline}>Email</Text>
+        <TextInput
+          {...inputProps}
+          style={input.field}
+          accessibilityLabel="Email"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          inputMode="email"
+        />
+      </View>
+      <View style={layout.section}>
+        <Text style={text.overline}>Mot de passe</Text>
+        <TextInput
+          {...inputProps}
+          style={input.field}
+          accessibilityLabel="Mot de passe"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoCapitalize="none"
+          autoComplete="current-password"
+          onSubmitEditing={handleSubmit}
+        />
+        {/* Message brut de Supabase Auth, en anglais (« Invalid login credentials ») : préfixe français. */}
+        <FieldError message={error ? `Connexion impossible : ${error}` : null} />
+      </View>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-    gap: 12,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginTop: 32,
-    marginBottom: 8,
-  },
-  input: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    fontSize: 16,
-  },
-  error: {
-    color: '#b00020',
-  },
-});

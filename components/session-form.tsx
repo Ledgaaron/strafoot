@@ -1,9 +1,8 @@
 import { Stack } from 'expo-router';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState, type ReactNode } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatDayChip, lastDays } from '../lib/dates';
+import { formatShortDay, lastDays, relativeDay } from '../lib/dates';
 import type { SessionRow } from '../lib/db/sessions';
 import {
   buildSessionName,
@@ -15,6 +14,11 @@ import {
   TEST_MODULE_KEY,
   type ModuleKey,
 } from '../lib/modules';
+import { hitSlop, input, inputProps, layout, spacing, text } from '../lib/theme';
+import { Button } from './button';
+import { Chip } from './chip';
+import { FieldError } from './field-error';
+import { Screen } from './screen';
 
 /** Modules proposés : tous sauf `test`, créé seulement par l'écran de test. */
 const FORM_MODULES = MODULES.filter((entry) => entry.key !== TEST_MODULE_KEY);
@@ -46,15 +50,20 @@ export type SessionFormResult = {
 };
 
 type SessionFormProps = {
+  /** Titre de l'en-tête natif. */
   title: string;
   /** Jour local figé par l'écran : base des puces de date. */
   today: string;
   /** Lu une seule fois, au montage : l'édition remonte le formulaire avec key. */
   initialValues: SessionFormValues;
+  /** Enregistrement en cours : indicateur sur Enregistrer. */
   submitting: boolean;
+  /** Autre requête de l'écran en cours (suppression) : Enregistrer seulement désactivé. */
+  disabled?: boolean;
+  /** Affichée au-dessus d'Enregistrer : erreur d'enregistrement, ou de l'autre requête. */
   error: string | null;
   onSubmit: (result: SessionFormResult) => void;
-  /** Ajouté en bas du contenu (bouton Supprimer de l'édition). */
+  /** Dans le pied, sous Enregistrer (bouton Supprimer de l'édition). */
   footer?: ReactNode;
 };
 
@@ -87,6 +96,7 @@ export function SessionForm({
   today,
   initialValues,
   submitting,
+  disabled = false,
   error,
   onSubmit,
   footer,
@@ -107,14 +117,6 @@ export function SessionForm({
       initialValues.name.trim() !== '' &&
       initialValues.name !== buildSessionName(initialValues.module, initialValues.date),
   );
-  const scrollRef = useRef<ScrollView>(null);
-
-  // L'erreur s'affiche en haut du contenu : on y remonte à chaque nouvelle erreur.
-  useEffect(() => {
-    if (error) {
-      scrollRef.current?.scrollTo({ y: 0 });
-    }
-  }, [error]);
 
   // Une séance plus ancienne que les puces récentes garde sa date en dernière puce.
   const recentDays = lastDays(today, RECENT_DAY_COUNT);
@@ -158,7 +160,7 @@ export function SessionForm({
   }
 
   function handleSubmit() {
-    if (submitting) {
+    if (submitting || disabled) {
       return;
     }
     onSubmit({
@@ -172,36 +174,20 @@ export function SessionForm({
   }
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
-      <Stack.Screen
-        options={{
-          title,
-          // Dans l'en-tête : visible sans défiler, même clavier ouvert.
-          headerRight: () => (
-            <Pressable
-              role="button"
-              accessibilityLabel="Enregistrer"
-              aria-disabled={submitting}
-              disabled={submitting}
-              onPress={handleSubmit}
-              style={({ pressed }) => [styles.headerButton, (pressed || submitting) && styles.dimmed]}
-            >
-              <Text style={styles.headerButtonLabel}>
-                {submitting ? 'Enregistrement…' : 'Enregistrer'}
-              </Text>
-            </Pressable>
-          ),
-        }}
-      />
-      <ScrollView
-        ref={scrollRef}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.content}
+    <>
+      <Stack.Screen options={{ title }} />
+      <Screen
+        // Pied fixe, au-dessus du clavier ouvert : Enregistrer reste sous le pouce sans défiler.
+        footer={
+          <>
+            <FieldError message={error} />
+            <Button label="Enregistrer" onPress={handleSubmit} loading={submitting} disabled={disabled} />
+            {footer}
+          </>
+        }
       >
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Date</Text>
+        <View style={layout.section}>
+          <Text style={text.overline}>Date</Text>
           {/* Sans keyboardShouldPersistTaps ici aussi, le premier tap ne ferait que fermer le clavier. */}
           <ScrollView
             horizontal
@@ -211,7 +197,8 @@ export function SessionForm({
             {dayOptions.map((day) => (
               <Chip
                 key={day}
-                label={formatDayChip(day, today)}
+                label={relativeDay(day, today)}
+                accessibilityLabel={formatShortDay(day)}
                 selected={day === date}
                 onPress={() => selectDate(day)}
               />
@@ -219,9 +206,9 @@ export function SessionForm({
           </ScrollView>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Module</Text>
-          <View style={styles.wrapRow}>
+        <View style={layout.section}>
+          <Text style={text.overline}>Module</Text>
+          <View style={layout.chipRow}>
             {moduleOptions.map((entry) => (
               <Chip
                 key={entry.key}
@@ -233,32 +220,37 @@ export function SessionForm({
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Durée</Text>
-          <View style={styles.durationRow}>
-            <Pressable
-              role="button"
+        <View style={layout.section}>
+          <Text style={text.overline}>Durée</Text>
+          <View style={[layout.buttonRow, styles.durationRow]}>
+            <Button
+              variant="secondary"
+              label={`−${DURATION_STEP}`}
               accessibilityLabel={`Diminuer de ${DURATION_STEP} minutes`}
               onPress={() => stepDuration(-DURATION_STEP)}
-              style={({ pressed }) => [styles.box, pressed && styles.dimmed]}
-            >
-              <Text style={styles.boxLabel}>{`\u2212${DURATION_STEP}`}</Text>
-            </Pressable>
-            <Text style={styles.durationValue}>{durationMin} min</Text>
-            <Pressable
-              role="button"
+              style={styles.durationCell}
+            />
+            <Text style={[text.title, text.tabular, styles.durationCell, styles.durationValue]}>
+              {durationMin}
+              {/* Espace insécable : l'unité ne passe jamais seule à la ligne. */}
+              <Text style={text.unit}>{' min'}</Text>
+            </Text>
+            <Button
+              variant="secondary"
+              label={`+${DURATION_STEP}`}
               accessibilityLabel={`Augmenter de ${DURATION_STEP} minutes`}
               onPress={() => stepDuration(DURATION_STEP)}
-              style={({ pressed }) => [styles.box, pressed && styles.dimmed]}
-            >
-              <Text style={styles.boxLabel}>+{DURATION_STEP}</Text>
-            </Pressable>
+              style={styles.durationCell}
+            />
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Difficulté (facultatif, {DEFAULT_DIFFICULTY} si vide)</Text>
-          <View style={styles.wrapRow}>
+        <View style={layout.section}>
+          <View style={styles.labelGroup}>
+            <Text style={text.overline}>Difficulté</Text>
+            <Text style={text.meta}>{`Facultative : ${DEFAULT_DIFFICULTY} si aucune n’est choisie.`}</Text>
+          </View>
+          <View style={layout.chipRow}>
             {DIFFICULTIES.map((level) => (
               <Chip
                 key={level}
@@ -271,133 +263,54 @@ export function SessionForm({
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Nom</Text>
+        <View style={layout.section}>
+          <Text style={text.overline}>Nom</Text>
           <TextInput
-            style={styles.input}
+            {...inputProps}
+            style={input.field}
             value={name}
             onChangeText={changeName}
             placeholder={buildSessionName(moduleKey, date)}
+            accessibilityLabel="Nom"
           />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Commentaire</Text>
+        <View style={layout.section}>
+          <Text style={text.overline}>Commentaire</Text>
           <TextInput
-            style={[styles.input, styles.commentInput]}
+            {...inputProps}
+            style={[input.field, input.multiline]}
             value={comment}
             onChangeText={setComment}
-            placeholder="Commentaire (facultatif)"
+            placeholder="Facultatif"
             multiline
+            accessibilityLabel="Commentaire"
           />
         </View>
-
-        {footer ? <View style={styles.footer}>{footer}</View> : null}
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
-type ChipProps = {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-  accessibilityLabel?: string;
-};
-
-/** Puce de choix : fond sombre si sélectionnée, bordure seule sinon. */
-function Chip({ label, selected, onPress, accessibilityLabel }: ChipProps) {
-  return (
-    <Pressable
-      role="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [styles.box, selected && styles.boxSelected, pressed && styles.dimmed]}
-    >
-      <Text style={[styles.boxLabel, selected && styles.boxLabelSelected]}>{label}</Text>
-    </Pressable>
+      </Screen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-    gap: 16,
-  },
-  error: {
-    color: '#b00020',
-  },
-  section: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
   dayRow: {
-    gap: 8,
+    gap: spacing.md,
+    // La ScrollView coupe ce qui la dépasse : place pour la zone tactile agrandie
+    // des puces (hitSlop), 48 px de haut au lieu de 44.
+    paddingVertical: hitSlop.top,
   },
-  wrapRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  /** Libellé et sa précision serrés ; les puces restent à 12 px dessous. */
+  labelGroup: {
+    gap: spacing.xs,
   },
   durationRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+  },
+  /** −5, valeur, +5 : trois colonnes de même largeur. */
+  durationCell: {
+    flex: 1,
   },
   durationValue: {
-    fontSize: 18,
-  },
-  box: {
-    minWidth: 44,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  boxSelected: {
-    backgroundColor: '#222',
-    borderColor: '#222',
-  },
-  boxLabel: {
-    fontSize: 16,
-  },
-  boxLabelSelected: {
-    color: '#fff',
-  },
-  input: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    fontSize: 16,
-  },
-  commentInput: {
-    minHeight: 88,
-    paddingVertical: 8,
-    textAlignVertical: 'top',
-  },
-  footer: {
-    marginTop: 8,
-  },
-  headerButton: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  headerButtonLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  dimmed: {
-    opacity: 0.5,
+    textAlign: 'center',
   },
 });

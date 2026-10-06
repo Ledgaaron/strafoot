@@ -1,10 +1,13 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ActionButton } from '../../components/action-button';
-import { formatDayChip, localToday } from '../../lib/dates';
+import { Button } from '../../components/button';
+import { Card } from '../../components/card';
+import { EmptyState } from '../../components/empty-state';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
+import { localToday, relativeDay } from '../../lib/dates';
 import { createSession } from '../../lib/db/sessions';
 import {
   createTestResults,
@@ -15,14 +18,18 @@ import {
 } from '../../lib/db/test-results';
 import { getLastSessionForSheet, getSheet, type Sheet } from '../../lib/db/training';
 import { diagramUrl } from '../../lib/diagrams';
+import { formatMeasure } from '../../lib/measure-delta';
 import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY, TEST_MODULE_KEY } from '../../lib/modules';
 import type { Exercise, Measure } from '../../lib/sheet-types';
+import { colors, input, inputProps, layout, radius, spacing, text } from '../../lib/theme';
 
 /** Rapport largeur / hauteur des schémas (722 × 646 px). */
 const DIAGRAM_ASPECT_RATIO = 722 / 646;
 const PLACEHOLDER = '—';
 const NO_SESSION_MESSAGE = 'Supabase n’a renvoyé ni la séance ni d’erreur : vérifier l’Accueil avant de réessayer.';
 const NO_RESULTS_MESSAGE = 'Supabase n’a renvoyé ni les résultats ni d’erreur.';
+/** Sous une mesure refusée ; le message au-dessus du bouton nomme toutes les mesures à compléter. */
+const INVALID_MEASURE_MESSAGE = 'Nombre attendu (virgule ou point).';
 /** Valeur d'une mesure, espaces retirés : des chiffres, avec virgule ou point décimal. */
 const DECIMAL_PATTERN = /^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/;
 const NO_KEYS: ReadonlySet<string> = new Set();
@@ -96,21 +103,38 @@ export default function SheetScreen() {
 
   if (state.status !== 'ready') {
     return (
-      <View style={styles.container}>
+      <>
         <Stack.Screen options={{ title: 'Fiche' }} />
-        {state.status === 'loading' ? <ActivityIndicator /> : null}
-        {state.status === 'error' ? (
-          <>
-            <Text style={styles.error}>Erreur : {state.message}</Text>
-            <ActionButton label="Réessayer" onPress={reload} />
-          </>
-        ) : null}
-        {state.status === 'empty' ? <Text style={styles.text}>Fiche introuvable.</Text> : null}
-      </View>
+        <Screen>
+          {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
+          {state.status === 'error' ? (
+            <View style={layout.section}>
+              <FieldError message={`Erreur : ${state.message}`} />
+              <Button variant="secondary" label="Réessayer" onPress={reload} />
+            </View>
+          ) : null}
+          {state.status === 'empty' ? (
+            <EmptyState
+              title="Fiche introuvable"
+              message="Elle a peut-être été retirée du contenu."
+              action={{ label: 'Retour', onPress: leaveMissingSheet }}
+            />
+          ) : null}
+        </Screen>
+      </>
     );
   }
 
   return <SheetReader key={state.loaded.sheet.id} loaded={state.loaded} />;
+}
+
+/** Fiche introuvable : écran précédent ; sans historique (lien direct, rechargement web), l'onglet Entraînement. */
+function leaveMissingSheet() {
+  if (router.canGoBack()) {
+    router.back();
+  } else {
+    router.replace('/training');
+  }
 }
 
 /**
@@ -324,25 +348,67 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
     });
   }
 
-  const stepLabel = step === 0 ? 'Présentation' : exercise !== null ? `${step} / ${exerciseCount}` : 'Saisie';
+  // En-tête natif : l'étape ; le titre de la fiche est dans le contenu de la présentation.
+  const headerTitle =
+    step === 0
+      ? 'Présentation'
+      : exercise !== null
+        ? `${loaded.kind === 'test' ? 'Bloc' : 'Exercice'} ${step} / ${exerciseCount}`
+        : 'Saisie des mesures';
+
+  // Bouton principal : avancer d'une étape, puis l'action de la dernière.
+  let primary: ReactNode;
+  if (step < lastStep) {
+    primary = <Button label="Suivant" disabled={saving} onPress={() => goTo(step + 1)} style={styles.primaryButton} />;
+  } else if (loaded.kind === 'training') {
+    primary = (
+      <Button
+        label={alreadyDoneToday ? 'Déjà enregistrée aujourd’hui' : 'Séance faite'}
+        disabled={alreadyDoneToday}
+        loading={saving}
+        onPress={markDone}
+        style={styles.primaryButton}
+      />
+    );
+  } else {
+    primary = (
+      <Button
+        label={pendingSessionId !== null ? 'Réessayer les résultats' : 'Enregistrer le test'}
+        loading={saving}
+        onPress={submitTest}
+        style={styles.primaryButton}
+      />
+    );
+  }
+
+  // Pied fixe, hors du défilement : pas de geste de balayage, identique sur web et natif.
+  const footer = (
+    <>
+      {/* Message de l'enregistrement, au-dessus du bouton qui l'a produit : à la dernière étape seulement. */}
+      {step === lastStep && save.status === 'error' ? (
+        <FieldError message={loaded.kind === 'training' ? `Erreur : ${save.message}` : save.message} />
+      ) : null}
+      <View style={layout.buttonRow}>
+        {step > 0 ? (
+          <Button
+            variant="secondary"
+            label="Précédent"
+            disabled={saving}
+            onPress={() => goTo(step - 1)}
+            style={styles.previousButton}
+          />
+        ) : null}
+        {primary}
+      </View>
+    </>
+  );
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
-      <Stack.Screen options={{ title: sheet.title }} />
-      <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+    <>
+      <Stack.Screen options={{ title: headerTitle }} />
+      <Screen title={step === 0 ? sheet.title : undefined} scrollRef={scrollRef} footer={footer}>
         {step === 0 ? <Overview sheet={sheet} onOpen={goTo} /> : null}
         {exercise !== null ? <ExerciseStep exercise={exercise} /> : null}
-
-        {loaded.kind === 'training' && step === lastStep ? (
-          <View style={styles.section}>
-            {save.status === 'error' ? <Text style={styles.error}>Erreur : {save.message}</Text> : null}
-            <PrimaryButton
-              label={alreadyDoneToday ? 'Déjà enregistrée aujourd’hui' : saving ? 'Enregistrement…' : 'Séance faite'}
-              disabled={alreadyDoneToday || saving}
-              onPress={markDone}
-            />
-          </View>
-        ) : null}
 
         {loaded.kind === 'test' && step === lastStep ? (
           <TestForm
@@ -354,24 +420,13 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
             comment={comment}
             // Séance déjà créée : son commentaire est enregistré, seuls les résultats restent à envoyer.
             commentEditable={pendingSessionId === null}
-            save={save}
-            submitLabel={
-              saving ? 'Enregistrement…' : pendingSessionId !== null ? 'Réessayer les résultats' : 'Enregistrer le test'
-            }
+            invalidKeys={save.status === 'error' ? save.invalidKeys : NO_KEYS}
             onChangeValue={changeValue}
             onChangeComment={setComment}
-            onSubmit={submitTest}
           />
         ) : null}
-      </ScrollView>
-
-      {/* Fixe en bas, hors du défilement : pas de geste de balayage, identique sur web et natif. */}
-      <View style={styles.navBar}>
-        <ActionButton label="Précédent" disabled={step === 0 || saving} onPress={() => goTo(step - 1)} />
-        <Text style={styles.navLabel}>{stepLabel}</Text>
-        <ActionButton label="Suivant" disabled={step === lastStep || saving} onPress={() => goTo(step + 1)} />
-      </View>
-    </SafeAreaView>
+      </Screen>
+    </>
   );
 }
 
@@ -387,11 +442,6 @@ function parseMeasureValue(text: string): number | null {
 
 function resultsNotSaved(error: string): string {
   return `Séance enregistrée, résultats non enregistrés : ${error}\n« Réessayer les résultats » ne recrée pas la séance.`;
-}
-
-/** « 12,5 » : virgule écrite à la main, Intl ne rend pas la même chose sur web et sur Hermes. */
-function formatValue(value: number): string {
-  return String(value).replace('.', ',');
 }
 
 /** « Précision arrêt — pied droit (pts /30) » */
@@ -414,42 +464,31 @@ type OverviewProps = {
   onOpen: (step: number) => void;
 };
 
+/** Présentation : le titre est celui de Screen ; ici le sous-titre, l'intro, puis un accès à chaque exercice. */
 function Overview({ sheet, onOpen }: OverviewProps) {
   const equipment = sharedEquipment(sheet.exercises);
+  const duration = `Durée : ${sheet.duration_min} min`;
   return (
     <>
-      <View style={styles.block}>
-        <Text style={styles.title}>{sheet.title}</Text>
-        {sheet.subtitle ? <Text style={styles.text}>{sheet.subtitle}</Text> : null}
+      <View style={layout.section}>
+        {sheet.subtitle ? <Text style={[text.body, styles.muted]}>{sheet.subtitle}</Text> : null}
+        {sheet.intro.map((line, index) => (
+          <Text key={index} style={text.body}>
+            {line}
+          </Text>
+        ))}
+        <Text style={text.meta}>{equipment !== null ? `${duration} · Matériel : ${equipment}` : duration}</Text>
       </View>
 
-      {sheet.intro.length > 0 ? (
-        <View style={styles.block}>
-          {sheet.intro.map((line, index) => (
-            <Text key={index} style={styles.text}>
-              {line}
-            </Text>
-          ))}
-        </View>
-      ) : null}
-
-      <View style={styles.block}>
-        <Text style={styles.text}>Durée : {sheet.duration_min} min</Text>
-        {equipment !== null ? <Text style={styles.text}>Matériel : {equipment}</Text> : null}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.heading}>{sheet.kind === 'test' ? 'Blocs' : 'Exercices'}</Text>
+      <View style={layout.section}>
+        <Text role="heading" style={text.overline}>
+          {sheet.kind === 'test' ? 'Blocs' : 'Exercices'}
+        </Text>
         {sheet.exercises.map((exercise, index) => (
-          <Pressable
-            key={exercise.order}
-            role="button"
-            onPress={() => onOpen(index + 1)}
-            style={({ pressed }) => [styles.row, pressed && styles.dimmed]}
-          >
-            <Text style={styles.rowTitle}>{`${exercise.order}. ${exercise.title}`}</Text>
-            <Text style={styles.text}>{exercise.duration_min} min</Text>
-          </Pressable>
+          <Card key={exercise.order} onPress={() => onOpen(index + 1)}>
+            <Text style={text.bodyStrong}>{`${exercise.order}. ${exercise.title}`}</Text>
+            <Text style={text.meta}>{`${exercise.duration_min} min`}</Text>
+          </Card>
         ))}
       </View>
     </>
@@ -466,16 +505,18 @@ function ExerciseStep({ exercise }: { exercise: Exercise }) {
         <Diagram key={exercise.diagram} file={exercise.diagram} title={exercise.title} />
       ) : null}
 
-      <View style={styles.block}>
-        <Text style={styles.title}>{exercise.title}</Text>
-        <Text style={styles.text}>{exercise.duration_min} min</Text>
+      <View style={styles.titleBlock}>
+        <Text role="heading" style={text.title}>
+          {exercise.title}
+        </Text>
+        <Text style={text.meta}>{`${exercise.duration_min} min`}</Text>
       </View>
 
       <Section title="Objectif">
-        <Text style={styles.text}>{exercise.objective}</Text>
+        <Text style={text.body}>{exercise.objective}</Text>
       </Section>
       <Section title="But">
-        <Text style={styles.text}>{exercise.goal}</Text>
+        <Text style={text.body}>{exercise.goal}</Text>
       </Section>
       <Section title="Consignes">
         <TextList items={exercise.instructions} numbered />
@@ -488,19 +529,19 @@ function ExerciseStep({ exercise }: { exercise: Exercise }) {
       </Section>
       {variations !== null ? (
         <Section title="Variables">
-          <Text style={styles.text}>Plus facile : {variations.easier}</Text>
-          <Text style={styles.text}>Plus dur : {variations.harder}</Text>
+          <Text style={text.body}>{`Plus facile : ${variations.easier}`}</Text>
+          <Text style={text.body}>{`Plus dur : ${variations.harder}`}</Text>
         </Section>
       ) : null}
 
-      <Text style={styles.text}>
+      <Text style={text.meta}>
         {`Surface : ${setup.surface} · Séquence : ${setup.sequence} · Effectif : ${setup.equipment}`}
       </Text>
 
       {exercise.measures.length > 0 ? (
         <Section title="Mesures, saisies à la fin">
           {exercise.measures.map((measure) => (
-            <Text key={measure.key} style={styles.text}>
+            <Text key={measure.key} style={text.body}>
               {formatMeasureLabel(measure)}
             </Text>
           ))}
@@ -515,7 +556,7 @@ function Diagram({ file, title }: { file: string; title: string }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <Text style={styles.error}>Schéma introuvable : {file} (bucket Storage diagrams).</Text>;
+    return <FieldError message={`Schéma introuvable : ${file} (bucket Storage diagrams).`} />;
   }
   return (
     <View style={styles.diagram}>
@@ -527,28 +568,31 @@ function Diagram({ file, title }: { file: string; title: string }) {
         onError={() => setFailed(true)}
         style={StyleSheet.absoluteFill}
       />
-      {!loaded ? <ActivityIndicator style={StyleSheet.absoluteFill} /> : null}
+      {!loaded ? <ActivityIndicator color={colors.accent} style={StyleSheet.absoluteFill} /> : null}
     </View>
   );
 }
 
+/** Intertitre en overline, puis son contenu. */
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.heading}>{title}</Text>
+    <View style={layout.section}>
+      <Text role="heading" style={text.overline}>
+        {title}
+      </Text>
       {children}
     </View>
   );
 }
 
-/** Liste à puces, ou numérotée ; une ligne trop longue reste alignée sous son texte. */
+/** Liste à puces « · », ou numérotée ; une ligne trop longue reste alignée sous son texte. */
 function TextList({ items, numbered = false }: { items: readonly string[]; numbered?: boolean }) {
   return (
     <View style={styles.list}>
       {items.map((item, index) => (
         <View key={index} style={styles.listItem}>
-          <Text style={styles.text}>{numbered ? `${index + 1}.` : '•'}</Text>
-          <Text style={[styles.text, styles.listText]}>{item}</Text>
+          <Text style={[text.body, text.tabular]}>{numbered ? `${index + 1}.` : '·'}</Text>
+          <Text style={[text.body, styles.listText]}>{item}</Text>
         </View>
       ))}
     </View>
@@ -563,14 +607,16 @@ type TestFormProps = {
   values: Readonly<Partial<Record<string, string>>>;
   comment: string;
   commentEditable: boolean;
-  save: SaveState;
-  submitLabel: string;
+  /** Mesures refusées au dernier envoi : champ encadré en rouge et message dessous. */
+  invalidKeys: ReadonlySet<string>;
   onChangeValue: (key: string, text: string) => void;
   onChangeComment: (text: string) => void;
-  onSubmit: () => void;
 };
 
-/** Dernier écran d'un test : une valeur par mesure, bloc par bloc, à côté de la dernière connue. */
+/**
+ * Dernier écran d'un test : une valeur par mesure, bloc par bloc, à côté de la
+ * dernière connue. Le bouton d'envoi et son message sont dans le pied de l'écran.
+ */
 function TestForm({
   sheet,
   tests,
@@ -579,20 +625,16 @@ function TestForm({
   values,
   comment,
   commentEditable,
-  save,
-  submitLabel,
+  invalidKeys,
   onChangeValue,
   onChangeComment,
-  onSubmit,
 }: TestFormProps) {
-  const invalidKeys = save.status === 'error' ? save.invalidKeys : NO_KEYS;
+  // Pas de titre ici : l'en-tête natif dit déjà « Saisie des mesures ».
   return (
     <>
-      <Text style={styles.title}>Saisie des mesures</Text>
-
       {sheet.exercises.map((block) => (
-        <View key={block.order} style={styles.section}>
-          <Text style={styles.heading}>{`${block.order}. ${block.title}`}</Text>
+        <Card key={block.order} style={styles.blockCard}>
+          <Text style={text.bodyStrong}>{`${block.order}. ${block.title}`}</Text>
           {block.measures.map((measure) => {
             const test = tests.get(measure.key);
             const last = test ? latest.get(test.id) : undefined;
@@ -603,19 +645,22 @@ function TestForm({
                 value={values[measure.key] ?? ''}
                 invalid={invalidKeys.has(measure.key)}
                 lastLabel={
-                  last ? `dernier : ${formatValue(last.value)} · ${formatDayChip(last.date, today)}` : PLACEHOLDER
+                  last
+                    ? `dernier : ${formatMeasure(last.value, measure.unit)} · ${relativeDay(last.date, today)}`
+                    : PLACEHOLDER
                 }
-                onChange={(text) => onChangeValue(measure.key, text)}
+                onChange={(entry) => onChangeValue(measure.key, entry)}
               />
             );
           })}
-        </View>
+        </Card>
       ))}
 
-      <View style={styles.section}>
-        <Text style={styles.heading}>Commentaire</Text>
+      <View style={layout.section}>
+        <Text style={text.overline}>Commentaire</Text>
         <TextInput
-          style={[styles.input, styles.commentInput]}
+          {...inputProps}
+          style={[input.field, input.multiline]}
           value={comment}
           onChangeText={onChangeComment}
           editable={commentEditable}
@@ -623,9 +668,6 @@ function TestForm({
           multiline
         />
       </View>
-
-      {save.status === 'error' ? <Text style={styles.error}>{save.message}</Text> : null}
-      <PrimaryButton label={submitLabel} disabled={save.status === 'saving'} onPress={onSubmit} />
     </>
   );
 }
@@ -634,7 +676,7 @@ type MeasureFieldProps = {
   measure: Measure;
   value: string;
   invalid: boolean;
-  /** « dernier : 18 · ven. 3 oct. », ou « — » si jamais mesurée. */
+  /** « dernier : 18 pts /30 · il y a 4 j », ou « — » si jamais mesurée. */
   lastLabel: string;
   onChange: (text: string) => void;
 };
@@ -643,10 +685,11 @@ function MeasureField({ measure, value, invalid, lastLabel, onChange }: MeasureF
   const label = formatMeasureLabel(measure);
   return (
     <View style={styles.measure}>
-      <Text style={styles.text}>{label}</Text>
+      <Text style={text.body}>{label}</Text>
       <View style={styles.measureRow}>
         <TextInput
-          style={[styles.input, styles.valueInput, invalid && styles.inputInvalid]}
+          {...inputProps}
+          style={[input.field, styles.valueInput, invalid && input.invalid]}
           value={value}
           onChangeText={onChange}
           // Clavier numérique avec séparateur décimal (decimal-pad natif, inputmode web).
@@ -654,153 +697,62 @@ function MeasureField({ measure, value, invalid, lastLabel, onChange }: MeasureF
           placeholder={measure.unit}
           accessibilityLabel={label}
         />
-        <Text style={styles.lastValue}>{lastLabel}</Text>
+        <Text style={[text.meta, text.tabular, styles.lastValue]}>{lastLabel}</Text>
       </View>
+      <FieldError message={invalid ? INVALID_MEASURE_MESSAGE : null} />
     </View>
   );
 }
 
-type PrimaryButtonProps = {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-};
-
-/** Action du dernier écran (Séance faite, Enregistrer le test) : plus haute, libellé en gras. */
-function PrimaryButton({ label, onPress, disabled = false }: PrimaryButtonProps) {
-  return (
-    <Pressable
-      role="button"
-      aria-disabled={disabled}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.primaryButton, (pressed || disabled) && styles.dimmed]}
-    >
-      <Text style={styles.primaryButtonLabel}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  screen: {
+  muted: {
+    color: colors.textMuted,
+  },
+  previousButton: {
     flex: 1,
   },
-  container: {
-    flex: 1,
-    padding: 16,
-    gap: 12,
-  },
-  content: {
-    padding: 16,
-    gap: 20,
-  },
-  text: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  error: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#b00020',
-  },
-  dimmed: {
-    opacity: 0.5,
-  },
-  title: {
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: 'bold',
-  },
-  heading: {
-    fontSize: 18,
-    lineHeight: 26,
-    fontWeight: 'bold',
-  },
-  block: {
-    gap: 4,
-  },
-  section: {
-    gap: 8,
-  },
-  list: {
-    gap: 6,
-  },
-  listItem: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  listText: {
-    flex: 1,
-  },
-  row: {
-    minHeight: 44,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    justifyContent: 'center',
-  },
-  rowTitle: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: 'bold',
+  primaryButton: {
+    flex: 2,
   },
   diagram: {
     width: '100%',
     aspectRatio: DIAGRAM_ASPECT_RATIO,
+    borderRadius: radius.card,
+    // Les coins arrondis découpent aussi l'image.
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
   },
-  navBar: {
+  titleBlock: {
+    gap: spacing.xs,
+  },
+  list: {
+    gap: spacing.xs,
+  },
+  listItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: spacing.sm,
   },
-  navLabel: {
+  listText: {
     flex: 1,
-    fontSize: 16,
-    textAlign: 'center',
+  },
+  // Plus d'écart entre deux mesures qu'à l'intérieur d'une mesure : chaque libellé
+  // se lit avec son champ, pas avec celui du dessus.
+  blockCard: {
+    gap: spacing.lg,
   },
   measure: {
-    gap: 6,
+    gap: spacing.sm,
   },
   measureRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: spacing.md,
   },
-  input: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    fontSize: 16,
-  },
+  // Champ et dernière valeur se partagent la rangée ; un libellé long passe à la ligne.
   valueInput: {
-    width: 120,
-  },
-  inputInvalid: {
-    borderColor: '#b00020',
+    flex: 1,
   },
   lastValue: {
     flex: 1,
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  commentInput: {
-    minHeight: 88,
-    paddingVertical: 8,
-    textAlignVertical: 'top',
-  },
-  primaryButton: {
-    minHeight: 48,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
   },
 });

@@ -1,7 +1,14 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Button } from '../../components/button';
+import { Card } from '../../components/card';
+import { EmptyState } from '../../components/empty-state';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
+import { Stat, type StatTone } from '../../components/stat';
 import {
   buildMonthGrid,
   dayOfMonth,
@@ -11,6 +18,7 @@ import {
   localToday,
   monthBounds,
   monthOf,
+  relativeDay,
   shiftMonth,
   type YearMonth,
 } from '../../lib/dates';
@@ -18,15 +26,16 @@ import { listAnswerDays } from '../../lib/db/answers';
 import { countSessions, listActiveDays, listSessionsForDay, type SessionRow } from '../../lib/db/sessions';
 import { moduleLabel } from '../../lib/modules';
 import { computeStreaks, type Streaks } from '../../lib/streak';
+import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
 
 // Tout l'historique est chargé une fois par focus : la meilleure streak et le
 // calendrier de n'importe quel mois en ont besoin, pas de rechargement par mois.
 const HISTORY_START = '2000-01-01';
 
 const PLACEHOLDER = '—';
+/** Espace insécable : un nombre ne se sépare jamais de son unité en fin de ligne (« 12 jours »). */
+const NBSP = ' ';
 const WEEKDAY_INITIALS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-const TRAINING_COLOR = '#2e7d32';
-const QUIZ_COLOR = '#1565c0';
 
 type Summary = {
   trainingDays: ReadonlySet<string>;
@@ -54,6 +63,9 @@ export default function HomeScreen() {
   const [displayedMonth, setDisplayedMonth] = useState(() => monthOf(today));
   const [summaryState, setSummaryState] = useState<SummaryState>({ status: 'loading' });
   const [daySessions, setDaySessions] = useState<DaySessionsState>({ status: 'loading' });
+  // Incrémentés par « Réessayer » : seul rôle, relancer l'effet de chargement correspondant.
+  const [summaryAttempt, setSummaryAttempt] = useState(0);
+  const [daySessionsAttempt, setDaySessionsAttempt] = useState(0);
   const { day, session } = useLocalSearchParams<{ day?: string; session?: string }>();
 
   // Retour d'un écran de séance : sélectionne le jour de la séance et affiche son mois.
@@ -114,7 +126,7 @@ export default function HomeScreen() {
       return () => {
         active = false;
       };
-    }, []),
+    }, [summaryAttempt]),
   );
 
   useFocusEffect(
@@ -133,8 +145,18 @@ export default function HomeScreen() {
       return () => {
         active = false;
       };
-    }, [selectedDay]),
+    }, [selectedDay, daySessionsAttempt]),
   );
+
+  function retrySummary() {
+    setSummaryState({ status: 'loading' });
+    setSummaryAttempt((attempt) => attempt + 1);
+  }
+
+  function retryDaySessions() {
+    setDaySessions({ status: 'loading' });
+    setDaySessionsAttempt((attempt) => attempt + 1);
+  }
 
   const summary = summaryState.status === 'ready' ? summaryState.summary : null;
   // Liste d'un autre jour : le jour sélectionné vient de changer, chargement jusqu'à la sienne.
@@ -143,32 +165,26 @@ export default function HomeScreen() {
     daySessions.status !== 'loading' && daySessions.day !== selectedDay ? { status: 'loading' } : daySessions;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.cards}>
-        <StreakCard title="Entraînement" streaks={summary ? summary.training : null} />
-        <StreakCard title="Quizz" streaks={summary ? summary.quiz : null} />
+    <Screen
+      title="Accueil"
+      footer={<Button label="Nouvelle séance" onPress={() => router.push('/session/new')} />}
+    >
+      <View style={layout.section}>
+        <View style={styles.streakRow}>
+          <StreakCard label="Entraînement" tone="accent" streaks={summary ? summary.training : null}>
+            <Text style={text.meta}>ce mois : {summary ? formatSessionCount(summary.monthCount) : PLACEHOLDER}</Text>
+            <Text style={text.meta}>total : {summary ? formatSessionCount(summary.totalCount) : PLACEHOLDER}</Text>
+          </StreakCard>
+          <StreakCard label="Quizz" tone="quiz" streaks={summary ? summary.quiz : null} />
+        </View>
+        {summaryState.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+        {summaryState.status === 'error' ? (
+          <>
+            <FieldError message={`Erreur : ${summaryState.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={retrySummary} />
+          </>
+        ) : null}
       </View>
-      {summaryState.status === 'loading' ? <ActivityIndicator /> : null}
-      {summaryState.status === 'error' ? (
-        <Text style={styles.error}>Erreur : {summaryState.message}</Text>
-      ) : null}
-
-      <View style={styles.counters}>
-        <Text style={styles.text}>
-          Ce mois : {summary ? formatSessionCount(summary.monthCount) : PLACEHOLDER}
-        </Text>
-        <Text style={styles.text}>
-          Total : {summary ? formatSessionCount(summary.totalCount) : PLACEHOLDER}
-        </Text>
-      </View>
-
-      <Pressable
-        role="button"
-        onPress={() => router.push('/session/new')}
-        style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-      >
-        <Text style={styles.primaryButtonLabel}>Nouvelle séance</Text>
-      </Pressable>
 
       <MonthCalendar
         month={displayedMonth}
@@ -179,35 +195,70 @@ export default function HomeScreen() {
         onSelectDay={setSelectedDay}
       />
 
-      <View style={styles.section}>
-        <Text style={styles.heading}>Séances du {formatShortDay(selectedDay)}</Text>
-        {shownSessions.status === 'loading' ? <ActivityIndicator /> : null}
+      <View style={layout.section}>
+        <Text role="heading" style={text.title}>
+          Séances · {relativeDay(selectedDay, today)}
+        </Text>
+        {shownSessions.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {shownSessions.status === 'error' ? (
-          <Text style={styles.error}>Erreur : {shownSessions.message}</Text>
+          <>
+            <FieldError message={`Erreur : ${shownSessions.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={retryDaySessions} />
+          </>
         ) : null}
         {shownSessions.status === 'ready' && shownSessions.sessions.length === 0 ? (
-          <Text style={styles.text}>Aucune séance ce jour</Text>
+          // Pas de bouton ici : le pied de l'écran porte déjà « Nouvelle séance ».
+          <EmptyState
+            title="Aucune séance ce jour"
+            message="Ajoute-la avec « Nouvelle séance », en bas de l’écran."
+          />
         ) : null}
         {shownSessions.status === 'ready'
-          ? shownSessions.sessions.map((row) => <SessionLine key={row.id} row={row} />)
+          ? shownSessions.sessions.map((row) => <SessionCard key={row.id} row={row} today={today} />)
           : null}
       </View>
-    </ScrollView>
+    </Screen>
   );
+}
+
+/** Pluriel français : « 0 jour », « 1 jour », « 2 jours ». */
+function dayUnit(count: number): string {
+  return count >= 2 ? 'jours' : 'jour';
+}
+
+function formatDayCount(count: number): string {
+  return `${count}${NBSP}${dayUnit(count)}`;
 }
 
 /** Pluriel français : « 0 séance », « 1 séance », « 2 séances ». */
 function formatSessionCount(count: number): string {
-  return `${count} séance${count >= 2 ? 's' : ''}`;
+  return `${count}${NBSP}séance${count >= 2 ? 's' : ''}`;
 }
 
-function StreakCard({ title, streaks }: { title: string; streaks: Streaks | null }) {
+type StreakCardProps = {
+  label: string;
+  tone: StatTone;
+  /** null tant que le résumé n'est pas chargé : « — », sans unité. */
+  streaks: Streaks | null;
+  /** Lignes secondaires sous la meilleure streak. */
+  children?: ReactNode;
+};
+
+/** Streak courante en chiffre dominant ; meilleure et compteurs en secondaire. */
+function StreakCard({ label, tone, streaks, children }: StreakCardProps) {
   return (
-    <View style={styles.card}>
-      <Text style={styles.text}>{title}</Text>
-      <Text style={styles.streak}>{streaks ? streaks.current : PLACEHOLDER}</Text>
-      <Text style={styles.best}>meilleure : {streaks ? streaks.best : PLACEHOLDER}</Text>
-    </View>
+    <Card style={styles.streakCard}>
+      <Stat
+        label={label}
+        value={streaks ? streaks.current : PLACEHOLDER}
+        unit={streaks ? dayUnit(streaks.current) : undefined}
+        tone={tone}
+      />
+      <View>
+        <Text style={text.meta}>meilleure : {streaks ? formatDayCount(streaks.best) : PLACEHOLDER}</Text>
+        {children}
+      </View>
+    </Card>
   );
 }
 
@@ -223,31 +274,17 @@ type MonthCalendarProps = {
 
 function MonthCalendar({ month, today, selectedDay, activity, onShiftMonth, onSelectDay }: MonthCalendarProps) {
   return (
-    <View style={styles.calendar}>
+    <Card>
       <View style={styles.calendarHeader}>
-        <Pressable
-          role="button"
-          accessibilityLabel="Mois précédent"
-          onPress={() => onShiftMonth(-1)}
-          style={({ pressed }) => [styles.monthButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.monthButtonLabel}>‹</Text>
-        </Pressable>
-        <Text style={styles.monthTitle}>{formatMonthTitle(month)}</Text>
-        <Pressable
-          role="button"
-          accessibilityLabel="Mois suivant"
-          onPress={() => onShiftMonth(1)}
-          style={({ pressed }) => [styles.monthButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.monthButtonLabel}>›</Text>
-        </Pressable>
+        <MonthArrow icon="chevron-back" label="Mois précédent" onPress={() => onShiftMonth(-1)} />
+        <Text style={[text.title, styles.monthTitle]}>{formatMonthTitle(month)}</Text>
+        <MonthArrow icon="chevron-forward" label="Mois suivant" onPress={() => onShiftMonth(1)} />
       </View>
 
       <View>
         <View style={styles.week}>
           {WEEKDAY_INITIALS.map((initial, index) => (
-            <Text key={index} style={styles.weekday}>
+            <Text key={index} style={[text.meta, styles.weekday]}>
               {initial}
             </Text>
           ))}
@@ -274,14 +311,34 @@ function MonthCalendar({ month, today, selectedDay, activity, onShiftMonth, onSe
       </View>
 
       <View style={styles.legend}>
-        <Text style={styles.text}>
-          <Text style={styles.trainingText}>●</Text> Entraînement
+        <Text style={text.meta}>
+          <Text style={styles.trainingMark}>●</Text> Entraînement
         </Text>
-        <Text style={styles.text}>
-          <Text style={styles.quizText}>●</Text> Quizz
+        <Text style={text.meta}>
+          <Text style={styles.quizMark}>●</Text> Quizz
         </Text>
       </View>
-    </View>
+    </Card>
+  );
+}
+
+type MonthArrowProps = {
+  icon: 'chevron-back' | 'chevron-forward';
+  /** Lu par le lecteur d'écran : l'icône seule n'a pas de nom. */
+  label: string;
+  onPress: () => void;
+};
+
+function MonthArrow({ icon, label, onPress }: MonthArrowProps) {
+  return (
+    <Pressable
+      role="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [styles.monthArrow, pressed && styles.monthArrowPressed]}
+    >
+      <Ionicons name={icon} size={size.icon} color={colors.text} />
+    </Pressable>
   );
 }
 
@@ -306,104 +363,67 @@ function DayCell({ day, isToday, isSelected, hasTraining, hasQuiz, onPress }: Da
         styles.cell,
         isToday && styles.todayCell,
         isSelected && styles.selectedCell,
-        pressed && styles.pressed,
+        pressed && styles.pressedCell,
       ]}
     >
-      <Text style={styles.text}>{dayOfMonth(day)}</Text>
-      {/* Rangée de hauteur fixe : le numéro ne bouge pas quand les points apparaissent. */}
+      <Text style={[text.body, text.tabular]}>{dayOfMonth(day)}</Text>
+      {/* Rangée de hauteur fixe : le numéro ne bouge pas quand les points apparaissent.
+          Deux places fixes, entraînement à gauche, quizz à droite (ordre de la légende) :
+          les deux oranges sont proches, la place les distingue. */}
       <View style={styles.dots}>
-        {hasTraining ? <View style={[styles.dot, styles.trainingDot]} /> : null}
-        {hasQuiz ? <View style={[styles.dot, styles.quizDot]} /> : null}
+        <View style={[styles.dot, hasTraining && styles.trainingDot]} />
+        <View style={[styles.dot, hasQuiz && styles.quizDot]} />
       </View>
     </Pressable>
   );
 }
 
-function SessionLine({ row }: { row: SessionRow }) {
+function SessionCard({ row, today }: { row: SessionRow; today: string }) {
   const label = moduleLabel(row.module);
+  const name = row.name?.trim() || label;
+  const details = [
+    label,
+    `${row.duration_min}${NBSP}min`,
+    `difficulté ${row.difficulty}/5`,
+    relativeDay(row.date, today),
+  ].join(' · ');
   return (
-    <Pressable
-      role="button"
+    <Card
+      accessibilityLabel={`${name}, ${details}`}
       onPress={() => router.push({ pathname: '/session/[id]', params: { id: row.id } })}
-      style={({ pressed }) => [styles.sessionLine, pressed && styles.pressed]}
     >
-      <Text style={styles.sessionName}>{row.name?.trim() || label}</Text>
-      <Text style={styles.text}>{`${label} · ${row.duration_min} min · difficulté ${row.difficulty}/5`}</Text>
-    </Pressable>
+      <Text style={text.bodyStrong}>{name}</Text>
+      <Text style={text.meta}>{details}</Text>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    gap: 16,
-  },
-  text: {
-    fontSize: 16,
-  },
-  error: {
-    color: '#b00020',
-  },
-  pressed: {
-    opacity: 0.5,
-  },
-  cards: {
+  streakRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.md,
   },
-  card: {
+  streakCard: {
     flex: 1,
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-  },
-  streak: {
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  best: {
-    fontSize: 13,
-  },
-  counters: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  primaryButton: {
-    minHeight: 48,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  calendar: {
-    gap: 8,
   },
   calendarHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
   },
-  monthButton: {
-    minWidth: 44,
-    minHeight: 44,
-    borderWidth: 1,
-    borderRadius: 8,
+  monthArrow: {
+    width: size.touch,
+    height: size.touch,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: radius.button,
+    backgroundColor: colors.surface2,
   },
-  monthButtonLabel: {
-    fontSize: 24,
+  monthArrowPressed: {
+    backgroundColor: colors.border,
   },
   monthTitle: {
     flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
     textAlign: 'center',
   },
   week: {
@@ -411,65 +431,53 @@ const styles = StyleSheet.create({
   },
   weekday: {
     flex: 1,
-    paddingVertical: 4,
-    fontWeight: 'bold',
     textAlign: 'center',
   },
+  // Sept colonnes sans écart : chaque case garde toute la largeur disponible.
   cell: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 8,
+    minHeight: size.touch,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: radius.button,
+    // Bordure toujours présente, transparente : celle d'aujourd'hui ne décale rien.
+    borderWidth: size.border,
+    borderColor: 'transparent',
   },
   todayCell: {
-    borderWidth: 1,
+    borderColor: colors.accent,
   },
   selectedCell: {
-    backgroundColor: '#e0e0e0',
+    backgroundColor: colors.surface2,
+  },
+  pressedCell: {
+    backgroundColor: colors.border,
   },
   dots: {
-    height: 6,
-    marginTop: 2,
+    height: size.dot,
     flexDirection: 'row',
-    gap: 3,
+    gap: spacing.xs,
   },
   dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: size.dot,
+    height: size.dot,
+    borderRadius: size.dot / 2,
   },
   trainingDot: {
-    backgroundColor: TRAINING_COLOR,
+    backgroundColor: colors.accent,
   },
   quizDot: {
-    backgroundColor: QUIZ_COLOR,
+    backgroundColor: colors.quiz,
   },
   legend: {
     flexDirection: 'row',
-    gap: 16,
+    flexWrap: 'wrap',
+    gap: spacing.lg,
   },
-  trainingText: {
-    color: TRAINING_COLOR,
+  trainingMark: {
+    color: colors.accent,
   },
-  quizText: {
-    color: QUIZ_COLOR,
-  },
-  section: {
-    gap: 8,
-  },
-  heading: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  sessionLine: {
-    minHeight: 44,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    justifyContent: 'center',
-  },
-  sessionName: {
-    fontSize: 16,
-    fontWeight: 'bold',
+  quizMark: {
+    color: colors.quiz,
   },
 });

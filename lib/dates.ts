@@ -79,7 +79,7 @@ export function formatShortDay(day: string): string {
   return `${WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
 }
 
-/** « 06/10/2026 » (JJ/MM/AAAA) : date de naissance, dates des résultats de test. */
+/** « 06/10/2026 » (JJ/MM/AAAA) : date de naissance (les dates d'événements passent par relativeDay). */
 export function formatNumericDay(day: string): string {
   const match = DAY_PATTERN.exec(day);
   if (!match) {
@@ -105,15 +105,33 @@ export function parseNumericDay(text: string): string | null {
   return isLocalDateString(day) ? day : null;
 }
 
-/** Libellé d'une puce de date : « auj. », « hier », puis « mer. 1 oct. ». */
-export function formatDayChip(day: string, today: string): string {
-  if (day === today) {
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** En deçà de 7 jours, une date passée s'écrit en relatif. */
+const RELATIVE_DAY_LIMIT = 7;
+
+/**
+ * Date d'un jour passé, lisible d'un coup d'œil : « auj. », « hier », « il y a
+ * 3 j » jusqu'à 6 jours, puis « 30 sept. », avec l'année si elle diffère de
+ * celle de today (« 20 déc. 2025 »). Un jour postérieur à today s'écrit aussi
+ * en absolu. Seul format des dates d'événements à l'écran (séances, résultats,
+ * puces de date).
+ */
+export function relativeDay(day: string, today: string): string {
+  const date = fromLocalDateString(day);
+  const reference = fromLocalDateString(today);
+  // Minuits locaux : un changement d'heure donne un écart de 23 ou 25 h, l'arrondi le ramène à un jour.
+  const elapsed = Math.round((reference.getTime() - date.getTime()) / DAY_MS);
+  if (elapsed === 0) {
     return 'auj.';
   }
-  if (day === shiftDay(today, -1)) {
+  if (elapsed === 1) {
     return 'hier';
   }
-  return formatShortDay(day);
+  if (elapsed > 1 && elapsed < RELATIVE_DAY_LIMIT) {
+    return `il y a ${elapsed} j`;
+  }
+  const absolute = `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
+  return date.getFullYear() === reference.getFullYear() ? absolute : `${absolute} ${date.getFullYear()}`;
 }
 
 /** Mois calendaire ; month va de 1 à 12, comme dans YYYY-MM-DD. */

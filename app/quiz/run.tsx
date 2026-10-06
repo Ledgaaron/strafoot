@@ -1,9 +1,13 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View, type ScrollView, type ViewStyle } from 'react-native';
 
-import { ActionButton } from '../../components/action-button';
+import { Button } from '../../components/button';
+import { Card } from '../../components/card';
+import { EmptyState } from '../../components/empty-state';
+import { FieldError } from '../../components/field-error';
+import { Screen } from '../../components/screen';
+import { Stat } from '../../components/stat';
 import { createAnswer, flagAnswer, type AnswerRow } from '../../lib/db/answers';
 import { listEligibleQuestions, type EligibleQuestion, type QuestionFilter } from '../../lib/db/questions';
 import type { QuestionOption } from '../../lib/json-types';
@@ -17,6 +21,7 @@ import {
   SCORE_LABELS,
   themeLabel,
 } from '../../lib/quiz-taxonomy';
+import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
 
 const NO_ROW_MESSAGE = 'Supabase n’a renvoyé ni la réponse ni d’erreur.';
 
@@ -106,11 +111,15 @@ export default function QuizRunScreen() {
   if (filterError !== null) {
     // Lien mal formé : réessayer ne changerait rien, seul le retour est proposé.
     return (
-      <View style={styles.container}>
+      <>
         <Stack.Screen options={{ title: 'Quizz' }} />
-        <Text style={styles.error}>{filterError}</Text>
-        <ActionButton label="Retour" onPress={leaveRun} />
-      </View>
+        <Screen>
+          <View style={layout.section}>
+            <FieldError message={filterError} />
+            <Button variant="secondary" label="Retour" onPress={leaveRun} />
+          </View>
+        </Screen>
+      </>
     );
   }
 
@@ -231,37 +240,47 @@ export default function QuizRunScreen() {
         ? 'Récap'
         : 'Quizz';
 
+  // Pied selon l'étape : l'action qui fait avancer la série, sous le pouce. Aucun
+  // pendant le choix (les options sont l'action), l'enregistrement ou le chargement.
+  let footer: ReactNode = null;
+  if (screen.status === 'running' && screen.run.phase.step === 'answered') {
+    const isLast = screen.run.scores.length === screen.run.questions.length - 1;
+    footer = (
+      <Button label={isLast ? 'Voir le récap' : 'Suivant'} onPress={goNext} disabled={screen.run.phase.flagging} />
+    );
+  } else if (screen.status === 'recap') {
+    footer = (
+      <>
+        <Button label="Nouvelle série" onPress={reload} />
+        <Button variant="secondary" label="Retour" onPress={leaveRun} />
+      </>
+    );
+  }
+
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <>
       <Stack.Screen options={{ title }} />
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
-        {screen.status === 'loading' ? <ActivityIndicator /> : null}
+      <Screen scrollRef={scrollRef} footer={footer}>
+        {screen.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
         {screen.status === 'error' ? (
-          <>
-            <Text style={styles.error}>Erreur : {screen.message}</Text>
-            <ActionButton label="Réessayer" onPress={reload} />
-          </>
+          <View style={layout.section}>
+            <FieldError message={`Erreur : ${screen.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={reload} />
+          </View>
         ) : null}
         {screen.status === 'empty' ? (
-          <>
-            <Text style={styles.text}>Aucune question pour ce filtre. Élargis le thème ou le poste.</Text>
-            <ActionButton label="Retour" onPress={leaveRun} />
-          </>
-        ) : null}
-        {screen.status === 'running' ? (
-          <QuestionStep
-            run={screen.run}
-            onChoose={chooseOption}
-            onRetrySave={retrySave}
-            onToggleFlag={toggleFlag}
-            onNext={goNext}
+          <EmptyState
+            title="Aucune question pour ce filtre"
+            message="Élargis le thème ou le poste depuis l’onglet Quizz."
+            action={{ label: 'Retour', onPress: leaveRun }}
           />
         ) : null}
-        {screen.status === 'recap' ? (
-          <RunRecap questions={screen.questions} scores={screen.scores} onNewRun={reload} onLeave={leaveRun} />
+        {screen.status === 'running' ? (
+          <QuestionStep run={screen.run} onChoose={chooseOption} onRetrySave={retrySave} onToggleFlag={toggleFlag} />
         ) : null}
-      </ScrollView>
-    </SafeAreaView>
+        {screen.status === 'recap' ? <RunRecap questions={screen.questions} scores={screen.scores} /> : null}
+      </Screen>
+    </>
   );
 }
 
@@ -343,11 +362,6 @@ function leaveRun() {
   }
 }
 
-/** « 3/3 · Bon choix » : jamais « la bonne réponse », plusieurs options peuvent valoir 3. */
-function formatScore(score: OptionScore): string {
-  return `${score}/${MAX_OPTION_SCORE} · ${SCORE_LABELS[score]}`;
-}
-
 /** Pluriel français : « Seulement 1 question éligible… », « Seulement 3 questions éligibles… ». */
 function formatShortRun(count: number): string {
   const plural = count >= 2 ? 's' : '';
@@ -365,91 +379,61 @@ type QuestionStepProps = {
   onChoose: (chosenIndex: number) => void;
   onRetrySave: () => void;
   onToggleFlag: () => void;
-  onNext: () => void;
 };
 
-function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag, onNext }: QuestionStepProps) {
+function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStepProps) {
   const index = run.scores.length;
   const question = run.questions[index];
   const { phase } = run;
   return (
     <>
-      {run.questions.length < RUN_LENGTH ? (
-        <Text style={styles.notice}>{formatShortRun(run.questions.length)}</Text>
-      ) : null}
-      <Text style={styles.meta}>{formatQuestionMeta(question)}</Text>
-      <Text style={styles.situation}>{question.situation}</Text>
+      <View style={layout.section}>
+        {run.questions.length < RUN_LENGTH ? (
+          <Text style={text.meta}>{formatShortRun(run.questions.length)}</Text>
+        ) : null}
+        <Text style={text.meta}>{formatQuestionMeta(question)}</Text>
+        <Card>
+          <Text style={text.title}>{question.situation}</Text>
+        </Card>
+      </View>
 
       {phase.step === 'answered' ? (
-        <AnswerReview
-          options={question.options}
-          phase={phase}
-          isLast={index === run.questions.length - 1}
-          onToggleFlag={onToggleFlag}
-          onNext={onNext}
-        />
+        <AnswerReview options={question.options} phase={phase} onToggleFlag={onToggleFlag} />
       ) : (
-        <>
-          <View style={styles.list}>
-            {question.options.map((option, optionIndex) => (
-              <OptionButton
-                key={optionIndex}
-                text={option.text}
-                selected={phase.step !== 'choosing' && phase.chosenIndex === optionIndex}
-                disabled={phase.step !== 'choosing'}
-                onPress={() => onChoose(optionIndex)}
-              />
-            ))}
-          </View>
-          {phase.step === 'saving' ? <Text style={styles.text}>Enregistrement…</Text> : null}
+        <View style={layout.section}>
+          {/* Une fois le choix fait, il reste en évidence et les autres sont grisées. */}
+          {question.options.map((option, optionIndex) => (
+            <Card
+              key={optionIndex}
+              onPress={() => onChoose(optionIndex)}
+              highlighted={phase.step !== 'choosing' && phase.chosenIndex === optionIndex}
+              disabled={phase.step !== 'choosing'}
+              style={styles.option}
+            >
+              <Text style={text.body}>{option.text}</Text>
+            </Card>
+          ))}
+          {phase.step === 'saving' ? <Text style={text.meta}>Enregistrement…</Text> : null}
           {phase.step === 'saveError' ? (
             <>
-              <Text style={styles.error}>Erreur : {phase.message}</Text>
-              <ActionButton label="Réessayer l’enregistrement" onPress={onRetrySave} />
+              <FieldError message={`Erreur : ${phase.message}`} />
+              <Button variant="secondary" label="Réessayer l’enregistrement" onPress={onRetrySave} />
             </>
           ) : null}
-        </>
+        </View>
       )}
     </>
-  );
-}
-
-type OptionButtonProps = {
-  text: string;
-  selected: boolean;
-  disabled: boolean;
-  onPress: () => void;
-};
-
-/** Option tappable ; une fois le choix fait, il reste en évidence et les autres sont grisées. */
-function OptionButton({ text, selected, disabled, onPress }: OptionButtonProps) {
-  return (
-    <Pressable
-      role="button"
-      aria-disabled={disabled}
-      disabled={disabled}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.option,
-        selected && styles.chosen,
-        (pressed || (disabled && !selected)) && styles.dimmed,
-      ]}
-    >
-      <Text style={styles.text}>{text}</Text>
-    </Pressable>
   );
 }
 
 type AnswerReviewProps = {
   options: QuestionOption[];
   phase: AnsweredPhase;
-  isLast: boolean;
   onToggleFlag: () => void;
-  onNext: () => void;
 };
 
-function AnswerReview({ options, phase, isLast, onToggleFlag, onNext }: AnswerReviewProps) {
+/** Réponse confirmée : le score de l'option choisie, puis les 4 options et leurs explications. */
+function AnswerReview({ options, phase, onToggleFlag }: AnswerReviewProps) {
   const chosen = options[phase.chosenIndex];
   // Score décroissant ; à égalité, ordre d'origine, explicite quel que soit le moteur JS.
   const ranked = options
@@ -458,43 +442,42 @@ function AnswerReview({ options, phase, isLast, onToggleFlag, onNext }: AnswerRe
   const flagged = phase.answer.flagged;
   return (
     <>
-      <View style={[styles.card, styles.chosen]}>
-        <Text style={styles.label}>Ton choix</Text>
-        <Text style={styles.verdict}>{formatScore(chosen.score)}</Text>
-        <Text style={styles.text}>{chosen.text}</Text>
-      </View>
+      <Card highlighted>
+        <Text style={text.overline}>Ton choix</Text>
+        <View style={styles.scoreRow}>
+          <ScorePill score={chosen.score} />
+          <Text style={text.meta}>{SCORE_LABELS[chosen.score]}</Text>
+        </View>
+        <Text style={text.body}>{chosen.text}</Text>
+      </Card>
 
-      <View style={styles.list}>
-        <Text style={styles.label}>Toutes les options</Text>
+      <View style={layout.section}>
+        <Text style={text.overline}>Toutes les options</Text>
         {ranked.map(({ option, index }) => (
-          <View key={index} style={[styles.card, index === phase.chosenIndex && styles.chosen]}>
-            <Text style={styles.cardTitle}>
-              {formatScore(option.score)}
-              {index === phase.chosenIndex ? ' · Ton choix' : ''}
-            </Text>
-            <Text style={styles.text}>{option.text}</Text>
-            <Text style={styles.explanation}>{option.explanation}</Text>
-          </View>
+          <Card key={index} highlighted={index === phase.chosenIndex}>
+            <View style={styles.scoreRow}>
+              <ScorePill score={option.score} />
+              <Text style={text.meta}>
+                {SCORE_LABELS[option.score]}
+                {index === phase.chosenIndex ? ' · Ton choix' : ''}
+              </Text>
+            </View>
+            <Text style={text.bodyStrong}>{option.text}</Text>
+            <Text style={text.body}>{option.explanation}</Text>
+          </Card>
         ))}
       </View>
 
-      <Pressable
-        role="button"
-        aria-disabled={phase.flagging}
-        disabled={phase.flagging}
-        accessibilityState={{ selected: flagged }}
-        onPress={onToggleFlag}
-        style={({ pressed }) => [
-          styles.toggle,
-          flagged && styles.toggleOn,
-          (pressed || phase.flagging) && styles.dimmed,
-        ]}
-      >
-        <Text style={[styles.buttonLabel, flagged && styles.toggleLabelOn]}>Réponse contestable</Text>
-      </Pressable>
-      {phase.flagError !== null ? <Text style={styles.error}>Erreur : {phase.flagError}</Text> : null}
-
-      <PrimaryButton label={isLast ? 'Voir le récap' : 'Suivant'} disabled={phase.flagging} onPress={onNext} />
+      <View style={layout.section}>
+        <Button
+          variant="secondary"
+          label={flagged ? 'Réponse signalée · Annuler' : 'Réponse contestable'}
+          onPress={onToggleFlag}
+          loading={phase.flagging}
+          accessibilityLabel={flagged ? 'Retirer le signalement' : 'Signaler une réponse contestable'}
+        />
+        <FieldError message={phase.flagError !== null ? `Erreur : ${phase.flagError}` : null} />
+      </View>
     </>
   );
 }
@@ -502,160 +485,76 @@ function AnswerReview({ options, phase, isLast, onToggleFlag, onNext }: AnswerRe
 type RunRecapProps = {
   questions: EligibleQuestion[];
   scores: OptionScore[];
-  onNewRun: () => void;
-  onLeave: () => void;
 };
 
-function RunRecap({ questions, scores, onNewRun, onLeave }: RunRecapProps) {
+function RunRecap({ questions, scores }: RunRecapProps) {
   const total = scores.reduce<number>((sum, score) => sum + score, 0);
   return (
     <>
-      <View>
-        <Text style={styles.label}>Score de la série</Text>
-        <Text style={styles.total}>{`${total} / ${questions.length * MAX_OPTION_SCORE}`}</Text>
-      </View>
-
-      <View>
+      <Stat label="Score de la série" value={total} unit={`/${questions.length * MAX_OPTION_SCORE}`} tone="accent" />
+      <View style={layout.section}>
         {questions.map((question, index) => (
-          <View key={question.id} style={styles.recapLine}>
-            <Text style={styles.text} numberOfLines={2}>
+          <Card key={question.id} style={styles.recapRow}>
+            <Text style={[text.body, styles.recapSituation]} numberOfLines={2}>
               {`${index + 1}. ${question.situation}`}
             </Text>
-            <Text style={styles.cardTitle}>{formatScore(scores[index])}</Text>
-          </View>
+            <ScorePill score={scores[index]} />
+          </Card>
         ))}
       </View>
-
-      <PrimaryButton label="Nouvelle série" onPress={onNewRun} />
-      <ActionButton label="Retour" onPress={onLeave} />
     </>
   );
 }
 
-type PrimaryButtonProps = {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
+type ScorePillProps = {
+  score: OptionScore;
 };
 
-/** Action principale de l'étape (Suivant, Nouvelle série) : plus haute, libellé en gras. */
-function PrimaryButton({ label, onPress, disabled = false }: PrimaryButtonProps) {
+/**
+ * Pastille « 3/3 » : le score de chaque option, jamais « la bonne réponse »
+ * (plusieurs options peuvent valoir 3).
+ */
+function ScorePill({ score }: ScorePillProps) {
   return (
-    <Pressable
-      role="button"
-      aria-disabled={disabled}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.primaryButton, (pressed || disabled) && styles.dimmed]}
-    >
-      <Text style={styles.primaryButtonLabel}>{label}</Text>
-    </Pressable>
+    <View style={[styles.pill, PILL_TONES[score]]}>
+      <Text style={[text.meta, text.tabular, styles.pillLabel]}>{`${score}/${MAX_OPTION_SCORE}`}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-    padding: 16,
-    gap: 12,
-  },
-  content: {
-    padding: 16,
-    gap: 16,
-  },
-  text: {
-    fontSize: 16,
-  },
-  error: {
-    color: '#b00020',
-  },
-  dimmed: {
-    opacity: 0.5,
-  },
-  notice: {
-    fontSize: 14,
-  },
-  meta: {
-    fontSize: 13,
-    color: '#555',
-  },
-  situation: {
-    fontSize: 18,
-  },
-  list: {
-    gap: 8,
-  },
   option: {
-    minHeight: 48,
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 8,
+    minHeight: size.option,
     justifyContent: 'center',
   },
-  chosen: {
-    backgroundColor: '#e0e0e0',
-  },
-  card: {
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    gap: 4,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  verdict: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  explanation: {
-    fontSize: 14,
-  },
-  toggle: {
-    minHeight: 44,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
+  scoreRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.sm,
   },
-  toggleOn: {
-    backgroundColor: '#222',
-    borderColor: '#222',
+  pill: {
+    borderRadius: radius.chip,
+    paddingHorizontal: spacing.sm,
   },
-  buttonLabel: {
-    fontSize: 16,
+  pillLabel: {
+    fontWeight: '700',
+    // onAccent reste lisible (au moins 5,3:1) sur les trois fonds de PILL_TONES.
+    color: colors.onAccent,
   },
-  toggleLabelOn: {
-    color: '#fff',
-  },
-  primaryButton: {
-    minHeight: 48,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
+  recapRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.md,
   },
-  primaryButtonLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
+  recapSituation: {
+    flex: 1,
   },
-  total: {
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  recapLine: {
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 4,
-  },
+});
+
+/** Fond de la pastille selon le score : 3 accent, 2 et 1 neutre, 0 danger. */
+const PILL_TONES: Readonly<Record<OptionScore, ViewStyle>> = StyleSheet.create({
+  3: { backgroundColor: colors.accent },
+  2: { backgroundColor: colors.textMuted },
+  1: { backgroundColor: colors.textMuted },
+  0: { backgroundColor: colors.danger },
 });
