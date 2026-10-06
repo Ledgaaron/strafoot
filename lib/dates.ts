@@ -79,6 +79,32 @@ export function formatShortDay(day: string): string {
   return `${WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
 }
 
+/** « 06/10/2026 » (JJ/MM/AAAA) : date de naissance, dates des résultats de test. */
+export function formatNumericDay(day: string): string {
+  const match = DAY_PATTERN.exec(day);
+  if (!match) {
+    throw new Error(`Jour invalide : « ${day} » (attendu YYYY-MM-DD).`);
+  }
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+/** Saisie JJ/MM/AAAA ; zéros de tête facultatifs (« 1/4/1998 »). */
+const NUMERIC_DAY_PATTERN = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+
+/**
+ * Jour YYYY-MM-DD d'une saisie JJ/MM/AAAA, espaces autour ignorés ; null si le
+ * texte ne suit pas ce format, si le jour n'existe pas au calendrier
+ * (30/02/2000) ou si l'année précède 1000 (isLocalDateString les refuse).
+ */
+export function parseNumericDay(text: string): string | null {
+  const match = NUMERIC_DAY_PATTERN.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  const day = `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+  return isLocalDateString(day) ? day : null;
+}
+
 /** Libellé d'une puce de date : « auj. », « hier », puis « mer. 1 oct. ». */
 export function formatDayChip(day: string, today: string): string {
   if (day === today) {

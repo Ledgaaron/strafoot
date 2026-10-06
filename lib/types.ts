@@ -3,9 +3,10 @@
 // Contenu produit par @supabase/postgrest-typegen (moteur de supabase gen types)
 // sur supabase/migrations/001_initial_schema.sql, puis aligné à la main sur 002
 // (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid()),
-// sur 003 (answers.quiz_run_id, answers.flagged) et sur 004
+// sur 003 (answers.quiz_run_id, answers.flagged), sur 004
 // (training_sheets.slug, kind, subtitle, intro, pdf_url ; tests.key,
-// higher_is_better ; test_results.session_id).
+// higher_is_better ; test_results.session_id) et sur 005 (profiles.strong_foot,
+// club_level).
 // Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
 // colonnes jsonb : lib/json-types.ts et lib/sheet-types.ts).
 
@@ -68,28 +69,34 @@ export type Database = {
         Row: {
           birth_date: string | null
           club: string | null
+          club_level: string | null
           created_at: string
           id: string
           main_position: string | null
           secondary_position: string | null
+          strong_foot: string | null
           user_id: string
         }
         Insert: {
           birth_date?: string | null
           club?: string | null
+          club_level?: string | null
           created_at?: string
           id?: string
           main_position?: string | null
           secondary_position?: string | null
+          strong_foot?: string | null
           user_id?: string
         }
         Update: {
           birth_date?: string | null
           club?: string | null
+          club_level?: string | null
           created_at?: string
           id?: string
           main_position?: string | null
           secondary_position?: string | null
+          strong_foot?: string | null
           user_id?: string
         }
         Relationships: []

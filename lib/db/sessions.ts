@@ -1,4 +1,4 @@
-import type { ModuleKey, SessionType } from '../modules';
+import { MODULE_KEYS, type ModuleKey, type SessionType } from '../modules';
 import { supabase } from '../supabase';
 import type { Tables } from '../types';
 import type { DbResult } from './result';
@@ -23,6 +23,14 @@ export type SessionInput = {
 
 /** Champs modifiables d'une séance existante. */
 export type SessionPatch = Partial<SessionInput>;
+
+/** Volume d'un module : nombre de séances et minutes cumulées. */
+export type ModuleVolume = {
+  /** Valeur de sessions.module : une clé de MODULE_KEYS, ou une valeur inconnue lue en base. */
+  module: string;
+  count: number;
+  minutes: number;
+};
 
 /** Séances entre deux jours locaux inclus (YYYY-MM-DD), les plus récentes d'abord. */
 export async function listSessions({
@@ -140,4 +148,46 @@ export async function countSessions({
     return { data: null, error: 'Supabase n’a pas renvoyé le nombre de séances.' };
   }
   return { data: count, error: null };
+}
+
+/**
+ * Séances et minutes par module, éventuellement bornées par jour (bornes
+ * incluses) : un élément par module ayant au moins une séance, dans l'ordre de
+ * MODULES (modules inconnus à la fin). Les agrégats PostgREST étant désactivés
+ * par défaut sur Supabase, une ligne par séance revient, dans la limite du max
+ * rows du projet (1000 par défaut).
+ */
+export async function countByModule({
+  from,
+  to,
+}: {
+  from?: string;
+  to?: string;
+} = {}): Promise<DbResult<ModuleVolume[]>> {
+  let query = supabase.from('sessions').select('module, duration_min');
+  if (from) {
+    query = query.gte('date', from);
+  }
+  if (to) {
+    query = query.lte('date', to);
+  }
+  const { data, error } = await query;
+  if (error) {
+    return { data: null, error: error.message };
+  }
+  const volumes = new Map<string, ModuleVolume>();
+  for (const row of data) {
+    const volume = volumes.get(row.module) ?? { module: row.module, count: 0, minutes: 0 };
+    volumes.set(row.module, { ...volume, count: volume.count + 1, minutes: volume.minutes + row.duration_min });
+  }
+  const sorted = [...volumes.values()].sort(
+    (a, b) => moduleRank(a.module) - moduleRank(b.module) || a.module.localeCompare(b.module),
+  );
+  return { data: sorted, error: null };
+}
+
+/** Rang du module dans MODULE_KEYS ; les modules hors liste passent après. */
+function moduleRank(module: string): number {
+  const index = MODULE_KEYS.findIndex((key) => key === module);
+  return index === -1 ? MODULE_KEYS.length : index;
 }
