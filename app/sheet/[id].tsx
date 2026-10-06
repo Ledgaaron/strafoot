@@ -1,0 +1,806 @@
+import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { ActionButton } from '../../components/action-button';
+import { formatDayChip, localToday } from '../../lib/dates';
+import { createSession } from '../../lib/db/sessions';
+import {
+  createTestResults,
+  getLatestResults,
+  listTestCatalog,
+  type LatestResult,
+  type TestRow,
+} from '../../lib/db/test-results';
+import { getLastSessionForSheet, getSheet, type Sheet } from '../../lib/db/training';
+import { diagramUrl } from '../../lib/diagrams';
+import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY, TEST_MODULE_KEY } from '../../lib/modules';
+import type { Exercise, Measure } from '../../lib/sheet-types';
+
+/** Rapport largeur / hauteur des schémas (722 × 646 px). */
+const DIAGRAM_ASPECT_RATIO = 722 / 646;
+const PLACEHOLDER = '—';
+const NO_SESSION_MESSAGE = 'Supabase n’a renvoyé ni la séance ni d’erreur : vérifier l’Accueil avant de réessayer.';
+const NO_RESULTS_MESSAGE = 'Supabase n’a renvoyé ni les résultats ni d’erreur.';
+/** Valeur d'une mesure, espaces retirés : des chiffres, avec virgule ou point décimal. */
+const DECIMAL_PATTERN = /^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/;
+const NO_KEYS: ReadonlySet<string> = new Set();
+
+/** Fiche chargée, avec ce que son dernier écran demande. */
+type Loaded =
+  | {
+      kind: 'training';
+      sheet: Sheet;
+      /** Jour de la dernière séance liée ; null si jamais faite. */
+      lastSessionDate: string | null;
+    }
+  | {
+      kind: 'test';
+      sheet: Sheet;
+      /** Ligne du catalogue de chaque mesure du test, par key. */
+      tests: ReadonlyMap<string, TestRow>;
+      /** Dernier résultat par id de test ; absent si jamais mesuré. */
+      latest: ReadonlyMap<string, LatestResult>;
+    };
+
+type LoadState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'empty' }
+  | { status: 'ready'; loaded: Loaded };
+
+/** Envoi en cours, ou refusé ; invalidKeys : mesures vides ou illisibles, encadrées en rouge. */
+type SaveState =
+  | { status: 'idle' }
+  | { status: 'saving' }
+  | { status: 'error'; message: string; invalidKeys: ReadonlySet<string> };
+
+export default function SheetScreen() {
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
+  const sheetId = typeof id === 'string' && id !== '' ? id : null;
+  const [state, setState] = useState<LoadState>(sheetId ? { status: 'loading' } : { status: 'empty' });
+  // Incrémenté par « Réessayer » : relance le chargement.
+  const [loadCount, setLoadCount] = useState(0);
+
+  useEffect(() => {
+    if (!sheetId) {
+      return;
+    }
+    let active = true;
+    loadSheet(sheetId)
+      .then((next) => {
+        if (active) {
+          setState(next);
+        }
+      })
+      .catch((exception: unknown) => {
+        // Exception inattendue : affichée, jamais avalée.
+        if (active) {
+          setState({
+            status: 'error',
+            message: exception instanceof Error ? exception.message : String(exception),
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [sheetId, loadCount]);
+
+  function reload() {
+    setState({ status: 'loading' });
+    setLoadCount((count) => count + 1);
+  }
+
+  if (state.status !== 'ready') {
+    return (
+      <View style={styles.container}>
+        <Stack.Screen options={{ title: 'Fiche' }} />
+        {state.status === 'loading' ? <ActivityIndicator /> : null}
+        {state.status === 'error' ? (
+          <>
+            <Text style={styles.error}>Erreur : {state.message}</Text>
+            <ActionButton label="Réessayer" onPress={reload} />
+          </>
+        ) : null}
+        {state.status === 'empty' ? <Text style={styles.text}>Fiche introuvable.</Text> : null}
+      </View>
+    );
+  }
+
+  return <SheetReader key={state.loaded.sheet.id} loaded={state.loaded} />;
+}
+
+/**
+ * Fiche, puis ce que son dernier écran demande : pour une fiche de lecture, le
+ * jour de sa dernière séance ; pour un test, la ligne du catalogue et le dernier
+ * résultat de chaque mesure. Une mesure absente du catalogue est une erreur : le
+ * seed n'a pas été exécuté, ou le JSON a changé sans lui.
+ */
+async function loadSheet(sheetId: string): Promise<LoadState> {
+  const { data: sheet, error } = await getSheet(sheetId);
+  if (error !== null) {
+    return { status: 'error', message: error };
+  }
+  if (!sheet) {
+    return { status: 'empty' };
+  }
+
+  if (sheet.kind === 'training') {
+    const last = await getLastSessionForSheet(sheet.id);
+    if (last.error !== null) {
+      return { status: 'error', message: last.error };
+    }
+    return { status: 'ready', loaded: { kind: 'training', sheet, lastSessionDate: last.data } };
+  }
+
+  const catalog = await listTestCatalog();
+  if (catalog.error !== null) {
+    return { status: 'error', message: catalog.error };
+  }
+  const byKey = new Map<string, TestRow>();
+  for (const row of catalog.data ?? []) {
+    if (row.key !== null) {
+      byKey.set(row.key, row);
+    }
+  }
+  const tests = new Map<string, TestRow>();
+  const missing: string[] = [];
+  for (const measure of sheet.exercises.flatMap((block) => block.measures)) {
+    const row = byKey.get(measure.key);
+    if (row) {
+      tests.set(measure.key, row);
+    } else {
+      missing.push(measure.key);
+    }
+  }
+  if (missing.length > 0) {
+    return {
+      status: 'error',
+      message: `Mesures absentes du catalogue tests : ${missing.join(', ')}. Exécuter supabase/seed_sheets_001.sql.`,
+    };
+  }
+  const latest = await getLatestResults([...tests.values()].map((row) => row.id));
+  if (latest.error !== null) {
+    return { status: 'error', message: latest.error };
+  }
+  return { status: 'ready', loaded: { kind: 'test', sheet, tests, latest: latest.data ?? new Map() } };
+}
+
+function SheetReader({ loaded }: { loaded: Loaded }) {
+  const { sheet } = loaded;
+  // Jour figé à l'ouverture : la séance compte pour le jour où la fiche a été ouverte.
+  const [today] = useState(localToday);
+  // 0 : présentation ; 1 à n : un exercice par écran ; n + 1 : saisie des mesures (test).
+  const [step, setStep] = useState(0);
+  // Saisie du test, gardée ici : elle survit aux allers-retours entre les blocs.
+  const [values, setValues] = useState<Readonly<Partial<Record<string, string>>>>({});
+  const [comment, setComment] = useState('');
+  const [save, setSave] = useState<SaveState>({ status: 'idle' });
+  // Séance du test créée mais résultats non enregistrés : le réessai ne la recrée pas.
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
+  const pendingRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+
+  const exerciseCount = sheet.exercises.length;
+  const lastStep = loaded.kind === 'test' ? exerciseCount + 1 : exerciseCount;
+  const exercise = step >= 1 && step <= exerciseCount ? sheet.exercises[step - 1] : null;
+  const saving = save.status === 'saving';
+  const alreadyDoneToday = loaded.kind === 'training' && loaded.lastSessionDate === today;
+
+  function goTo(next: number) {
+    setStep(Math.min(Math.max(next, 0), lastStep));
+    // Contenu entièrement remplacé : lecture depuis le haut, sans défilement animé.
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+
+  function changeValue(key: string, text: string) {
+    setValues((current) => ({ ...current, [key]: text }));
+  }
+
+  async function markDone() {
+    if (loaded.kind !== 'training' || pendingRef.current || alreadyDoneToday) {
+      return;
+    }
+    pendingRef.current = true;
+    setSave({ status: 'saving' });
+    // Jamais de user_id : la base le tire du JWT.
+    const { data, error } = await createSession({
+      date: today,
+      module: SHEET_MODULE_KEY,
+      type: getModule(SHEET_MODULE_KEY).type,
+      name: sheet.title,
+      duration_min: sheet.duration_min,
+      difficulty: DEFAULT_DIFFICULTY,
+      comment: null,
+      sheet_id: sheet.id,
+    });
+    if (error !== null || data === null) {
+      pendingRef.current = false;
+      setSave({ status: 'error', message: error ?? NO_SESSION_MESSAGE, invalidKeys: NO_KEYS });
+      return;
+    }
+    // pendingRef reste vrai : l'écran se ferme, pas de second envoi possible.
+    router.dismissTo({ pathname: '/training', params: { savedSession: data.id, savedTitle: sheet.title } });
+  }
+
+  async function submitTest() {
+    if (loaded.kind !== 'test' || pendingRef.current) {
+      return;
+    }
+    const entries: { testId: string; value: number }[] = [];
+    const invalid: Measure[] = [];
+    for (const measure of sheet.exercises.flatMap((block) => block.measures)) {
+      const value = parseMeasureValue(values[measure.key] ?? '');
+      const test = loaded.tests.get(measure.key);
+      if (value === null || !test) {
+        invalid.push(measure);
+      } else {
+        entries.push({ testId: test.id, value });
+      }
+    }
+    if (invalid.length > 0) {
+      setSave({
+        status: 'error',
+        message: `Toutes les mesures sont obligatoires (nombre, virgule ou point). À compléter : ${invalid
+          .map((measure) => measure.name)
+          .join(', ')}.`,
+        invalidKeys: new Set(invalid.map((measure) => measure.key)),
+      });
+      return;
+    }
+
+    pendingRef.current = true;
+    setSave({ status: 'saving' });
+    let sessionId: string;
+    if (pendingSessionId === null) {
+      const created = await createSession({
+        date: today,
+        module: TEST_MODULE_KEY,
+        type: getModule(TEST_MODULE_KEY).type,
+        name: sheet.title,
+        duration_min: sheet.duration_min,
+        difficulty: DEFAULT_DIFFICULTY,
+        comment: comment.trim() || null,
+        sheet_id: sheet.id,
+      });
+      if (created.error !== null || created.data === null) {
+        pendingRef.current = false;
+        setSave({
+          status: 'error',
+          message: `Erreur : ${created.error ?? NO_SESSION_MESSAGE}`,
+          invalidKeys: NO_KEYS,
+        });
+        return;
+      }
+      sessionId = created.data.id;
+      setPendingSessionId(sessionId);
+    } else {
+      sessionId = pendingSessionId;
+      // Réessai : l'envoi précédent a pu aboutir en base sans que sa réponse arrive.
+      // Si le dernier résultat de chaque mesure vient déjà de cette séance, rien à
+      // renvoyer : un second insert les doublerait.
+      const check = await getLatestResults(entries.map((entry) => entry.testId));
+      if (check.error !== null || check.data === null) {
+        pendingRef.current = false;
+        setSave({
+          status: 'error',
+          message: resultsNotSaved(check.error ?? NO_RESULTS_MESSAGE),
+          invalidKeys: NO_KEYS,
+        });
+        return;
+      }
+      const latestNow = check.data;
+      if (entries.every((entry) => latestNow.get(entry.testId)?.session_id === sessionId)) {
+        leaveAfterTest(sessionId, entries.length);
+        return;
+      }
+    }
+
+    // Une seule requête pour toutes les mesures : enregistrées toutes, ou aucune.
+    const saved = await createTestResults(
+      entries.map((entry) => ({ test_id: entry.testId, value: entry.value, date: today, session_id: sessionId })),
+    );
+    if (saved.error !== null || saved.data === null) {
+      pendingRef.current = false;
+      setSave({
+        status: 'error',
+        message: resultsNotSaved(saved.error ?? NO_RESULTS_MESSAGE),
+        invalidKeys: NO_KEYS,
+      });
+      return;
+    }
+    leaveAfterTest(sessionId, saved.data.length);
+  }
+
+  /** Retour à l'onglet, avec la confirmation. pendingRef reste vrai : pas de second envoi possible. */
+  function leaveAfterTest(sessionId: string, resultCount: number) {
+    router.dismissTo({
+      pathname: '/training',
+      params: { savedSession: sessionId, savedTitle: sheet.title, savedResults: String(resultCount) },
+    });
+  }
+
+  const stepLabel = step === 0 ? 'Présentation' : exercise !== null ? `${step} / ${exerciseCount}` : 'Saisie';
+
+  return (
+    <SafeAreaView edges={['bottom']} style={styles.screen}>
+      <Stack.Screen options={{ title: sheet.title }} />
+      <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+        {step === 0 ? <Overview sheet={sheet} onOpen={goTo} /> : null}
+        {exercise !== null ? <ExerciseStep exercise={exercise} /> : null}
+
+        {loaded.kind === 'training' && step === lastStep ? (
+          <View style={styles.section}>
+            {save.status === 'error' ? <Text style={styles.error}>Erreur : {save.message}</Text> : null}
+            <PrimaryButton
+              label={alreadyDoneToday ? 'Déjà enregistrée aujourd’hui' : saving ? 'Enregistrement…' : 'Séance faite'}
+              disabled={alreadyDoneToday || saving}
+              onPress={markDone}
+            />
+          </View>
+        ) : null}
+
+        {loaded.kind === 'test' && step === lastStep ? (
+          <TestForm
+            sheet={sheet}
+            tests={loaded.tests}
+            latest={loaded.latest}
+            today={today}
+            values={values}
+            comment={comment}
+            // Séance déjà créée : son commentaire est enregistré, seuls les résultats restent à envoyer.
+            commentEditable={pendingSessionId === null}
+            save={save}
+            submitLabel={
+              saving ? 'Enregistrement…' : pendingSessionId !== null ? 'Réessayer les résultats' : 'Enregistrer le test'
+            }
+            onChangeValue={changeValue}
+            onChangeComment={setComment}
+            onSubmit={submitTest}
+          />
+        ) : null}
+      </ScrollView>
+
+      {/* Fixe en bas, hors du défilement : pas de geste de balayage, identique sur web et natif. */}
+      <View style={styles.navBar}>
+        <ActionButton label="Précédent" disabled={step === 0 || saving} onPress={() => goTo(step - 1)} />
+        <Text style={styles.navLabel}>{stepLabel}</Text>
+        <ActionButton label="Suivant" disabled={step === lastStep || saving} onPress={() => goTo(step + 1)} />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+/** Valeur saisie en nombre ; null si vide ou illisible. Virgule ou point, espaces ignorés (« 1 650 »). */
+function parseMeasureValue(text: string): number | null {
+  const compact = text.replace(/\s/g, '');
+  if (!DECIMAL_PATTERN.test(compact)) {
+    return null;
+  }
+  const value = Number(compact.replace(',', '.'));
+  return Number.isFinite(value) ? value : null;
+}
+
+function resultsNotSaved(error: string): string {
+  return `Séance enregistrée, résultats non enregistrés : ${error}\n« Réessayer les résultats » ne recrée pas la séance.`;
+}
+
+/** « 12,5 » : virgule écrite à la main, Intl ne rend pas la même chose sur web et sur Hermes. */
+function formatValue(value: number): string {
+  return String(value).replace('.', ',');
+}
+
+/** « Précision arrêt — pied droit (pts /30) » */
+function formatMeasureLabel(measure: Measure): string {
+  return `${measure.name} (${measure.unit})`;
+}
+
+/** Matériel identique dans tous les exercices : le matériel de toute la fiche ; null sinon (l'intro le décrit). */
+function sharedEquipment(exercises: readonly Exercise[]): string | null {
+  if (exercises.length === 0) {
+    return null;
+  }
+  const first = exercises[0].setup.equipment;
+  return exercises.every((exercise) => exercise.setup.equipment === first) ? first : null;
+}
+
+type OverviewProps = {
+  sheet: Sheet;
+  /** Saute à l'écran d'un exercice (1 à n). */
+  onOpen: (step: number) => void;
+};
+
+function Overview({ sheet, onOpen }: OverviewProps) {
+  const equipment = sharedEquipment(sheet.exercises);
+  return (
+    <>
+      <View style={styles.block}>
+        <Text style={styles.title}>{sheet.title}</Text>
+        {sheet.subtitle ? <Text style={styles.text}>{sheet.subtitle}</Text> : null}
+      </View>
+
+      {sheet.intro.length > 0 ? (
+        <View style={styles.block}>
+          {sheet.intro.map((line, index) => (
+            <Text key={index} style={styles.text}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+
+      <View style={styles.block}>
+        <Text style={styles.text}>Durée : {sheet.duration_min} min</Text>
+        {equipment !== null ? <Text style={styles.text}>Matériel : {equipment}</Text> : null}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.heading}>{sheet.kind === 'test' ? 'Blocs' : 'Exercices'}</Text>
+        {sheet.exercises.map((exercise, index) => (
+          <Pressable
+            key={exercise.order}
+            role="button"
+            onPress={() => onOpen(index + 1)}
+            style={({ pressed }) => [styles.row, pressed && styles.dimmed]}
+          >
+            <Text style={styles.rowTitle}>{`${exercise.order}. ${exercise.title}`}</Text>
+            <Text style={styles.text}>{exercise.duration_min} min</Text>
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
+}
+
+/** Un exercice, dans l'ordre imposé ; tout le contenu du JSON s'affiche. */
+function ExerciseStep({ exercise }: { exercise: Exercise }) {
+  const { setup, variations } = exercise;
+  return (
+    <>
+      {/* key : l'état chargé / introuvable repart de zéro à chaque schéma. */}
+      {exercise.diagram !== null ? (
+        <Diagram key={exercise.diagram} file={exercise.diagram} title={exercise.title} />
+      ) : null}
+
+      <View style={styles.block}>
+        <Text style={styles.title}>{exercise.title}</Text>
+        <Text style={styles.text}>{exercise.duration_min} min</Text>
+      </View>
+
+      <Section title="Objectif">
+        <Text style={styles.text}>{exercise.objective}</Text>
+      </Section>
+      <Section title="But">
+        <Text style={styles.text}>{exercise.goal}</Text>
+      </Section>
+      <Section title="Consignes">
+        <TextList items={exercise.instructions} numbered />
+      </Section>
+      <Section title="Critères de réussite">
+        <TextList items={exercise.success_criteria} />
+      </Section>
+      <Section title="Points techniques">
+        <TextList items={exercise.technical_points} />
+      </Section>
+      {variations !== null ? (
+        <Section title="Variables">
+          <Text style={styles.text}>Plus facile : {variations.easier}</Text>
+          <Text style={styles.text}>Plus dur : {variations.harder}</Text>
+        </Section>
+      ) : null}
+
+      <Text style={styles.text}>
+        {`Surface : ${setup.surface} · Séquence : ${setup.sequence} · Effectif : ${setup.equipment}`}
+      </Text>
+
+      {exercise.measures.length > 0 ? (
+        <Section title="Mesures, saisies à la fin">
+          {exercise.measures.map((measure) => (
+            <Text key={measure.key} style={styles.text}>
+              {formatMeasureLabel(measure)}
+            </Text>
+          ))}
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
+/** Schéma en pleine largeur ; un fichier absent du bucket est dit, jamais masqué. */
+function Diagram({ file, title }: { file: string; title: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <Text style={styles.error}>Schéma introuvable : {file} (bucket Storage diagrams).</Text>;
+  }
+  return (
+    <View style={styles.diagram}>
+      <Image
+        source={{ uri: diagramUrl(file) }}
+        resizeMode="contain"
+        accessibilityLabel={`Schéma : ${title}`}
+        onLoad={() => setLoaded(true)}
+        onError={() => setFailed(true)}
+        style={StyleSheet.absoluteFill}
+      />
+      {!loaded ? <ActivityIndicator style={StyleSheet.absoluteFill} /> : null}
+    </View>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.heading}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+/** Liste à puces, ou numérotée ; une ligne trop longue reste alignée sous son texte. */
+function TextList({ items, numbered = false }: { items: readonly string[]; numbered?: boolean }) {
+  return (
+    <View style={styles.list}>
+      {items.map((item, index) => (
+        <View key={index} style={styles.listItem}>
+          <Text style={styles.text}>{numbered ? `${index + 1}.` : '•'}</Text>
+          <Text style={[styles.text, styles.listText]}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+type TestFormProps = {
+  sheet: Sheet;
+  tests: ReadonlyMap<string, TestRow>;
+  latest: ReadonlyMap<string, LatestResult>;
+  today: string;
+  values: Readonly<Partial<Record<string, string>>>;
+  comment: string;
+  commentEditable: boolean;
+  save: SaveState;
+  submitLabel: string;
+  onChangeValue: (key: string, text: string) => void;
+  onChangeComment: (text: string) => void;
+  onSubmit: () => void;
+};
+
+/** Dernier écran d'un test : une valeur par mesure, bloc par bloc, à côté de la dernière connue. */
+function TestForm({
+  sheet,
+  tests,
+  latest,
+  today,
+  values,
+  comment,
+  commentEditable,
+  save,
+  submitLabel,
+  onChangeValue,
+  onChangeComment,
+  onSubmit,
+}: TestFormProps) {
+  const invalidKeys = save.status === 'error' ? save.invalidKeys : NO_KEYS;
+  return (
+    <>
+      <Text style={styles.title}>Saisie des mesures</Text>
+
+      {sheet.exercises.map((block) => (
+        <View key={block.order} style={styles.section}>
+          <Text style={styles.heading}>{`${block.order}. ${block.title}`}</Text>
+          {block.measures.map((measure) => {
+            const test = tests.get(measure.key);
+            const last = test ? latest.get(test.id) : undefined;
+            return (
+              <MeasureField
+                key={measure.key}
+                measure={measure}
+                value={values[measure.key] ?? ''}
+                invalid={invalidKeys.has(measure.key)}
+                lastLabel={
+                  last ? `dernier : ${formatValue(last.value)} · ${formatDayChip(last.date, today)}` : PLACEHOLDER
+                }
+                onChange={(text) => onChangeValue(measure.key, text)}
+              />
+            );
+          })}
+        </View>
+      ))}
+
+      <View style={styles.section}>
+        <Text style={styles.heading}>Commentaire</Text>
+        <TextInput
+          style={[styles.input, styles.commentInput]}
+          value={comment}
+          onChangeText={onChangeComment}
+          editable={commentEditable}
+          placeholder="Commentaire (facultatif)"
+          multiline
+        />
+      </View>
+
+      {save.status === 'error' ? <Text style={styles.error}>{save.message}</Text> : null}
+      <PrimaryButton label={submitLabel} disabled={save.status === 'saving'} onPress={onSubmit} />
+    </>
+  );
+}
+
+type MeasureFieldProps = {
+  measure: Measure;
+  value: string;
+  invalid: boolean;
+  /** « dernier : 18 · ven. 3 oct. », ou « — » si jamais mesurée. */
+  lastLabel: string;
+  onChange: (text: string) => void;
+};
+
+function MeasureField({ measure, value, invalid, lastLabel, onChange }: MeasureFieldProps) {
+  const label = formatMeasureLabel(measure);
+  return (
+    <View style={styles.measure}>
+      <Text style={styles.text}>{label}</Text>
+      <View style={styles.measureRow}>
+        <TextInput
+          style={[styles.input, styles.valueInput, invalid && styles.inputInvalid]}
+          value={value}
+          onChangeText={onChange}
+          // Clavier numérique avec séparateur décimal (decimal-pad natif, inputmode web).
+          inputMode="decimal"
+          placeholder={measure.unit}
+          accessibilityLabel={label}
+        />
+        <Text style={styles.lastValue}>{lastLabel}</Text>
+      </View>
+    </View>
+  );
+}
+
+type PrimaryButtonProps = {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+};
+
+/** Action du dernier écran (Séance faite, Enregistrer le test) : plus haute, libellé en gras. */
+function PrimaryButton({ label, onPress, disabled = false }: PrimaryButtonProps) {
+  return (
+    <Pressable
+      role="button"
+      aria-disabled={disabled}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [styles.primaryButton, (pressed || disabled) && styles.dimmed]}
+    >
+      <Text style={styles.primaryButtonLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  container: {
+    flex: 1,
+    padding: 16,
+    gap: 12,
+  },
+  content: {
+    padding: 16,
+    gap: 20,
+  },
+  text: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  error: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#b00020',
+  },
+  dimmed: {
+    opacity: 0.5,
+  },
+  title: {
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: 'bold',
+  },
+  heading: {
+    fontSize: 18,
+    lineHeight: 26,
+    fontWeight: 'bold',
+  },
+  block: {
+    gap: 4,
+  },
+  section: {
+    gap: 8,
+  },
+  list: {
+    gap: 6,
+  },
+  listItem: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  listText: {
+    flex: 1,
+  },
+  row: {
+    minHeight: 44,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+  },
+  rowTitle: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: 'bold',
+  },
+  diagram: {
+    width: '100%',
+    aspectRatio: DIAGRAM_ASPECT_RATIO,
+  },
+  navBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  navLabel: {
+    flex: 1,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  measure: {
+    gap: 6,
+  },
+  measureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  input: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    fontSize: 16,
+  },
+  valueInput: {
+    width: 120,
+  },
+  inputInvalid: {
+    borderColor: '#b00020',
+  },
+  lastValue: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  commentInput: {
+    minHeight: 88,
+    paddingVertical: 8,
+    textAlignVertical: 'top',
+  },
+  primaryButton: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+});

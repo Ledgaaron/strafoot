@@ -17,6 +17,8 @@ export type SessionInput = {
   duration_min: number;
   difficulty: number;
   comment: string | null;
+  /** Fiche ou test d'origine (« Séance faite », test enregistré) ; absent pour une séance saisie. */
+  sheet_id?: string | null;
 };
 
 /** Champs modifiables d'une séance existante. */

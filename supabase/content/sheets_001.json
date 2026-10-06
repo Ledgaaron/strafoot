@@ -1,0 +1,274 @@
+{
+  "_format": {
+    "kind": "training = fiche de lecture, aucune saisie pendant ; test = chaque bloc porte des mesures saisies à la fin",
+    "positions": "taxonomie de lib/quiz-taxonomy.ts",
+    "skill": "passe | tir | dribble | jonglerie | physique | recuperation | mixte",
+    "diagram": "nom de fichier dans le bucket Storage `diagrams` ; null si pas de schéma"
+  },
+  "sheets": [
+    {
+      "slug": "bo-tir-finition-surface",
+      "kind": "training",
+      "title": "Tir : finition dans la surface",
+      "subtitle": "Séance BO — solo, but réel",
+      "positions": ["avant_centre", "ailier", "milieu_offensif"],
+      "skill": "tir",
+      "duration_min": 45,
+      "intro": [
+        "45' hors échauffement. 1 joueur, 2 ballons, plots, but réel avec filet. Intérieur du pied D / G, placé « petit filet ».",
+        "Zone petit filet = ballon au sol entre le poteau et le plot cible (1 m).",
+        "Règle commune : ballon au sol ; 2 ballons puis récupération en marchant = repos."
+      ],
+      "exercises": [
+        {
+          "order": 1,
+          "title": "Gamme de frappe à l'arrêt — D / G",
+          "duration_min": 10,
+          "objective": "Fixer la mécanique de la frappe intérieur du pied, surtout pied gauche, sur ballon arrêté sans contrainte.",
+          "goal": "Marquer au sol dans la zone « petit filet » (entre le poteau et le plot cible).",
+          "instructions": [
+            "2 ballons posés face au but. Pied droit depuis le point de penalty (11 m). Pied gauche depuis 7-8 m : on raccourcit pour réussir le geste avant d'ajouter la distance.",
+            "Série = 2 frappes du même pied, alterner le côté visé à chaque frappe (poteau gauche, poteau droit). 10 séries D + 10 séries G.",
+            "Élan de 2-3 pas en diagonale, pas de course. Entre deux séries : récupérer en marchant, c'est la récupération."
+          ],
+          "success_criteria": [
+            "Pied droit : 12 petits filets / 20.",
+            "Pied gauche : 8 / 20, tous les ballons au sol et cadrés.",
+            "Si gauche ≥ 14/20, reculer à 11 m."
+          ],
+          "technical_points": [
+            "Pied d'appui à 15-20 cm du ballon, à hauteur du ballon, pointe vers la cible, genou fléchi.",
+            "Hanche ouverte, cheville verrouillée pointe relevée, contact plein centre du ballon avec la voûte interne.",
+            "Regard sur le ballon au contact, buste légèrement penché, bras opposé en équilibre.",
+            "Accompagner le geste dans la direction de la cible (pas de frappe sèche). Pied gauche : ralentir le geste, priorité à la précision, pas à la vitesse."
+          ],
+          "variations": {
+            "easier": "Pied gauche à 6 m, ballon posé légèrement devant le pied d'appui.",
+            "harder": "Viser un seul poteau sur 5 frappes consécutives ; pied droit à 14 m ; chrono entre les 2 frappes d'une série (3 s)."
+          },
+          "setup": { "surface": "Face au but, 7 à 11 m", "sequence": "20 séries de 2 frappes", "equipment": "1 joueur, 2 ballons, 2 plots" },
+          "diagram": "tir-exo1.png"
+        },
+        {
+          "order": 2,
+          "title": "Conduite — porte — frappe croisée",
+          "duration_min": 10,
+          "objective": "Frapper intérieur du pied après une conduite : enchaîner la touche d'orientation et la frappe sans casser le rythme.",
+          "goal": "Frapper en 2 touches maximum après la porte et marquer au sol dans le petit filet opposé (frappe croisée).",
+          "instructions": [
+            "2 parcours symétriques. Départ excentré à 25 m (plot), conduite libre jusqu'à une porte de 2 m posée à 16-18 m, à hauteur de la ligne de surface.",
+            "Après la porte : 1 touche d'orientation vers l'intérieur puis frappe du pied côté départ (côté droit = pied droit, côté gauche = pied gauche), croisée vers le poteau opposé.",
+            "2 ballons = 2 courses de suite (une par côté), puis récupération. 8 courses par côté."
+          ],
+          "success_criteria": [
+            "6 frappes croisées au sol sur 8 côté droit, 4 sur 8 côté gauche.",
+            "Zéro frappe au-dessus du genou."
+          ],
+          "technical_points": [
+            "Dernière touche de conduite légèrement vers l'intérieur pour ouvrir l'angle vers le poteau opposé.",
+            "Lever la tête pendant la conduite (2 regards vers le but avant la porte) : repérer le poteau visé avant la touche d'orientation.",
+            "Pied d'appui planté à côté du ballon même en mouvement ; ne pas frapper « en avançant » le ballon trop loin devant.",
+            "Côté gauche : réduire la vitesse de conduite jusqu'à ce que le geste soit propre, puis réaccélérer."
+          ],
+          "variations": {
+            "easier": "Porte à 14 m, 3 touches autorisées, frapper côté le plus proche d'abord.",
+            "harder": "1 seule touche après la porte (frappe directe sur la conduite), départ à 30 m, porte réduite à 1,5 m."
+          },
+          "setup": { "surface": "Surface + 10 m", "sequence": "8 passages par côté", "equipment": "1 joueur, 2 ballons, 6 plots" },
+          "diagram": "tir-exo2.png"
+        },
+        {
+          "order": 3,
+          "title": "Auto-passe — scan — contrôle orienté — finition",
+          "duration_min": 13,
+          "objective": "Finir après une course : décider du côté avant le contrôle (scan pendant la course du ballon), contrôle orienté puis frappe placée.",
+          "goal": "Marquer au sol dans le petit filet du côté choisi, en 2 touches (contrôle + frappe), moins de 4 s après la 1re touche.",
+          "instructions": [
+            "Départ plot excentré à 25 m. Zone de réception 3 × 3 m (4 plots) autour du point de penalty.",
+            "Auto-passe au sol dans la zone (passe appuyée pour soi), sprint, contrôle orienté vers le but, frappe immédiate en 2e touche.",
+            "Règle de décision : avant la 1re touche, regarder le but. Côté départ droit = pied droit vers poteau gauche ; côté départ gauche = pied gauche vers poteau droit. Alterner les côtés. 2 ballons = 2 actions puis récupération."
+          ],
+          "success_criteria": [
+            "Contrôle orienté dans le sens du but 14 fois / 16 (pas de touche vers l'arrière).",
+            "Petit filet 6/16, dont 2 du gauche.",
+            "Chaque action < 4 s."
+          ],
+          "technical_points": [
+            "Scan : tête levée pendant que le ballon roule, avant la 1re touche (le choix est fait quand le ballon arrive).",
+            "1re touche avec le pied éloigné du but qui pousse le ballon à 1,5-2 m vers l'avant-intérieur, face au but, pas sur le côté.",
+            "Frappe en 2e touche sans réajustement : si on fait un pas de plus, le contrôle était trop long ou trop court.",
+            "Respiration et appuis : freiner sur le dernier appui avant le contrôle, ne pas arriver lancé sur le ballon."
+          ],
+          "variations": {
+            "easier": "Zone à 9 m, 3 touches, choisir le côté avant de partir.",
+            "harder": "Zone 2 × 2 m à 14 m ; auto-passe plus forte ; tirer au sort le côté en levant la tête sur un repère (ex. choisir le poteau opposé au pied qui contrôle)."
+          },
+          "setup": { "surface": "Surface + 10 m", "sequence": "8 actions par côté", "equipment": "1 joueur, 2 ballons, 6 plots" },
+          "diagram": "tir-exo3.png"
+        },
+        {
+          "order": 4,
+          "title": "Circuit « match » — 2 frappes sous fatigue, score",
+          "duration_min": 12,
+          "objective": "Finir sous fatigue et avec un enjeu : garder la mécanique de frappe quand le rythme cardiaque monte (transfert vers le match).",
+          "goal": "Marquer le maximum de points sur 8 tours : petit filet au sol = 3, cadré au sol ailleurs = 1, non cadré ou au-dessus du genou = -1.",
+          "instructions": [
+            "Ballon A posé à 10 m dans l'axe. Ballon B posé à 16 m, excentré gauche (tours impairs) ou droit (tours pairs). Départ plot à 35 m.",
+            "Tour : sprint 35 m — frappe A du pied gauche placée (sans conduite) — course vers B — 2 touches (orientation + frappe croisée du pied côté ballon) — récupération des 2 ballons en marchant = repos.",
+            "Replacer les ballons, repartir. Noter le score à chaque tour, total sur 8."
+          ],
+          "success_criteria": [
+            "Score ≥ 20 points sur 48 possibles.",
+            "Aucune frappe à -1 sur les tours 6 à 8 (tenir la technique fatigué)."
+          ],
+          "technical_points": [
+            "Les 3 derniers appuis avant chaque ballon : courts et rapides pour replacer le pied d'appui ; c'est ce qui casse quand on est fatigué.",
+            "Pied gauche sur A : même geste lent et appuyé que dans l'exo 1, même si l'enjeu pousse à frapper fort.",
+            "Tête haute dans la course vers B : choisir le poteau avant la touche d'orientation."
+          ],
+          "variations": {
+            "easier": "Départ à 25 m, ballon A à 8 m, 3 touches sur B.",
+            "harder": "Chrono 15 s max par tour, ballon A du pied gauche en 1 touche après une auto-passe, ballon B en 1 touche."
+          },
+          "setup": { "surface": "Surface + 20 m", "sequence": "8 tours (repos = récupération)", "equipment": "1 joueur, 2 ballons, 4 plots" },
+          "diagram": "tir-exo4.png"
+        }
+      ]
+    },
+    {
+      "slug": "bo-passe-remise-controle-scan",
+      "kind": "training",
+      "title": "Passe : remise 1 touche, contrôle orienté, pied gauche, scan",
+      "subtitle": "Séance BO — solo, mur bas — routine quotidienne",
+      "positions": ["tous"],
+      "skill": "passe",
+      "duration_min": 45,
+      "intro": [
+        "45' hors échauffement. 1 joueur, 2 ballons, plots, mur < 1 m : tout ballon qui monte au-dessus est une passe ratée, c'est le juge de la séance.",
+        "Portes = 2 plots au pied du mur. Scan = tourner la tête par-dessus l'épaule pendant que le ballon roule, et nommer ce qu'on voit.",
+        "Le 2e ballon sert à relancer sans arrêter le chrono."
+      ],
+      "exercises": [
+        {
+          "order": 1,
+          "title": "Gamme au mur — passe intérieur D / G, 2 touches puis 1 touche",
+          "duration_min": 8,
+          "objective": "Qualité de passe intérieur du pied : ballon au sol, dosé, précis, des deux pieds. Mettre le pied gauche en route sans contrainte.",
+          "goal": "Enchaîner les passes au mur sans que le ballon ne monte ni ne s'arrête. Cible : une porte de 1 m sur le mur (2 plots au pied du mur).",
+          "instructions": [
+            "Joueur à 5 m du mur, 2e ballon à portée (relance immédiate si le 1er s'échappe).",
+            "Bloc 1 (2') : 2 touches, alterner pied droit / pied gauche à chaque passe (contrôle du pied qui va passer).",
+            "Bloc 2 (2') : 2 touches, pied gauche uniquement. Bloc 3 (2') : 1 touche, alterner D / G. Bloc 4 (2') : 1 touche, pied gauche uniquement.",
+            "Compter les passes réussies dans la porte par bloc."
+          ],
+          "success_criteria": [
+            "Bloc 2 : 40 passes dans la porte en 2'.",
+            "Bloc 4 : 25 passes dans la porte en 2', aucune au-dessus du genou.",
+            "Le mur bas est ton juge : ballon qui monte = passe ratée."
+          ],
+          "technical_points": [
+            "Pied d'appui à côté du ballon, pointé vers la porte ; cheville verrouillée, pointe relevée, surface de contact large (voûte interne).",
+            "Dosage : la passe doit revenir jusqu'à toi sans que tu avances. Trop forte = tu recules, trop faible = tu avances.",
+            "Pied gauche : geste plus lent, accompagnement long vers la cible. Accepter le rythme plus bas plutôt qu'une passe approximative.",
+            "Posture : genoux fléchis, buste au-dessus du ballon, bras en équilibre."
+          ],
+          "variations": {
+            "easier": "4 m, porte de 1,5 m, bloc 4 en 2 touches.",
+            "harder": "7 m, porte de 0,8 m, chrono sur 30 passes consécutives, extérieur du pied en bloc 3."
+          },
+          "setup": { "surface": "5 m du mur", "sequence": "4 blocs de 2', 30 s de pause", "equipment": "1 joueur, 2 ballons, 2 plots" },
+          "diagram": "passe-exo1.png"
+        },
+        {
+          "order": 2,
+          "title": "Remise 1 touche + scan dans le dos",
+          "duration_min": 10,
+          "objective": "Remise en 1 touche de qualité avec un scan systématique pendant la course du ballon : installer l'habitude tête levée AVANT la réception.",
+          "goal": "Scan dans le dos avant chaque remise, remise 1 touche dans la porte du mur.",
+          "instructions": [
+            "Joueur à 5 m du mur, 3 plots repères dans le dos à 6-8 m (gauche, axe, droite).",
+            "Cycle : passe au mur — pendant que le ballon va et revient, tourner la tête par-dessus l'épaule et nommer à voix haute le plot regardé (G / A / D) — remise 1 touche dans la porte.",
+            "Ordre des regards imposé : G, D, A, G, D, A… Alterner l'épaule de scan (épaule gauche pour G, droite pour D). Séries 1-2 : pied libre. Séries 3-5 : pied gauche obligatoire.",
+            "Ballon manqué ou qui monte : reprendre avec le 2e ballon sans arrêter le chrono."
+          ],
+          "success_criteria": [
+            "100 % des remises précédées d'un scan nommé (sinon la remise ne compte pas).",
+            "Séries 3-5 : 20 remises valides du gauche par série."
+          ],
+          "technical_points": [
+            "Timing : la tête part dès que le ballon quitte le pied, elle revient sur le ballon à mi-chemin du retour. Pas de scan quand le ballon est à 1 m.",
+            "Le scan a un contenu : dire ce qu'on voit, pas juste tourner la tête.",
+            "Appuis réglés avant la remise : petit pas d'ajustement, pied d'appui planté, remise avec le pied le plus proche de l'orientation voulue.",
+            "Remise amortie puis dosée : le ballon ne doit pas rebondir au-dessus du mur."
+          ],
+          "variations": {
+            "easier": "2 touches, scan sur 2 plots seulement.",
+            "harder": "Ordre aléatoire via le téléphone (mémo vocal avec des G/A/D enregistrés à intervalles irréguliers, écouteurs) ; 6 m ; remise vers le côté du plot nommé (angle)."
+          },
+          "setup": { "surface": "5 m du mur + 8 m dans le dos", "sequence": "5 × 90 s, 30 s de pause", "equipment": "1 joueur, 2 ballons, 5 plots" },
+          "diagram": "passe-exo2.png"
+        },
+        {
+          "order": 3,
+          "title": "Zigzag au mur — scan, contrôle orienté, passe dans la porte",
+          "duration_min": 12,
+          "objective": "Contrôle orienté sous contrainte de déplacement : la 1re touche prépare la passe suivante, le regard a déjà choisi la porte avant que le ballon arrive.",
+          "goal": "Porte suivante en 2 touches : 1re touche orientée en mouvement, 2e touche = passe au sol dans la porte.",
+          "instructions": [
+            "3 portes de 1,5 m au pied du mur : G, A, D espacées de 3 m. Joueur à 6 m face à A.",
+            "Passe dans A — retour — scan de la porte suivante — 1re touche orientée — passe dans D — le ballon revient en biais — déplacement, scan, 1re touche — passe dans G… Ordre : A, D, A, G, A, D.",
+            "Séries 1-2 : pied libre. Séries 3-4 : passe du pied gauche obligatoire (contrôle libre).",
+            "2'30 par série ; compter les portes consécutives (retour à 0 si porte ratée ou 3e touche)."
+          ],
+          "success_criteria": [
+            "Séries 1-2 : 10 portes consécutives au moins une fois.",
+            "Séries 3-4 (gauche) : 6 portes consécutives.",
+            "Aucun ballon au-dessus du mur."
+          ],
+          "technical_points": [
+            "1re touche avec le pied éloigné de la porte visée, qui pousse le ballon de 1 à 2 m dans la direction de la prochaine passe : le corps est déjà orienté.",
+            "Scan pendant que le ballon revient : lire la porte suivante ET le rebond (où le ballon va arriver). Tête levée, puis regard sur le ballon pour la touche.",
+            "Si tu dois faire une 3e touche, le contrôle était trop long ou mal orienté : noter et corriger, ne pas accélérer.",
+            "Déplacement latéral en pas chassés courts, jamais dos au mur."
+          ],
+          "variations": {
+            "easier": "Portes de 2 m, 3 touches, 5 m.",
+            "harder": "Portes de 1 m, 7 m, ordre aléatoire (mémo vocal), contrôle du pied gauche imposé + passe du gauche, sprint entre deux portes."
+          },
+          "setup": { "surface": "Mur 10 m × 6 m", "sequence": "4 × 2'30, 30 s de pause", "equipment": "1 joueur, 2 ballons, 6 plots" },
+          "diagram": "passe-exo3.png"
+        },
+        {
+          "order": 4,
+          "title": "Test noté « scan — remise — orientation » (référence du mois)",
+          "duration_min": 12,
+          "objective": "Mesurer chaque jour la même chose : qualité de remise et de contrôle orienté sous fatigue et chrono, pied gauche valorisé.",
+          "goal": "Maximum de points en 3 manches de 2' sur le dispositif de l'exo 3.",
+          "instructions": [
+            "Ordre imposé des portes : A, D, A, G, A, D… Passe vers la porte suivante dès le retour du ballon.",
+            "Barème par passe : porte réussie en 2 touches = 1 pt ; porte en 1 touche (remise directe orientée) = 2 pts ; passe du pied gauche = +1 ; porte ratée = 0 ; ballon au-dessus du mur ou perdu = -1 et relance avec le 2e ballon.",
+            "Manche 1 : pied libre. Manche 2 : pied gauche obligatoire (le bonus +1 ne compte donc que pour les 1 touche). Manche 3 : pied libre, 1 touche encouragée.",
+            "1' de repos entre les manches. Noter le score de chaque manche puis le total."
+          ],
+          "success_criteria": [
+            "Référence à établir le jour 1, puis total en hausse sur la moyenne hebdomadaire.",
+            "Manche 2 (gauche) jamais inférieure à la moitié de la manche 1.",
+            "Zéro -1 en manche 3."
+          ],
+          "technical_points": [
+            "Même protocole chaque jour : mêmes distances, mêmes portes, mêmes ballons. Un test qui change ne mesure rien.",
+            "Les points viennent de la régularité, pas de la vitesse : une porte ratée coûte plus qu'une passe lente.",
+            "Scan avant chaque passe même sous chrono : c'est précisément ce qui saute quand le rythme monte.",
+            "Noter honnêtement, y compris les -1."
+          ],
+          "variations": {
+            "easier": "Jours 1-3 si le score est nul : manches de 90 s, portes de 2 m.",
+            "harder": "Quand la moyenne hebdo stagne 2 semaines : 7 m, portes de 1 m, ordre aléatoire au mémo vocal, 1 touche obligatoire en manche 3."
+          },
+          "setup": { "surface": "Dispositif de l'exo 3", "sequence": "3 manches de 2', 1' de repos", "equipment": "1 joueur, 2 ballons, 6 plots" },
+          "diagram": "passe-exo4.png"
+        }
+      ]
+    }
+  ]
+}

@@ -2,10 +2,12 @@
 //   npx supabase gen types typescript --project-id <id> > lib/types.ts
 // Contenu produit par @supabase/postgrest-typegen (moteur de supabase gen types)
 // sur supabase/migrations/001_initial_schema.sql, puis aligné à la main sur 002
-// (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid())
-// et sur 003 (answers.quiz_run_id, answers.flagged).
+// (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid()),
+// sur 003 (answers.quiz_run_id, answers.flagged) et sur 004
+// (training_sheets.slug, kind, subtitle, intro, pdf_url ; tests.key,
+// higher_is_better ; test_results.session_id).
 // Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
-// colonnes jsonb : lib/json-types.ts).
+// colonnes jsonb : lib/json-types.ts et lib/sheet-types.ts).
 
 export type Json =
   | string
@@ -211,6 +213,7 @@ export type Database = {
           created_at: string
           date: string
           id: string
+          session_id: string | null
           test_id: string
           user_id: string
           value: number
@@ -220,6 +223,7 @@ export type Database = {
           created_at?: string
           date: string
           id?: string
+          session_id?: string | null
           test_id: string
           user_id?: string
           value: number
@@ -229,11 +233,19 @@ export type Database = {
           created_at?: string
           date?: string
           id?: string
+          session_id?: string | null
           test_id?: string
           user_id?: string
           value?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "test_results_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "test_results_test_id_fkey"
             columns: ["test_id"]
@@ -246,7 +258,9 @@ export type Database = {
       tests: {
         Row: {
           created_at: string
+          higher_is_better: boolean
           id: string
+          key: string | null
           name: string
           protocol: string
           unit: string
@@ -254,7 +268,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          higher_is_better?: boolean
           id?: string
+          key?: string | null
           name: string
           protocol: string
           unit: string
@@ -262,7 +278,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          higher_is_better?: boolean
           id?: string
+          key?: string | null
           name?: string
           protocol?: string
           unit?: string
@@ -276,9 +294,14 @@ export type Database = {
           duration_min: number
           exercises: NonNullable<Json>
           id: string
+          intro: NonNullable<Json>
           is_public: boolean
+          kind: string
+          pdf_url: string | null
           positions: string[]
           skill: string
+          slug: string | null
+          subtitle: string | null
           title: string
           user_id: string
         }
@@ -287,9 +310,14 @@ export type Database = {
           duration_min: number
           exercises?: NonNullable<Json>
           id?: string
+          intro?: NonNullable<Json>
           is_public?: boolean
+          kind?: string
+          pdf_url?: string | null
           positions?: string[]
           skill: string
+          slug?: string | null
+          subtitle?: string | null
           title: string
           user_id?: string
         }
@@ -298,9 +326,14 @@ export type Database = {
           duration_min?: number
           exercises?: NonNullable<Json>
           id?: string
+          intro?: NonNullable<Json>
           is_public?: boolean
+          kind?: string
+          pdf_url?: string | null
           positions?: string[]
           skill?: string
+          slug?: string | null
+          subtitle?: string | null
           title?: string
           user_id?: string
         }

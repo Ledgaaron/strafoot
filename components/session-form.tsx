@@ -7,15 +7,17 @@ import { formatDayChip, lastDays } from '../lib/dates';
 import type { SessionRow } from '../lib/db/sessions';
 import {
   buildSessionName,
+  DEFAULT_DIFFICULTY,
   DEFAULT_MODULE_KEY,
   getModule,
   isModuleKey,
   MODULES,
+  TEST_MODULE_KEY,
   type ModuleKey,
 } from '../lib/modules';
 
-/** Difficulté enregistrée quand aucune puce n'est choisie. */
-const DEFAULT_DIFFICULTY = 3;
+/** Modules proposés : tous sauf `test`, créé seulement par l'écran de test. */
+const FORM_MODULES = MODULES.filter((entry) => entry.key !== TEST_MODULE_KEY);
 const DIFFICULTIES = [1, 2, 3, 4, 5];
 /** Puces de date : aujourd'hui puis les 13 jours précédents. */
 const RECENT_DAY_COUNT = 14;
@@ -119,6 +121,9 @@ export function SessionForm({
   const dayOptions = recentDays.includes(initialValues.date)
     ? recentDays
     : [...recentDays, initialValues.date];
+  // De même, une séance test (écran de test) garde sa puce de module, en dernier.
+  const moduleOptions: readonly (typeof MODULES)[number][] =
+    initialValues.module === TEST_MODULE_KEY ? MODULES : FORM_MODULES;
 
   function selectDate(day: string) {
     setDate(day);
@@ -217,7 +222,7 @@ export function SessionForm({
         <View style={styles.section}>
           <Text style={styles.label}>Module</Text>
           <View style={styles.wrapRow}>
-            {MODULES.map((entry) => (
+            {moduleOptions.map((entry) => (
               <Chip
                 key={entry.key}
                 label={entry.label}
