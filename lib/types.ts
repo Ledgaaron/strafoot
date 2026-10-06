@@ -2,7 +2,8 @@
 //   npx supabase gen types typescript --project-id <id> > lib/types.ts
 // Contenu produit par @supabase/postgrest-typegen (moteur de supabase gen types)
 // sur supabase/migrations/001_initial_schema.sql, puis aligné à la main sur 002
-// (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid()).
+// (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid())
+// et sur 003 (answers.quiz_run_id, answers.flagged).
 // Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
 // colonnes jsonb : lib/json-types.ts).
 
@@ -22,8 +23,10 @@ export type Database = {
           answered_at: string
           chosen_index: number
           created_at: string
+          flagged: boolean
           id: string
           question_id: string
+          quiz_run_id: string | null
           score: number
           user_id: string
         }
@@ -31,8 +34,10 @@ export type Database = {
           answered_at?: string
           chosen_index: number
           created_at?: string
+          flagged?: boolean
           id?: string
           question_id: string
+          quiz_run_id?: string | null
           score: number
           user_id?: string
         }
@@ -40,8 +45,10 @@ export type Database = {
           answered_at?: string
           chosen_index?: number
           created_at?: string
+          flagged?: boolean
           id?: string
           question_id?: string
+          quiz_run_id?: string | null
           score?: number
           user_id?: string
         }

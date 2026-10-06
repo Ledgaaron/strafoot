@@ -1,0 +1,310 @@
+{
+  "_format": {
+    "score": "3 = bon choix (optimal ou choix légitime risqué/assuré), 2 = défendable mais sous-optimal, 1 = faible, 0 = erreur",
+    "theme": ["situation", "tactique", "technique", "culture", "mental"],
+    "positions": ["gardien", "defenseur_central", "lateral", "milieu_defensif", "milieu_central", "milieu_offensif", "ailier", "avant_centre", "tous"],
+    "level": "1 = base, 2 = intermédiaire, 3 = avancé"
+  },
+  "questions": [
+    {
+      "situation": "Ailier droit. Ton latéral remonte balle au pied à 40 m du but. Le latéral adverse te marque de près, il y a de l'espace dans son dos.",
+      "options": [
+        { "text": "Venir dans les pieds de ton latéral pour recevoir court.", "score": 1, "explanation": "Tu attires ton marqueur vers le ballon et tu refermes toi-même l'espace libre. Acceptable seulement si ton latéral est pressé et n'a aucune autre option." },
+        { "text": "Appel dans la profondeur, dans le dos du latéral adverse.", "score": 3, "explanation": "L'espace est là et ton latéral est face au jeu : c'est le moment de la passe verticale. Même si elle ne vient pas, tu étires la défense adverse." },
+        { "text": "Rentrer à l'intérieur dans le demi-espace.", "score": 2, "explanation": "Défendable : tu libères le couloir pour la montée du latéral et tu te rapproches du but. Mais tu renonces à l'espace le plus dangereux, celui dans le dos." },
+        { "text": "Rester sur place et attendre que le jeu arrive.", "score": 0, "explanation": "Immobile et marqué, tu n'es une option pour personne. Un ailier sans mouvement est un ailier invisible." }
+      ],
+      "theme": "situation", "positions": ["ailier"], "level": 1, "source": "Principe : attaquer l'espace libre quand le porteur est face au jeu"
+    },
+    {
+      "situation": "Ailier gauche. Tu reçois dos au jeu, près de la ligne de touche, un défenseur dans ton dos qui te presse.",
+      "options": [
+        { "text": "Remise en une touche à ton latéral qui soutient.", "score": 3, "explanation": "Choix assuré : tu conserves le ballon, tu fais ressortir le pressing et ton latéral a une vue dégagée. Rien de spectaculaire, mais zéro perte." },
+        { "text": "Contrôle orienté vers l'intérieur et combinaison avec le milieu.", "score": 3, "explanation": "Choix ambitieux : si ton contrôle est bon, tu élimines le presseur et tu attaques le centre. Exige d'avoir scanné avant la réception pour savoir que l'intérieur est libre." },
+        { "text": "Te retourner en force côté ligne de touche.", "score": 1, "explanation": "Tu te retournes vers l'endroit où il y a le moins d'options et où la ligne défend avec le défenseur. Perte de balle très probable." },
+        { "text": "Long ballon devant toi sans regarder.", "score": 0, "explanation": "Tu rends le ballon à l'adversaire. Dégager n'est pas une décision, c'est l'absence de décision." }
+      ],
+      "theme": "situation", "positions": ["ailier"], "level": 1, "source": "Principe : conserver sous pression, sortir du pressing par le joueur libre"
+    },
+    {
+      "situation": "Ailier, 1 contre 1 face au latéral adverse à 30 m du but. 70e minute, score 1-1. Ton latéral arrive en soutien dans 3 secondes.",
+      "options": [
+        { "text": "Attaquer le latéral à pleine vitesse côté extérieur, tout de suite.", "score": 3, "explanation": "Choix risqué mais légitime : le défenseur est seul et n'a pas de couverture. À 1-1, créer un déséquilibre est une option valable." },
+        { "text": "Temporiser face au défenseur et attendre le dédoublement de ton latéral.", "score": 3, "explanation": "Choix assuré : tu transformes un 1v1 en 2v1. Tu perds l'effet de surprise mais tu gagnes une supériorité numérique garantie." },
+        { "text": "Centrer immédiatement sans regarder la surface.", "score": 1, "explanation": "À 30 m, un centre à l'aveugle a peu de chances d'arriver. Tu abandonnes un 1v1 favorable pour une action à faible probabilité." },
+        { "text": "Frapper de 30 m.", "score": 0, "explanation": "Angle fermé, distance longue, défenseur devant : tu offres le ballon au gardien ou un contre à l'adversaire." }
+      ],
+      "theme": "situation", "positions": ["ailier"], "level": 2, "source": "Principe : le contexte (score, soutien) décide entre risque et sécurité"
+    },
+    {
+      "situation": "Ton équipe vient de perdre le ballon à 35 m du but adverse. Le latéral adverse récupère juste devant toi, dos au jeu.",
+      "options": [
+        { "text": "Presser immédiatement pendant 5 secondes pour récupérer ou forcer un ballon long.", "score": 3, "explanation": "Le meilleur moment pour récupérer est juste après la perte : l'adversaire est dos au jeu, désorganisé, et tu es déjà sur lui." },
+        { "text": "Revenir tout de suite dans ta position défensive.", "score": 2, "explanation": "Défendable si ton équipe ne presse pas collectivement : un pressing seul se contourne. Mais tu laisses au latéral le temps de lever la tête." },
+        { "text": "Rester haut pour être prêt pour la contre-attaque.", "score": 1, "explanation": "Tu laisses ton équipe en infériorité. La contre-attaque ne viendra que si le ballon est récupéré, et tu n'y contribues pas." },
+        { "text": "Réclamer une faute à l'arbitre.", "score": 0, "explanation": "Pendant que tu parles, l'adversaire joue. Réclamer, c'est une sortie de match volontaire." }
+      ],
+      "theme": "situation", "positions": ["ailier", "milieu_offensif", "avant_centre"], "level": 1, "source": "Principe : contre-pressing, les 5 secondes après la perte"
+    },
+    {
+      "situation": "Ton équipe défend en bloc bas. Le ballon est dans le couloir opposé au tien. Tu es l'ailier côté faible.",
+      "options": [
+        { "text": "Resserrer vers l'axe, presque au niveau d'un milieu, pour fermer l'intérieur.", "score": 3, "explanation": "En bloc bas, la priorité est de protéger l'axe. Un renversement est long : tu auras le temps de ressortir sur ton adversaire." },
+        { "text": "Rester large sur ton adversaire direct.", "score": 1, "explanation": "Tu défends un joueur qui est à 50 m du ballon et tu laisses un trou dans l'axe, là où l'adversaire cherche à jouer." },
+        { "text": "Rester haut pour offrir une solution de relance.", "score": 1, "explanation": "Un seul joueur peut rester haut, et c'est en général l'avant-centre. L'ailier côté faible qui ne défend pas crée une infériorité." },
+        { "text": "Descendre au niveau de ta ligne défensive, derrière ton latéral.", "score": 2, "explanation": "Défendable face à une équipe qui renverse vite et attaque avec beaucoup de joueurs. Mais tu es très loin pour la transition." }
+      ],
+      "theme": "situation", "positions": ["ailier"], "level": 2, "source": "Principe : compacité, défendre l'axe avant le couloir côté faible"
+    },
+    {
+      "situation": "Attaque placée. Le ballon est au latéral opposé, qui va centrer. Tu es ailier côté faible, à hauteur de la surface.",
+      "options": [
+        { "text": "Attaquer le second poteau dans la surface.", "score": 3, "explanation": "C'est la zone où l'ailier côté faible marque le plus : le défenseur te perd de vue en regardant le ballon, et un centre long te trouve seul." },
+        { "text": "Rester large sur la ligne pour offrir un renversement.", "score": 2, "explanation": "Défendable si ton équipe a déjà trois joueurs dans la surface. Sinon tu renonces à la zone de but pour une option peu dangereuse." },
+        { "text": "Rentrer au premier poteau avec l'avant-centre.", "score": 1, "explanation": "Vous êtes deux dans la même zone, un seul défenseur suffit à vous neutraliser. Il faut occuper des zones différentes." },
+        { "text": "Rester à l'entrée de la surface pour le second ballon.", "score": 2, "explanation": "Utile pour récupérer un dégagement ou couper une contre. Mais c'est normalement le rôle d'un milieu, pas de l'ailier." }
+      ],
+      "theme": "situation", "positions": ["ailier"], "level": 1, "source": "Principe : occupation des zones de finition (premier poteau, point de penalty, second poteau)"
+    },
+    {
+      "situation": "Tu as le ballon sur le côté, face à ton défenseur. Ton latéral dédouble en débordant à l'extérieur.",
+      "options": [
+        { "text": "Fixer ton défenseur en l'attaquant vers l'intérieur, puis servir le latéral dans sa course.", "score": 3, "explanation": "Fixer d'abord : le défenseur doit choisir entre toi et le latéral. Tu passes quand il a tranché, pas avant." },
+        { "text": "Servir immédiatement le latéral sans fixer.", "score": 1, "explanation": "Le défenseur n'a pas été obligé de choisir : il bascule sur le latéral sans effort. Le dédoublement n'a servi à rien." },
+        { "text": "Rentrer à l'intérieur balle au pied, le latéral servant de leurre.", "score": 3, "explanation": "Autre lecture valable : si le défenseur suit le latéral, tu as l'intérieur ouvert. Le dédoublement crée de l'espace, pas forcément une passe." },
+        { "text": "Attendre pour voir ce que fait le défenseur.", "score": 0, "explanation": "Attendre, c'est laisser la défense se replacer. Une fois le latéral passé, l'avantage est perdu." }
+      ],
+      "theme": "situation", "positions": ["ailier"], "level": 2, "source": "Principe : fixer avant de passer"
+    },
+    {
+      "situation": "85e minute, ton équipe est menée 0-1. Tu as le ballon dans le couloir à 25 m, deux coéquipiers dans la surface, un défenseur te fait face.",
+      "options": [
+        { "text": "Centrer tôt, avant que la défense se replace.", "score": 3, "explanation": "Deux cibles dans la surface, défense pas encore en place, cinq minutes à jouer : la probabilité d'un centre tôt bat celle d'un dribble réussi." },
+        { "text": "Dribbler et temporiser pour une meilleure situation.", "score": 1, "explanation": "Le temps joue contre toi. Chaque seconde ramène un défenseur de plus dans la surface." },
+        { "text": "Repasser en arrière pour conserver.", "score": 0, "explanation": "À 0-1 et 85e, conserver n'a plus de valeur. C'est le contexte qui rend cette option mauvaise ; à 1-0, elle serait correcte." },
+        { "text": "Rentrer intérieur pour frapper.", "score": 2, "explanation": "Défendable si tu es sur ton bon pied et que le défenseur te laisse l'intérieur. Mais tu ignores deux coéquipiers démarqués." }
+      ],
+      "theme": "situation", "positions": ["ailier"], "level": 2, "source": "Principe : le score et le temps changent la valeur de la conservation"
+    },
+    {
+      "situation": "Faux 9. Ton milieu axial a le ballon face au jeu à 45 m. Les deux centraux adverses te marquent, tes ailiers sont larges.",
+      "options": [
+        { "text": "Décrocher entre les lignes, dans le dos des milieux adverses.", "score": 3, "explanation": "C'est le rôle du faux 9 : si un central te suit, il ouvre un espace pour un ailier qui plonge. S'il ne te suit pas, tu reçois libre face au jeu." },
+        { "text": "Rester entre les deux centraux, à hauteur de la ligne.", "score": 1, "explanation": "Tu es à deux contre un et tu n'offres aucune ligne de passe. Le porteur n'a que des solutions latérales." },
+        { "text": "Appel en profondeur dans le dos des centraux.", "score": 2, "explanation": "Défendable si la ligne est haute et que ton milieu a la qualité de passe. Face à deux centraux alignés sur toi, le hors-jeu est très probable." },
+        { "text": "Venir au pied du porteur, à cinq mètres de lui.", "score": 0, "explanation": "Tu ramènes un défenseur sur le porteur et tu supprimes toute profondeur. Le jeu est bouché par ta faute." }
+      ],
+      "theme": "situation", "positions": ["avant_centre"], "level": 1, "source": "Principe : le faux 9 crée des dilemmes aux centraux"
+    },
+    {
+      "situation": "Faux 9. Tu décroches, tu reçois dos au jeu, et le central adverse t'a suivi jusque dans les pieds.",
+      "options": [
+        { "text": "Remise en une touche au milieu qui arrive face au jeu, puis repartir vers le but.", "score": 3, "explanation": "Le central est sorti de sa ligne : la remise rapide donne le ballon à un joueur face au jeu, et ta course suivante attaque l'espace qu'il a laissé." },
+        { "text": "Laisser filer le ballon pour l'ailier qui plonge dans l'espace libéré par le central.", "score": 3, "explanation": "Lecture avancée : tu es un leurre. Exige d'avoir vu l'appel de l'ailier avant la réception, sinon le ballon file à l'adversaire." },
+        { "text": "Te retourner balle au pied face au central.", "score": 1, "explanation": "Dos au jeu avec un défenseur collé, la retournée est le geste le plus souvent raté. Elle se tente seulement si le défenseur est à distance." },
+        { "text": "Protéger le ballon en attendant l'aide.", "score": 1, "explanation": "Tu gagnes du temps mais tu perds l'avantage : le central hors de sa ligne va être couvert et le bloc se replace." }
+      ],
+      "theme": "situation", "positions": ["avant_centre"], "level": 2, "source": "Principe : jouer vite quand un défenseur est sorti de sa ligne"
+    },
+    {
+      "situation": "Avant-centre. Ton ailier droit déborde et va centrer depuis la ligne, à hauteur de la surface. Le centre va être tendu et tôt.",
+      "options": [
+        { "text": "Attaquer le premier poteau en coupant devant le défenseur.", "score": 3, "explanation": "Sur un centre tendu et tôt, le premier poteau est la cible : une déviation suffit, et le défenseur doit se retourner pour te suivre." },
+        { "text": "Aller systématiquement au second poteau.", "score": 1, "explanation": "Un centre tendu depuis la ligne atteint rarement le second poteau. Tu te places pour un centre qui ne viendra pas." },
+        { "text": "Reculer au point de penalty.", "score": 2, "explanation": "Défendable comme zone de repli si un coéquipier prend déjà le premier poteau. Mais c'est la zone du centre en retrait, pas du centre tendu." },
+        { "text": "Rester à l'entrée de la surface.", "score": 0, "explanation": "L'avant-centre hors de la surface sur un centre, c'est une attaque sans cible." }
+      ],
+      "theme": "situation", "positions": ["avant_centre"], "level": 1, "source": "Principe : le type de centre dicte la zone à attaquer"
+    },
+    {
+      "situation": "Ballon aérien long de ton gardien, qui va retomber entre toi et le central adverse.",
+      "options": [
+        { "text": "Prendre tes appuis, un bras pour sentir le défenseur, et dévier vers un coéquipier lancé.", "score": 3, "explanation": "Le duel aérien se gagne avant le saut : position, appuis, information par le contact. La déviation vaut mieux qu'une tête gagnée sans direction." },
+        { "text": "Laisser le défenseur sauter et courir sur la seconde balle.", "score": 2, "explanation": "Défendable si le central domine clairement les airs : tu paries sur son dégagement imprécis. Mais tu abandonnes 50 % des duels." },
+        { "text": "Sauter directement sans appuis.", "score": 1, "explanation": "Sans appuis ni contact, tu sautes moins haut et tu ne sais pas où est le défenseur. Tu perds le duel au départ." },
+        { "text": "Protester parce que le ballon est trop long.", "score": 0, "explanation": "Le ballon est en l'air, pas le moment de commenter." }
+      ],
+      "theme": "situation", "positions": ["avant_centre"], "level": 1, "source": "Principe : le duel aérien se prépare au sol"
+    },
+    {
+      "situation": "Ton équipe presse haut. Le gardien adverse passe au central droit, qui reçoit face au jeu. Tu es l'avant-centre, le plus proche.",
+      "options": [
+        { "text": "Presser en courbe pour couper la passe vers l'autre central, et l'obliger à jouer côté touche.", "score": 3, "explanation": "La course en courbe oriente : tu fermes le changement de côté et tu pousses le ballon vers la ligne, où tes coéquipiers peuvent fermer." },
+        { "text": "Presser en ligne droite sur le ballon.", "score": 1, "explanation": "Tu arrives vite mais le central a deux options ouvertes. Il te passe par une simple passe latérale et ton pressing est éliminé." },
+        { "text": "Rester en bloc médian et attendre.", "score": 2, "explanation": "Défendable comme choix d'équipe, mais ici ton équipe a décidé de presser haut. Attendre seul casse le mouvement collectif." },
+        { "text": "Aller presser le gardien.", "score": 0, "explanation": "Le gardien n'a plus le ballon. Tu cours après une action terminée." }
+      ],
+      "theme": "situation", "positions": ["avant_centre", "ailier"], "level": 2, "source": "Principe : la course de pressing oriente, elle ne fait pas que presser"
+    },
+    {
+      "situation": "Tu te retrouves seul face au gardien à 18 m, un défenseur revient à deux mètres derrière toi. Aucun coéquipier mieux placé.",
+      "options": [
+        { "text": "Frapper tôt, croisé, au sol.", "score": 3, "explanation": "Le gardien n'est pas encore sorti, le défenseur n'est pas revenu : le meilleur moment est maintenant. Le croisé au sol est la frappe la plus difficile à arrêter." },
+        { "text": "Dribbler le gardien.", "score": 2, "explanation": "Défendable si le gardien sort vite et se jette. Mais avec un défenseur qui revient, chaque touche de plus réduit tes chances." },
+        { "text": "Attendre la sortie du gardien pour piquer.", "score": 1, "explanation": "Attendre, c'est laisser le défenseur revenir. Le piqué est un geste de situation, pas une attente." },
+        { "text": "Chercher une passe.", "score": 0, "explanation": "L'énoncé le dit : personne n'est mieux placé. Passer, c'est refuser la responsabilité du tir." }
+      ],
+      "theme": "situation", "positions": ["avant_centre", "ailier", "milieu_offensif"], "level": 1, "source": "Principe : décider tôt en situation de finition"
+    },
+    {
+      "situation": "Faux 9. Ton ailier a éliminé son latéral et déborde. Tu es dans la surface avec les deux centraux adverses.",
+      "options": [
+        { "text": "Appel au premier poteau pour emmener un central et libérer le second poteau au milieu qui arrive.", "score": 3, "explanation": "Ton appel crée de l'espace pour un autre. Si le central ne te suit pas, tu es seul au premier poteau ; s'il te suit, le second est libre." },
+        { "text": "Rester au point de penalty.", "score": 2, "explanation": "Défendable : c'est la zone du centre en retrait, souvent la plus efficace. Mais immobile entre deux centraux, tu es facile à marquer." },
+        { "text": "Sortir de la surface pour recevoir en retrait.", "score": 0, "explanation": "Tu quittes la zone de but au moment où le centre arrive. Un faux 9 décroche pour construire, pas pour finir." },
+        { "text": "Appel vers le second poteau en arrondi, dans le dos du central.", "score": 3, "explanation": "Autre lecture valable : si l'ailier centre long, tu es seul au second poteau. L'important est de bouger et d'arriver lancé, pas la zone choisie." }
+      ],
+      "theme": "situation", "positions": ["avant_centre"], "level": 2, "source": "Principe : arriver lancé dans une zone, ne jamais attendre immobile"
+    },
+    {
+      "situation": "Tu n'as pas touché un ballon depuis quinze minutes. Tu te sens hors du match.",
+      "options": [
+        { "text": "Multiplier les appels courts et les décrochages, demander le ballon de la voix et du geste.", "score": 3, "explanation": "On ne reçoit pas le ballon en l'attendant. Le mouvement rend visible ; l'immobilité rend invisible, même avec du talent." },
+        { "text": "Aller chercher le ballon au poste de milieu défensif.", "score": 1, "explanation": "Tu touches le ballon mais tu casses la structure : il n'y a plus personne devant. Tu résous ton problème en créant celui de l'équipe." },
+        { "text": "Attendre que le jeu vienne à toi.", "score": 0, "explanation": "Le jeu vient à ceux qui se rendent disponibles. Attendre quinze minutes de plus, c'est sortir du match sans être remplacé." },
+        { "text": "Parler aux porteurs : indiquer où tu veux le ballon, te replacer dans leur champ de vision.", "score": 3, "explanation": "La communication est une forme de démarquage. Un porteur ne sert pas un joueur qu'il ne voit pas ou dont il ne connaît pas l'intention." }
+      ],
+      "theme": "mental", "positions": ["avant_centre", "ailier", "milieu_offensif"], "level": 1, "source": "Principe : la disponibilité se provoque"
+    },
+    {
+      "situation": "Face à un 4-4-2 à plat, quel est le principal avantage structurel d'un 4-3-3 ?",
+      "options": [
+        { "text": "La supériorité numérique au milieu : 3 contre 2.", "score": 3, "explanation": "C'est l'avantage le plus net. Le troisième milieu est toujours libre si les deux milieux adverses ne sont pas aidés par un attaquant qui redescend." },
+        { "text": "Plus de joueurs dans la surface sur les centres.", "score": 1, "explanation": "Non : le 4-4-2 a deux attaquants dans la surface, le 4-3-3 un seul plus les ailiers qui rentrent. Ce n'est pas là que se joue l'avantage." },
+        { "text": "Deux attaquants pour fixer les deux centraux.", "score": 0, "explanation": "C'est précisément l'avantage du 4-4-2, pas du 4-3-3. Le 4-3-3 n'a qu'un attaquant axial." },
+        { "text": "Une meilleure couverture défensive de la largeur.", "score": 1, "explanation": "Les quatre milieux du 4-4-2 couvrent mieux la largeur. Le 4-3-3 dépend de ses ailiers pour défendre les couloirs." }
+      ],
+      "theme": "tactique", "positions": ["tous"], "level": 1, "source": "Principe : les systèmes se comparent zone par zone"
+    },
+    {
+      "situation": "Dans un 3-4-3 avec deux pistons, quel est le rôle principal des pistons ?",
+      "options": [
+        { "text": "Donner la largeur sur toute la longueur du terrain, en phase offensive comme défensive.", "score": 3, "explanation": "Le piston est à la fois le latéral et l'ailier de son côté. Il couvre 60 à 70 m de couloir à chaque transition : c'est le poste le plus exigeant physiquement." },
+        { "text": "Rester défensifs pour former une ligne de cinq.", "score": 1, "explanation": "C'est vrai en phase défensive, mais ce n'est que la moitié du rôle. Un piston qui n'apporte rien offensivement transforme le 3-4-3 en 5-4-1 permanent." },
+        { "text": "Jouer dans l'axe comme milieux relayeurs.", "score": 0, "explanation": "Les pistons sont par définition les joueurs les plus larges. L'axe appartient aux deux milieux centraux." },
+        { "text": "Jouer comme des ailiers purs sans tâche défensive.", "score": 1, "explanation": "Sans repli des pistons, la défense à trois est exposée sur les côtés. Les trois centraux ne peuvent pas couvrir toute la largeur." }
+      ],
+      "theme": "tactique", "positions": ["tous"], "level": 1, "source": "Principe : le piston est un hybride latéral-ailier"
+    },
+    {
+      "situation": "Lequel de ces moments est un bon déclencheur de pressing collectif ?",
+      "options": [
+        { "text": "Une passe en retrait vers le gardien, un contrôle raté, ou un joueur qui reçoit dos au jeu.", "score": 3, "explanation": "Ce sont les trois déclencheurs classiques : l'adversaire a perdu du temps ou de l'information, le pressing a une chance réelle de réussir." },
+        { "text": "Le milieu axial adverse qui reçoit face au jeu avec plusieurs options.", "score": 0, "explanation": "C'est le pire moment : il voit tout et peut jouer partout. Presser ici, c'est se faire éliminer par une passe." },
+        { "text": "Dès que l'adversaire a le ballon, où qu'il soit.", "score": 1, "explanation": "Presser en permanence épuise l'équipe et finit par ouvrir des espaces. Le pressing est une décision, pas un état." },
+        { "text": "Quand l'équipe est fatiguée, pour se réveiller.", "score": 0, "explanation": "La fatigue est la raison d'arrêter de presser, pas de commencer. Un pressing à moitié est pire que pas de pressing." }
+      ],
+      "theme": "tactique", "positions": ["tous"], "level": 1, "source": "Principe : déclencheurs de pressing"
+    },
+    {
+      "situation": "Ton équipe défend en ligne. À quel moment la ligne défensive doit-elle monter ensemble ?",
+      "options": [
+        { "text": "Sur une passe en retrait adverse ou un ballon joué loin du but, quand le porteur ne peut pas jouer en profondeur.", "score": 3, "explanation": "La ligne monte quand le ballon ne peut pas passer derrière elle : porteur dos au jeu, passe en retrait, ballon en l'air. Elle gagne du terrain sans risque." },
+        { "text": "Jamais : rester bas est plus sûr.", "score": 1, "explanation": "Une ligne qui ne monte jamais laisse l'adversaire camper à 20 m du but et multiplie les frappes et les centres." },
+        { "text": "Au moment où l'adversaire frappe ou passe en profondeur.", "score": 0, "explanation": "C'est le pire moment : monter quand le ballon part, c'est offrir le hors-jeu à l'envers. La ligne doit être figée ou descendre à cet instant." },
+        { "text": "Quand un attaquant adverse fait un appel.", "score": 0, "explanation": "Un appel se suit ou se transmet, il ne déclenche pas une montée. Monter sur appel, c'est mettre l'attaquant en jeu derrière soi." }
+      ],
+      "theme": "tactique", "positions": ["defenseur_central", "lateral", "tous"], "level": 2, "source": "Principe : la ligne monte quand le porteur ne peut pas jouer long"
+    },
+    {
+      "situation": "Transition offensive : ton équipe vient de récupérer le ballon au milieu du terrain. Quel doit être le premier regard du porteur ?",
+      "options": [
+        { "text": "La profondeur d'abord : une passe verticale est-elle possible ? Sinon, sécuriser.", "score": 3, "explanation": "À la récupération, la défense adverse est désorganisée pendant quelques secondes. Le premier regard cherche à exploiter ce désordre ; la sécurité vient en second." },
+        { "text": "Toujours une passe latérale pour conserver.", "score": 1, "explanation": "Conserver est bien, mais systématiquement, c'est laisser l'adversaire se replacer à chaque récupération. Tu renonces à ton meilleur moment." },
+        { "text": "Toujours dribbler pour gagner du terrain.", "score": 1, "explanation": "Le dribble est plus lent que la passe. Et le porteur qui vient de récupérer est souvent entouré." },
+        { "text": "Dégager long devant.", "score": 1, "explanation": "Défendable seulement si un attaquant est lancé. Sinon tu rends le ballon que tu viens de gagner." }
+      ],
+      "theme": "tactique", "positions": ["tous"], "level": 1, "source": "Principe : transition, chercher la verticalité d'abord"
+    },
+    {
+      "situation": "Quand faut-il regarder autour de soi (scanner) pour prendre la bonne décision à la réception ?",
+      "options": [
+        { "text": "Pendant que le ballon se déplace vers toi, avant la réception, en plusieurs coups d'œil.", "score": 3, "explanation": "Les études de Geir Jordet montrent que les joueurs qui scannent le plus pendant le trajet du ballon prennent les meilleures décisions et jouent plus vite. Après le contrôle, c'est trop tard." },
+        { "text": "Juste après le contrôle, une fois le ballon maîtrisé.", "score": 1, "explanation": "C'est ce que font la plupart des amateurs, et c'est pour ça que le jeu paraît plus rapide qu'il ne l'est. L'information arrive après la décision." },
+        { "text": "Seulement quand tu sens un défenseur arriver.", "score": 0, "explanation": "Quand tu le sens, il est déjà là. Le scan sert à savoir avant d'être pressé." },
+        { "text": "Jamais : il faut se concentrer sur le ballon.", "score": 0, "explanation": "Le ballon ne bouge pas tout seul et tu sais où il est. Ce sont les joueurs autour qui changent : c'est eux qu'il faut voir." }
+      ],
+      "theme": "technique", "positions": ["tous"], "level": 1, "source": "Geir Jordet, recherches sur le scanning"
+    },
+    {
+      "situation": "Tu reçois une passe au sol, un adversaire arrive dans ton dos par ta droite. Tu veux repartir vers l'espace à gauche.",
+      "options": [
+        { "text": "Contrôle orienté du pied gauche, le pied le plus éloigné de l'adversaire, vers l'espace.", "score": 3, "explanation": "Le pied éloigné met ton corps entre le ballon et le défenseur, et le contrôle t'emmène déjà vers la sortie. Une touche, deux problèmes résolus." },
+        { "text": "Contrôle du pied droit, côté adversaire.", "score": 1, "explanation": "Tu exposes le ballon au défenseur et tu dois faire une touche de plus pour repartir à gauche. Deux fois plus de temps, deux fois plus de risque." },
+        { "text": "Contrôle sur place pour protéger, puis décider.", "score": 2, "explanation": "Défendable si tu n'as pas scanné et que tu ne sais pas où est l'espace. Mais c'est une touche perdue, et l'énoncé dit que tu sais où aller." },
+        { "text": "Laisser filer le ballon derrière toi sans regarder.", "score": 0, "explanation": "Sans savoir ce qu'il y a derrière, tu donnes le ballon au hasard. Laisser filer est un geste de haut niveau, pas de réflexe." }
+      ],
+      "theme": "technique", "positions": ["tous"], "level": 1, "source": "Principe : contrôle orienté, pied éloigné de l'adversaire"
+    },
+    {
+      "situation": "Ton latéral déborde jusqu'à la ligne de but et va centrer en retrait (cut-back). Où dois-tu te placer en tant qu'avant-centre ?",
+      "options": [
+        { "text": "Au point de penalty ou à l'entrée des 16 m, en retrait, face au but.", "score": 3, "explanation": "Le centre en retrait vise la zone que les défenseurs ont quittée en reculant vers leur but. Tu arrives face au but, ballon au sol, défenseurs dos à toi." },
+        { "text": "Au premier poteau.", "score": 1, "explanation": "Le centre en retrait passe derrière toi. Le premier poteau est la zone du centre tendu, pas du cut-back." },
+        { "text": "Au second poteau.", "score": 2, "explanation": "Défendable pour un deuxième attaquant : un cut-back long peut y arriver. Mais ce n'est pas la cible principale." },
+        { "text": "Sur la ligne des six mètres.", "score": 1, "explanation": "Tu es dans la zone des défenseurs, dos au jeu, et le ballon te passe derrière. Mauvais angle, mauvaise orientation." }
+      ],
+      "theme": "technique", "positions": ["avant_centre", "milieu_offensif"], "level": 2, "source": "Principe : le cut-back vise la zone libérée par la défense"
+    },
+    {
+      "situation": "Tu veux progresser du pied faible. Quelle méthode est la plus efficace ?",
+      "options": [
+        { "text": "Répétitions quotidiennes au mur en une touche, d'abord lentes et propres, puis en vitesse.", "score": 3, "explanation": "Le pied faible est un problème de mécanique et de volume. Le mur donne des centaines de répétitions par séance ; la lenteur initiale installe le geste avant la vitesse." },
+        { "text": "L'utiliser uniquement en match pour se forcer.", "score": 0, "explanation": "Le match n'est pas le lieu de l'apprentissage : la pression dégrade le geste et tu perds des ballons. On apprend à l'entraînement, on applique en match." },
+        { "text": "Frapper fort d'emblée pour gagner en puissance.", "score": 1, "explanation": "Frapper fort avec une mauvaise mécanique renforce la mauvaise mécanique. La puissance vient après la précision." },
+        { "text": "L'éviter et se spécialiser sur le bon pied.", "score": 0, "explanation": "Un attaquant à un seul pied est prévisible : le défenseur te pousse toujours du même côté." }
+      ],
+      "theme": "technique", "positions": ["tous"], "level": 1, "source": "Principe : apprentissage moteur, volume et progressivité"
+    },
+    {
+      "situation": "Quel entraîneur est associé à la mise en place du « football total » avec l'Ajax et les Pays-Bas dans les années 1970 ?",
+      "options": [
+        { "text": "Rinus Michels.", "score": 3, "explanation": "Michels a construit le système à l'Ajax (fin des années 1960) puis avec les Pays-Bas en 1974 : permutations permanentes, pressing, ligne haute." },
+        { "text": "Johan Cruyff.", "score": 1, "explanation": "Cruyff en était le joueur emblématique et l'a prolongé plus tard comme entraîneur à Barcelone. Mais le système est celui de Michels." },
+        { "text": "Arrigo Sacchi.", "score": 0, "explanation": "Sacchi est italien et son œuvre est le Milan de la fin des années 1980, inspirée du football total mais distincte." },
+        { "text": "Helenio Herrera.", "score": 0, "explanation": "Herrera est associé au catenaccio de l'Inter des années 1960, à l'opposé du football total." }
+      ],
+      "theme": "culture", "positions": ["tous"], "level": 1, "source": "Histoire du football, Ajax / Pays-Bas 1970-1974"
+    },
+    {
+      "situation": "Le Milan AC d'Arrigo Sacchi (1987-1991) est resté célèbre pour quelle approche ?",
+      "options": [
+        { "text": "Un 4-4-2 en zone, bloc très compact et pressing haut.", "score": 3, "explanation": "Sacchi a imposé le marquage de zone et une distance maximale de 25 à 30 m entre défense et attaque. Son Milan a gagné deux Coupes d'Europe (1989, 1990)." },
+        { "text": "Le catenaccio avec libéro.", "score": 0, "explanation": "C'est l'inverse : Sacchi a rompu avec la tradition italienne du libéro et du marquage individuel." },
+        { "text": "Un 3-5-2 avec pistons.", "score": 0, "explanation": "Le 3-5-2 est associé à d'autres écoles italiennes (Conte plus tard), pas à Sacchi." },
+        { "text": "Le tiki-taka de possession.", "score": 0, "explanation": "Le tiki-taka est l'étiquette du Barcelone et de l'Espagne des années 2008-2012. Sacchi privilégiait la verticalité et le pressing." }
+      ],
+      "theme": "culture", "positions": ["tous"], "level": 2, "source": "Histoire du football, Milan AC 1987-1991"
+    },
+    {
+      "situation": "En 1925, la règle du hors-jeu a été modifiée. Quel était le changement ?",
+      "options": [
+        { "text": "Il fallait désormais deux adversaires (au lieu de trois) entre l'attaquant et la ligne de but.", "score": 3, "explanation": "Le passage de trois à deux défenseurs a fait exploser le nombre de buts et a entraîné la création du poste de défenseur central dans le WM d'Herbert Chapman." },
+        { "text": "La règle du hors-jeu a été créée.", "score": 0, "explanation": "Le hors-jeu existe depuis les premières règles de 1863, sous une forme plus stricte." },
+        { "text": "Le hors-jeu a été limité à la surface de réparation.", "score": 0, "explanation": "Cela n'a jamais été le cas. Le hors-jeu s'applique dans toute la moitié de terrain adverse." },
+        { "text": "Le hors-jeu a été supprimé sur les corners.", "score": 1, "explanation": "Il n'y a effectivement pas de hors-jeu sur corner, mais cette exception est bien antérieure à 1925." }
+      ],
+      "theme": "culture", "positions": ["tous"], "level": 2, "source": "Histoire des Lois du jeu, 1925"
+    },
+    {
+      "situation": "Que désigne le « jeu de position » (juego de posición) associé à Cruyff puis Guardiola ?",
+      "options": [
+        { "text": "Une occupation rationnelle des zones du terrain pour créer des supériorités (numérique, positionnelle, qualitative), avec des règles de placement entre coéquipiers.", "score": 3, "explanation": "Le principe : pas plus de deux joueurs sur la même ligne horizontale, pas plus de trois sur la même verticale, et le ballon circule pour attirer l'adversaire et trouver le joueur libre." },
+        { "text": "Jouer long vers l'avant le plus vite possible.", "score": 0, "explanation": "C'est l'opposé : le jeu de position construit par des passes courtes pour déplacer le bloc adverse." },
+        { "text": "Garder le ballon le plus longtemps possible, sans chercher à marquer.", "score": 1, "explanation": "C'est la caricature qu'on en fait. La possession est un moyen de désorganiser, pas une fin." },
+        { "text": "Un marquage individuel strict en phase défensive.", "score": 0, "explanation": "Le jeu de position est un concept offensif ; défensivement, ces équipes jouent plutôt en zone avec pressing immédiat." }
+      ],
+      "theme": "culture", "positions": ["tous"], "level": 3, "source": "Cruyff (Barcelone 1988-1996), Guardiola"
+    },
+    {
+      "situation": "20e minute, tu rates une énorme occasion seul face au gardien. Que fais-tu dans les trente secondes qui suivent ?",
+      "options": [
+        { "text": "Une respiration, une phrase clé que tu t'es fixée (« prochaine action »), et tu te replaces immédiatement.", "score": 3, "explanation": "La routine de reset est ce qui sépare les joueurs qui enchaînent de ceux qui disparaissent. Elle se prépare avant le match, pas pendant." },
+        { "text": "Tu ressasses l'action en te replaçant lentement.", "score": 0, "explanation": "Pendant que tu revis l'occasion, le match continue sans toi. La prochaine erreur vient souvent de la précédente." },
+        { "text": "Tu évites le ballon pendant quelques minutes pour te calmer.", "score": 0, "explanation": "Éviter le ballon, c'est confirmer à ton cerveau que l'erreur était grave. Il faut au contraire une touche simple et réussie au plus vite." },
+        { "text": "Tu forces une frappe à la prochaine occasion pour te racheter.", "score": 1, "explanation": "Vouloir se racheter précipite les décisions. La bonne action suivante est celle que la situation demande, pas celle qui efface la précédente." }
+      ],
+      "theme": "mental", "positions": ["tous"], "level": 1, "source": "Principe : routine de reset après erreur"
+    }
+  ]
+}

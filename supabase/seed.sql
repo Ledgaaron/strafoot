@@ -196,6 +196,7 @@ begin
 
   -- ---------------------------------------------------------------------------
   -- Questions : 4 options { text, score 0-3, explanation } (clé : situation)
+  -- Thème et postes dans la taxonomie de lib/quiz-taxonomy.ts (contraintes de 003).
   -- ---------------------------------------------------------------------------
   insert into public.questions (situation, options, theme, positions, level, source)
   select v.situation, v.options, v.theme, v.positions, v.level, v.source
@@ -224,8 +225,8 @@ begin
           'explanation', 'À 30 m et dos au but, la frappe en pivot est presque toujours contrée ou non cadrée : perte de balle quasi assurée.'
         )
       ),
-      'Jeu dos au but',
-      array['attaquant'],
+      'situation',
+      array['avant_centre'],
       1,
       'Seed Strafoot'
     ),
@@ -253,8 +254,8 @@ begin
           'explanation', 'Défendable si le plan de jeu est de défendre bas. Sinon, une passe en retrait est le signal pour presser et tu laisses filer l’occasion.'
         )
       ),
-      'Pressing',
-      array['attaquant', 'milieu offensif'],
+      'situation',
+      array['avant_centre', 'milieu_offensif'],
       2,
       'Seed Strafoot'
     ),
@@ -282,8 +283,8 @@ begin
           'explanation', 'Pendant que tu protestes, l’adversaire attaque en supériorité numérique. On joue jusqu’au coup de sifflet.'
         )
       ),
-      'Transition défensive',
-      array['milieu défensif', 'milieu central'],
+      'situation',
+      array['milieu_defensif', 'milieu_central'],
       2,
       'Seed Strafoot'
     ),
@@ -311,8 +312,8 @@ begin
           'explanation', 'Fixer l’adversaire libère un partenaire, mais demande de la maîtrise : risqué si le pressing adverse est coordonné.'
         )
       ),
-      'Construction',
-      array['défenseur central'],
+      'situation',
+      array['defenseur_central'],
       1,
       'Seed Strafoot'
     ),
@@ -340,8 +341,8 @@ begin
           'explanation', 'Tu es en position idéale : donner le ballon à un partenaire plus loin du but réduit fortement les chances de marquer.'
         )
       ),
-      'Finition',
-      array['attaquant', 'ailier'],
+      'situation',
+      array['avant_centre', 'ailier'],
       1,
       'Seed Strafoot'
     )
