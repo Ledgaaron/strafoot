@@ -30,13 +30,18 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 app/ routes Expo Router
 (auth)/login.tsx
 (tabs)/_layout.tsx, index.tsx (Accueil), quiz.tsx, training.tsx, profile.tsx
-session/[id].tsx détail/édition d'une séance
+session/_layout.tsx garde d'auth + pile des écrans de séance (hors onglets)
+session/new.tsx création d'une séance
+session/[id].tsx détail/édition/suppression d'une séance
 lib/
 supabase.ts client unique
-db/ une fonction par requête, typée (sessions.ts, questions.ts, tests.ts…)
+dates.ts jours locaux YYYY-MM-DD et libellés : seul endroit où un jour est calculé
+modules.ts liste fermée des modules de séance (MODULE_KEYS)
+db/ une fonction par requête, typée (sessions.ts, answers.ts, questions.ts, tests.ts…)
 streak.ts calcul pur, testable, sans dépendance
 types.ts types générés depuis Supabase (npx supabase gen types)
 components/ composants réutilisés par ≥ 2 écrans uniquement
+session-form.tsx formulaire de séance partagé par session/new et session/[id]
 supabase/
 migrations/NNN_description.sql
 seed.sql
@@ -71,13 +76,17 @@ d'exception.
 - Toute table : `id uuid primary key default gen_random_uuid()`, `user_id uuid not null
   references auth.users(id) on delete cascade`, `created_at timestamptz not null default now()`,
   RLS activée, 4 policies (select/insert/update/delete) sur `auth.uid() = user_id`.
+- Depuis 002, `user_id` a le défaut `auth.uid()` sur les 8 tables, en plus du trigger
+  `set_user_id` (001) qui l'impose à chaque insert : le client n'envoie jamais `user_id`.
 - Après chaque migration, régénérer `lib/types.ts`.
 
 ### Tables v1
 
 - `profiles` : main_position, secondary_position, club, birth_date
-- `sessions` : date, type (`collectif` | `solo` | `match` | `recup` | `test`), name,
-  duration_min, difficulty (1-5), comment, sheet_id → training_sheets nullable
+- `sessions` : date, type (`collectif` | `solo` | `match` | `recup` | `test`),
+  module text not null default 'seance_libre' (liste fermée = `MODULE_KEYS` de
+  `lib/modules.ts`, contrainte CHECK), name text, duration_min, difficulty (1-5), comment,
+  sheet_id → training_sheets nullable
 - `training_sheets` : title, positions text[], skill, duration_min, exercises jsonb, is_public
 - `tests` : name, protocol, unit
 - `test_results` : test_id, date, value numeric, comment
@@ -86,14 +95,18 @@ d'exception.
 - `answers` : question_id, chosen_index, score, answered_at
 - `self_assessments` : date, grid jsonb
 
-La streak est calculée côté app depuis `sessions` + `answers` (un jour compte si ≥ 1 séance
-ou ≥ 1 réponse), jamais stockée.
+Deux streaks calculées côté app, jamais stockées : entraînement (jour avec ≥ 1 séance, tout
+module) et quizz (jour avec ≥ 1 réponse). Courante = jours consécutifs jusqu'à aujourd'hui,
+ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logique dans
+`lib/streak.ts`, tests dans `lib/streak.test.ts`.
 
 ## Écrans v1 (figés)
 
-1. **Accueil** : streak, séances ce mois / all-time, calendrier du mois avec jours actifs,
-   tap sur un jour → séances du jour (édition du commentaire), bouton « Séance libre »
-   accessible en un tap → formulaire 4 champs (type, durée, difficulté, commentaire optionnel).
+1. **Accueil** : 2 streaks (entraînement, quizz : courante + meilleure), séances ce mois /
+   total, bouton « Nouvelle séance » → formulaire (date auj. → J-13, module, durée ±5,
+   difficulté optionnelle = 3 si vide, nom auto modifiable, commentaire optionnel) ;
+   calendrier du mois (points entraînement / quizz) ; tap sur un jour → séances du jour →
+   édition / suppression.
 2. **Quizz** : filtre thème / poste, question QCM 4 options ; après réponse, affichage du
    score de l'option choisie et des 4 explications ; réponse enregistrée dans `answers`.
 3. **Entraînement** : liste des fiches (poste, compétence, 45 min, 4 exercices) ;
@@ -131,4 +144,5 @@ Priorité absolue : fonctionnel > beau. Composants natifs par défaut, style min
 
 - `npx expo start` puis `w` / `a`
 - `npx tsc --noEmit` avant chaque fin de chantier, zéro erreur exigée
+- `npx tsx lib/streak.test.ts` (tests de la streak)
 - `npx supabase gen types typescript --project-id <id> > lib/types.ts`

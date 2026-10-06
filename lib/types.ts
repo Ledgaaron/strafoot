@@ -1,8 +1,10 @@
 // À régénérer via supabase gen types :
 //   npx supabase gen types typescript --project-id <id> > lib/types.ts
 // Contenu produit par @supabase/postgrest-typegen (moteur de supabase gen types)
-// sur supabase/migrations/001_initial_schema.sql. Ne rien ajouter ici : le fichier
-// est écrasé à chaque génération (types des colonnes jsonb : lib/json-types.ts).
+// sur supabase/migrations/001_initial_schema.sql, puis aligné à la main sur 002
+// (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid()).
+// Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
+// colonnes jsonb : lib/json-types.ts).
 
 export type Json =
   | string
@@ -32,7 +34,7 @@ export type Database = {
           id?: string
           question_id: string
           score: number
-          user_id: string
+          user_id?: string
         }
         Update: {
           answered_at?: string
@@ -70,7 +72,7 @@ export type Database = {
           id?: string
           main_position?: string | null
           secondary_position?: string | null
-          user_id: string
+          user_id?: string
         }
         Update: {
           birth_date?: string | null
@@ -106,7 +108,7 @@ export type Database = {
           situation: string
           source?: string | null
           theme: string
-          user_id: string
+          user_id?: string
         }
         Update: {
           created_at?: string
@@ -135,7 +137,7 @@ export type Database = {
           date: string
           grid: NonNullable<Json>
           id?: string
-          user_id: string
+          user_id?: string
         }
         Update: {
           created_at?: string
@@ -154,6 +156,7 @@ export type Database = {
           difficulty: number
           duration_min: number
           id: string
+          module: string
           name: string | null
           sheet_id: string | null
           type: Database["public"]["Enums"]["session_type"]
@@ -166,10 +169,11 @@ export type Database = {
           difficulty: number
           duration_min: number
           id?: string
+          module?: string
           name?: string | null
           sheet_id?: string | null
           type: Database["public"]["Enums"]["session_type"]
-          user_id: string
+          user_id?: string
         }
         Update: {
           comment?: string | null
@@ -178,6 +182,7 @@ export type Database = {
           difficulty?: number
           duration_min?: number
           id?: string
+          module?: string
           name?: string | null
           sheet_id?: string | null
           type?: Database["public"]["Enums"]["session_type"]
@@ -209,7 +214,7 @@ export type Database = {
           date: string
           id?: string
           test_id: string
-          user_id: string
+          user_id?: string
           value: number
         }
         Update: {
@@ -246,7 +251,7 @@ export type Database = {
           name: string
           protocol: string
           unit: string
-          user_id: string
+          user_id?: string
         }
         Update: {
           created_at?: string
@@ -279,7 +284,7 @@ export type Database = {
           positions?: string[]
           skill: string
           title: string
-          user_id: string
+          user_id?: string
         }
         Update: {
           created_at?: string
