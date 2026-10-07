@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect } from 'expo-router';
-import { Tabs } from 'expo-router/js-tabs';
+import { BottomTabBar, Tabs } from 'expo-router/js-tabs';
 import type { ComponentProps } from 'react';
 import type { ColorValue } from 'react-native';
 
+import { ActiveSessionBar } from '../../components/active-session-bar';
 import { useAuth } from '../../lib/auth-context';
 import { colors, fontSize, size } from '../../lib/theme';
 
@@ -26,6 +27,13 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      // Séance en cours : bandeau posé juste au-dessus de la barre d'onglets, le même sur les 4 onglets.
+      tabBar={(props) => (
+        <>
+          <ActiveSessionBar />
+          <BottomTabBar {...props} />
+        </>
+      )}
       screenOptions={{
         // Chaque onglet pose son titre (Screen, 28 px) : pas d'en-tête natif.
         headerShown: false,

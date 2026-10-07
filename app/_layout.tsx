@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ActiveSessionProvider } from '../lib/active-session-context';
 import { AuthProvider, useAuth } from '../lib/auth-context';
 import { colors, navigationTheme } from '../lib/theme';
 
@@ -12,7 +13,10 @@ export default function RootLayout() {
       {/* Sombre seulement : fonds, en-têtes natifs et barre d'onglets suivent les tokens. */}
       <ThemeProvider value={navigationTheme}>
         <AuthProvider>
-          <RootNavigator />
+          {/* Séance en cours relue au lancement, partagée par les onglets, la fiche et l'écran de fin. */}
+          <ActiveSessionProvider>
+            <RootNavigator />
+          </ActiveSessionProvider>
           <StatusBar style="light" />
         </AuthProvider>
       </ThemeProvider>

@@ -220,48 +220,9 @@ export function SessionForm({
           </View>
         </View>
 
-        <View style={layout.section}>
-          <Text style={text.overline}>Durée</Text>
-          <View style={[layout.buttonRow, styles.durationRow]}>
-            <Button
-              variant="secondary"
-              label={`−${DURATION_STEP}`}
-              accessibilityLabel={`Diminuer de ${DURATION_STEP} minutes`}
-              onPress={() => stepDuration(-DURATION_STEP)}
-              style={styles.durationCell}
-            />
-            <Text style={[text.title, text.tabular, styles.durationCell, styles.durationValue]}>
-              {durationMin}
-              {/* Espace insécable : l'unité ne passe jamais seule à la ligne. */}
-              <Text style={text.unit}>{' min'}</Text>
-            </Text>
-            <Button
-              variant="secondary"
-              label={`+${DURATION_STEP}`}
-              accessibilityLabel={`Augmenter de ${DURATION_STEP} minutes`}
-              onPress={() => stepDuration(DURATION_STEP)}
-              style={styles.durationCell}
-            />
-          </View>
-        </View>
+        <DurationField value={durationMin} onStep={stepDuration} />
 
-        <View style={layout.section}>
-          <View style={styles.labelGroup}>
-            <Text style={text.overline}>Difficulté</Text>
-            <Text style={text.meta}>{`Facultative : ${DEFAULT_DIFFICULTY} si aucune n’est choisie.`}</Text>
-          </View>
-          <View style={layout.chipRow}>
-            {DIFFICULTIES.map((level) => (
-              <Chip
-                key={level}
-                label={String(level)}
-                accessibilityLabel={`Difficulté ${level}`}
-                selected={difficulty === level}
-                onPress={() => toggleDifficulty(level)}
-              />
-            ))}
-          </View>
-        </View>
+        <DifficultyField value={difficulty} onToggle={toggleDifficulty} />
 
         <View style={layout.section}>
           <Text style={text.overline}>Nom</Text>
@@ -275,20 +236,98 @@ export function SessionForm({
           />
         </View>
 
-        <View style={layout.section}>
-          <Text style={text.overline}>Commentaire</Text>
-          <TextInput
-            {...inputProps}
-            style={[input.field, input.multiline]}
-            value={comment}
-            onChangeText={setComment}
-            placeholder="Facultatif"
-            multiline
-            accessibilityLabel="Commentaire"
-          />
-        </View>
+        <CommentField value={comment} onChange={setComment} />
       </Screen>
     </>
+  );
+}
+
+// Champs partagés avec l'écran de fin d'une séance chronométrée
+// (app/session/finish.tsx) : une même durée, une même difficulté, un même
+// commentaire partout.
+
+type DurationFieldProps = {
+  /** Minutes affichées. */
+  value: number;
+  /** −5 ou +5 ; l'écran applique son propre minimum. */
+  onStep: (delta: number) => void;
+};
+
+/** Durée : −5, valeur en minutes, +5. */
+export function DurationField({ value, onStep }: DurationFieldProps) {
+  return (
+    <View style={layout.section}>
+      <Text style={text.overline}>Durée</Text>
+      <View style={[layout.buttonRow, styles.durationRow]}>
+        <Button
+          variant="secondary"
+          label={`−${DURATION_STEP}`}
+          accessibilityLabel={`Diminuer de ${DURATION_STEP} minutes`}
+          onPress={() => onStep(-DURATION_STEP)}
+          style={styles.durationCell}
+        />
+        <Text style={[text.title, text.tabular, styles.durationCell, styles.durationValue]}>
+          {value}
+          {/* Espace insécable : l'unité ne passe jamais seule à la ligne. */}
+          <Text style={text.unit}>{' min'}</Text>
+        </Text>
+        <Button
+          variant="secondary"
+          label={`+${DURATION_STEP}`}
+          accessibilityLabel={`Augmenter de ${DURATION_STEP} minutes`}
+          onPress={() => onStep(DURATION_STEP)}
+          style={styles.durationCell}
+        />
+      </View>
+    </View>
+  );
+}
+
+type DifficultyFieldProps = {
+  /** null : aucune puce choisie, DEFAULT_DIFFICULTY sera enregistrée. */
+  value: number | null;
+  /** Puce touchée : l'écran la choisit, ou la retire si c'était déjà elle. */
+  onToggle: (level: number) => void;
+};
+
+/** Difficulté facultative, de 1 à 5. */
+export function DifficultyField({ value, onToggle }: DifficultyFieldProps) {
+  return (
+    <View style={layout.section}>
+      <View style={styles.labelGroup}>
+        <Text style={text.overline}>Difficulté</Text>
+        <Text style={text.meta}>{`Facultative : ${DEFAULT_DIFFICULTY} si aucune n’est choisie.`}</Text>
+      </View>
+      <View style={layout.chipRow}>
+        {DIFFICULTIES.map((level) => (
+          <Chip
+            key={level}
+            label={String(level)}
+            accessibilityLabel={`Difficulté ${level}`}
+            selected={value === level}
+            onPress={() => onToggle(level)}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** Commentaire facultatif, sur plusieurs lignes. */
+export function CommentField({ value, onChange }: { value: string; onChange: (text: string) => void }) {
+  return (
+    <View style={layout.section}>
+      <Text style={text.overline}>Commentaire</Text>
+      <TextInput
+        {...inputProps}
+        style={[input.field, input.multiline]}
+        value={value}
+        onChangeText={onChange}
+        placeholder="Facultatif"
+        multiline
+        accessibilityLabel="Commentaire"
+      />
+    </View>
   );
 }
 

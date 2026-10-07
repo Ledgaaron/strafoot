@@ -1,17 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
 import { Screen } from '../../components/screen';
+import { askAboutActiveSession, openActiveSession, useActiveSession } from '../../lib/active-session-context';
 import { localToday, relativeDay } from '../../lib/dates';
 import { listLastSessionDates, listSheets, type SheetRow } from '../../lib/db/training';
 import { countMeasures, type SheetKind } from '../../lib/sheet-types';
-import { colors, layout, size, spacing, text } from '../../lib/theme';
+import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
 
 /** État vide sans bouton : fiches et tests viennent du seed SQL, exécuté hors de l'app. */
 const EMPTY_MESSAGE = 'Le contenu d’entraînement n’est pas encore chargé dans la base.';
@@ -19,6 +20,7 @@ const EMPTY_MESSAGE = 'Le contenu d’entraînement n’est pas encore chargé d
 /** Fiche ou test prêt à afficher : une carte tappable de la liste. */
 type SheetItem = {
   id: string;
+  kind: SheetKind;
   title: string;
   /** null : pas de sous-titre (absent ou vide). */
   subtitle: string | null;
@@ -45,6 +47,11 @@ export default function TrainingScreen() {
   // Incrémenté par « Réessayer » : relance la lecture.
   const [loadCount, setLoadCount] = useState(0);
   const savedParams = useLocalSearchParams<SavedParams>();
+  const activeSession = useActiveSession();
+  // Échec de mémorisation au démarrage par ▶ : rien n'a démarré.
+  const [startError, setStartError] = useState<string | null>(null);
+  // Garde synchrone : deux ▶ rapprochés ne démarrent qu'une séance.
+  const startingRef = useRef(false);
 
   // loadCount en dépendance : « Réessayer » donne un nouveau callback, rejoué
   // aussitôt puisque l'onglet a le focus.
@@ -95,6 +102,36 @@ export default function TrainingScreen() {
     setLoadCount((count) => count + 1);
   }
 
+  /**
+   * ▶ : démarre la fiche et l'ouvre au premier exercice ; reprend celle-ci si
+   * elle est déjà en cours ; une autre en cours : Reprendre / Terminer l'autre
+   * d'abord / Annuler.
+   */
+  async function startSheet(item: SheetItem) {
+    // Relecture de la séance mémorisée pas finie (premières millisecondes) : rien à décider encore.
+    if (activeSession.loading || startingRef.current) {
+      return;
+    }
+    const current = activeSession.session;
+    if (current !== null) {
+      if (current.sheetId === item.id) {
+        openActiveSession(current, 'push');
+      } else {
+        askAboutActiveSession(current, 'push');
+      }
+      return;
+    }
+    startingRef.current = true;
+    setStartError(null);
+    const error = await activeSession.start({ sheetId: item.id, kind: item.kind, title: item.title });
+    startingRef.current = false;
+    if (error !== null) {
+      setStartError(`« ${item.title} » n’a pas démarré. ${error}`);
+      return;
+    }
+    router.push({ pathname: '/sheet/[id]', params: { id: item.id } });
+  }
+
   const confirmation = formatConfirmation(savedParams);
 
   return (
@@ -105,6 +142,7 @@ export default function TrainingScreen() {
           <Text style={[text.body, styles.confirmationText]}>{confirmation}</Text>
         </Card>
       ) : null}
+      <FieldError message={startError} />
       {listsState.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
       {listsState.status === 'error' ? (
         <View style={layout.section}>
@@ -114,8 +152,8 @@ export default function TrainingScreen() {
       ) : null}
       {listsState.status === 'ready' ? (
         <>
-          <SheetSection title="Fiches" emptyTitle="Aucune fiche" items={listsState.sheets} />
-          <SheetSection title="Tests" emptyTitle="Aucun test" items={listsState.tests} />
+          <SheetSection title="Fiches" emptyTitle="Aucune fiche" items={listsState.sheets} onStart={startSheet} />
+          <SheetSection title="Tests" emptyTitle="Aucun test" items={listsState.tests} onStart={startSheet} />
         </>
       ) : null}
     </Screen>
@@ -142,6 +180,7 @@ function toSheetItem(
   ];
   return {
     id: row.id,
+    kind,
     title: row.title,
     subtitle: row.subtitle?.trim() || null,
     details: details.join(' · '),
@@ -185,9 +224,11 @@ type SheetSectionProps = {
   /** Titre de l'état vide : « Aucune fiche ». */
   emptyTitle: string;
   items: SheetItem[];
+  /** ▶ d'une carte. */
+  onStart: (item: SheetItem) => void;
 };
 
-function SheetSection({ title, emptyTitle, items }: SheetSectionProps) {
+function SheetSection({ title, emptyTitle, items, onStart }: SheetSectionProps) {
   return (
     <View style={layout.section}>
       <Text role="heading" style={text.title}>
@@ -195,22 +236,37 @@ function SheetSection({ title, emptyTitle, items }: SheetSectionProps) {
       </Text>
       {items.length === 0 ? <EmptyState title={emptyTitle} message={EMPTY_MESSAGE} /> : null}
       {items.map((item) => (
-        <SheetCard key={item.id} item={item} />
+        <SheetCard key={item.id} item={item} onStart={() => onStart(item)} />
       ))}
     </View>
   );
 }
 
-function SheetCard({ item }: { item: SheetItem }) {
+/**
+ * Carte (lecture de la fiche) et ▶ à sa droite (démarrer la séance) : deux
+ * cibles voisines, jamais l'une dans l'autre, chacune avec son état pressé.
+ */
+function SheetCard({ item, onStart }: { item: SheetItem; onStart: () => void }) {
   return (
-    <Card
-      accessibilityLabel={item.title}
-      onPress={() => router.push({ pathname: '/sheet/[id]', params: { id: item.id } })}
-    >
-      <Text style={text.bodyStrong}>{item.title}</Text>
-      {item.subtitle !== null ? <Text style={text.meta}>{item.subtitle}</Text> : null}
-      <Text style={text.meta}>{item.details}</Text>
-    </Card>
+    <View style={styles.cardRow}>
+      <Card
+        accessibilityLabel={item.title}
+        onPress={() => router.push({ pathname: '/sheet/[id]', params: { id: item.id } })}
+        style={styles.card}
+      >
+        <Text style={text.bodyStrong}>{item.title}</Text>
+        {item.subtitle !== null ? <Text style={text.meta}>{item.subtitle}</Text> : null}
+        <Text style={text.meta}>{item.details}</Text>
+      </Card>
+      <Pressable
+        role="button"
+        accessibilityLabel={`Démarrer : ${item.title}`}
+        onPress={onStart}
+        style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
+      >
+        <Ionicons name="play" size={size.icon} color={colors.accent} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -224,5 +280,24 @@ const styles = StyleSheet.create({
     // Un titre long passe à la ligne à côté de l'icône au lieu de déborder de la carte.
     flex: 1,
     color: colors.success,
+  },
+  /** Carte et ▶ côte à côte, 8 px entre les deux cibles ; ▶ prend la hauteur de la carte. */
+  cardRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  card: {
+    flex: 1,
+  },
+  startButton: {
+    width: size.touch,
+    minHeight: size.touch,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
+  },
+  startButtonPressed: {
+    backgroundColor: colors.surface2,
   },
 });

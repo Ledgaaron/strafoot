@@ -7,7 +7,14 @@ import { Card } from '../../components/card';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
 import { Screen } from '../../components/screen';
-import { localToday, relativeDay } from '../../lib/dates';
+import { elapsedMinutes, elapsedMs, FIRST_EXERCISE_INDEX } from '../../lib/active-session';
+import {
+  askAboutActiveSession,
+  confirmAbandon,
+  useActiveSession,
+  vibrateOnSave,
+} from '../../lib/active-session-context';
+import { localDateOfTimestamp, localToday, relativeDay } from '../../lib/dates';
 import { createSession } from '../../lib/db/sessions';
 import {
   createTestResults,
@@ -63,8 +70,14 @@ type SaveState =
   | { status: 'saving' }
   | { status: 'error'; message: string; invalidKeys: ReadonlySet<string> };
 
+/**
+ * id : la fiche ou le test. finish « 1 » : « Terminer l'autre d'abord » sur un
+ * test en cours, ouvert directement sur sa saisie des mesures.
+ */
+type SheetParams = { id?: string; finish?: string };
+
 export default function SheetScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, finish } = useLocalSearchParams<SheetParams>();
   // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
   const sheetId = typeof id === 'string' && id !== '' ? id : null;
   const [state, setState] = useState<LoadState>(sheetId ? { status: 'loading' } : { status: 'empty' });
@@ -125,7 +138,7 @@ export default function SheetScreen() {
     );
   }
 
-  return <SheetReader key={state.loaded.sheet.id} loaded={state.loaded} />;
+  return <SheetReader key={state.loaded.sheet.id} loaded={state.loaded} finishRequested={finish === '1'} />;
 }
 
 /** Fiche introuvable : écran précédent ; sans historique (lien direct, rechargement web), l'onglet Entraînement. */
@@ -193,12 +206,37 @@ async function loadSheet(sheetId: string): Promise<LoadState> {
   return { status: 'ready', loaded: { kind: 'test', sheet, tests, latest: latest.data ?? new Map() } };
 }
 
-function SheetReader({ loaded }: { loaded: Loaded }) {
+type SheetReaderProps = {
+  loaded: Loaded;
+  /** Ouvrir un test en cours sur sa saisie des mesures. */
+  finishRequested: boolean;
+};
+
+function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
   const { sheet } = loaded;
-  // Jour figé à l'ouverture : la séance compte pour le jour où la fiche a été ouverte.
+  const activeSession = useActiveSession();
+  const { setIndex } = activeSession;
+  // Séance en cours de cette fiche (chronométrée) ; null : simple lecture, ou une autre fiche est en cours.
+  const timed = activeSession.session?.sheetId === sheet.id ? activeSession.session : null;
+  const isTimed = timed !== null;
+  // Jour figé à l'ouverture : sans chrono, la séance compte pour le jour où la fiche a été ouverte.
   const [today] = useState(localToday);
+  const exerciseCount = sheet.exercises.length;
+  const lastStep = loaded.kind === 'test' ? exerciseCount + 1 : exerciseCount;
   // 0 : présentation ; 1 à n : un exercice par écran ; n + 1 : saisie des mesures (test).
-  const [step, setStep] = useState(0);
+  // Séance en cours : reprise à sa dernière étape, bornée si la fiche a changé depuis.
+  const [step, setStep] = useState(() => {
+    if (timed === null) {
+      return 0;
+    }
+    if (finishRequested && loaded.kind === 'test') {
+      return lastStep;
+    }
+    return Math.min(Math.max(timed.lastExerciseIndex, 0), lastStep);
+  });
+  const [starting, setStarting] = useState(false);
+  // Échec de mémorisation au démarrage : rien n'a démarré.
+  const [startError, setStartError] = useState<string | null>(null);
   // Saisie du test, gardée ici : elle survit aux allers-retours entre les blocs.
   const [values, setValues] = useState<Readonly<Partial<Record<string, string>>>>({});
   const [comment, setComment] = useState('');
@@ -209,11 +247,17 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
   const pendingRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  const exerciseCount = sheet.exercises.length;
-  const lastStep = loaded.kind === 'test' ? exerciseCount + 1 : exerciseCount;
+  // Étape mémorisée à chaque changement : le bandeau des onglets y ramène.
+  useEffect(() => {
+    if (isTimed) {
+      setIndex(step);
+    }
+  }, [isTimed, step, setIndex]);
+
   const exercise = step >= 1 && step <= exerciseCount ? sheet.exercises[step - 1] : null;
   const saving = save.status === 'saving';
-  const alreadyDoneToday = loaded.kind === 'training' && loaded.lastSessionDate === today;
+  // Sans chrono seulement : une fiche démarrée peut être refaite le même jour.
+  const alreadyDoneToday = !isTimed && loaded.kind === 'training' && loaded.lastSessionDate === today;
 
   function goTo(next: number) {
     setStep(Math.min(Math.max(next, 0), lastStep));
@@ -225,7 +269,56 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
     setValues((current) => ({ ...current, [key]: text }));
   }
 
+  /** Démarrer : la séance de cette fiche part maintenant, lecture au premier exercice. */
+  async function start() {
+    if (activeSession.loading || starting) {
+      return;
+    }
+    const current = activeSession.session;
+    if (current !== null && current.sheetId !== sheet.id) {
+      // replace : la lecture de cette fiche cède la place à la séance en cours.
+      askAboutActiveSession(current, 'replace');
+      return;
+    }
+    setStarting(true);
+    setStartError(null);
+    const error = await activeSession.start({ sheetId: sheet.id, kind: sheet.kind, title: sheet.title });
+    setStarting(false);
+    if (error !== null) {
+      setStartError(`La séance n’a pas démarré. ${error}`);
+      return;
+    }
+    goTo(FIRST_EXERCISE_INDEX);
+  }
+
+  /** Terminer : une fiche passe par l'écran de fin ; un test, par sa saisie des mesures. */
+  function finishTimed() {
+    if (loaded.kind === 'test') {
+      goTo(lastStep);
+    } else {
+      router.push('/session/finish');
+    }
+  }
+
+  /** Abandon d'un test en cours, depuis sa saisie : rien n'est enregistré. */
+  function abandon() {
+    if (pendingRef.current) {
+      return;
+    }
+    confirmAbandon(() => {
+      pendingRef.current = true;
+      void activeSession.clear();
+      // Sans params : une confirmation d'enregistrement restée sur l'onglet disparaît.
+      router.dismissTo('/training');
+    });
+  }
+
   async function markDone() {
+    if (isTimed) {
+      // « Séance faite » d'une fiche en cours = Terminer : durée réelle sur l'écran de fin.
+      finishTimed();
+      return;
+    }
     if (loaded.kind !== 'training' || pendingRef.current || alreadyDoneToday) {
       return;
     }
@@ -279,14 +372,17 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
 
     pendingRef.current = true;
     setSave({ status: 'saving' });
+    // Test démarré : jour du démarrage en heure locale, comme l'écran de fin d'une fiche.
+    const sessionDate = timed !== null ? localDateOfTimestamp(timed.startedAt) : today;
     let sessionId: string;
     if (pendingSessionId === null) {
       const created = await createSession({
-        date: today,
+        date: sessionDate,
         module: TEST_MODULE_KEY,
         type: getModule(TEST_MODULE_KEY).type,
         name: sheet.title,
-        duration_min: sheet.duration_min,
+        // Test démarré : durée réelle, en minutes arrondies ; sinon celle de la fiche.
+        duration_min: timed !== null ? elapsedMinutes(elapsedMs(timed.startedAt, Date.now())) : sheet.duration_min,
         difficulty: DEFAULT_DIFFICULTY,
         comment: comment.trim() || null,
         sheet_id: sheet.id,
@@ -326,7 +422,7 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
 
     // Une seule requête pour toutes les mesures : enregistrées toutes, ou aucune.
     const saved = await createTestResults(
-      entries.map((entry) => ({ test_id: entry.testId, value: entry.value, date: today, session_id: sessionId })),
+      entries.map((entry) => ({ test_id: entry.testId, value: entry.value, date: sessionDate, session_id: sessionId })),
     );
     if (saved.error !== null || saved.data === null) {
       pendingRef.current = false;
@@ -342,6 +438,11 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
 
   /** Retour à l'onglet, avec la confirmation. pendingRef reste vrai : pas de second envoi possible. */
   function leaveAfterTest(sessionId: string, resultCount: number) {
+    // Test démarré : fin de sa séance en cours ; une autre fiche en cours n'est pas touchée.
+    if (isTimed) {
+      vibrateOnSave();
+      void activeSession.clear();
+    }
     router.dismissTo({
       pathname: '/training',
       params: { savedSession: sessionId, savedTitle: sheet.title, savedResults: String(resultCount) },
@@ -356,9 +457,11 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
         ? `${loaded.kind === 'test' ? 'Bloc' : 'Exercice'} ${step} / ${exerciseCount}`
         : 'Saisie des mesures';
 
-  // Bouton principal : avancer d'une étape, puis l'action de la dernière.
+  // Bouton principal : démarrer depuis la présentation, avancer d'une étape, puis l'action de la dernière.
   let primary: ReactNode;
-  if (step < lastStep) {
+  if (step === 0 && !isTimed) {
+    primary = <Button label="Démarrer" loading={starting} onPress={start} style={styles.primaryButton} />;
+  } else if (step < lastStep) {
     primary = <Button label="Suivant" disabled={saving} onPress={() => goTo(step + 1)} style={styles.primaryButton} />;
   } else if (loaded.kind === 'training') {
     primary = (
@@ -388,6 +491,11 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
       {step === lastStep && save.status === 'error' ? (
         <FieldError message={loaded.kind === 'training' ? `Erreur : ${save.message}` : save.message} />
       ) : null}
+      {step === 0 ? <FieldError message={startError} /> : null}
+      {/* Séance en cours : Terminer à tout moment ; au dernier écran, l'action principale termine déjà. */}
+      {isTimed && step < lastStep ? (
+        <Button variant="secondary" label="Terminer" disabled={saving} onPress={finishTimed} />
+      ) : null}
       <View style={layout.buttonRow}>
         {step > 0 ? (
           <Button
@@ -400,6 +508,10 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
         ) : null}
         {primary}
       </View>
+      {/* Test en cours, sur sa saisie : abandon possible tant que sa séance n'est pas créée. */}
+      {isTimed && loaded.kind === 'test' && step === lastStep && pendingSessionId === null ? (
+        <Button variant="danger" label="Abandonner la séance" disabled={saving} onPress={abandon} />
+      ) : null}
     </>
   );
 

@@ -17,8 +17,11 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - react-native-svg (version du SDK, installée par `npx expo install`) : seule lib de dessin,
   importée uniquement dans app/measure/ pour la courbe d'une mesure ; pas de lib de charts
 - @expo/vector-icons (version du SDK, installée par `npx expo install` : le SDK 57 ne
-  l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation) ;
-  aucune autre lib d'icônes
+  l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation, ▶ de
+  démarrage) ; aucune autre lib d'icônes
+- expo-haptics (version du SDK, installée par `npx expo install`) : vibration Medium à
+  l'enregistrement d'une séance chronométrée, appelée seulement par `vibrateOnSave` de
+  lib/active-session-context.tsx ; sur le web, navigator.vibrate s'il existe, sinon rien
 
 ## Environnement de dev
 
@@ -38,6 +41,7 @@ app/ routes Expo Router
 session/_layout.tsx garde d'auth + pile des écrans de séance (hors onglets)
 session/new.tsx création d'une séance
 session/[id].tsx détail/édition/suppression d'une séance
+session/finish.tsx fin d'une fiche chronométrée : durée réelle ±5, difficulté, commentaire, ou abandon
 quiz/_layout.tsx garde d'auth + pile de la série ; quiz/run.tsx série de 5 questions puis récap
 sheet/_layout.tsx garde d'auth ; sheet/[id].tsx lecture d'une fiche ou d'un test, saisie des mesures
 profile/_layout.tsx garde d'auth ; profile/edit.tsx édition du profil
@@ -46,6 +50,12 @@ measure/_layout.tsx garde d'auth ; measure/[testId].tsx courbe, historique et su
 lib/
 supabase.ts client unique
 auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth
+active-session.ts séance en cours sur l'appareil (clé strafoot.activeSession) : get / start /
+setIndex / clear sans exception ; formatElapsed et elapsedMinutes purs, testés par
+active-session.test.ts ; seul fichier avec lib/supabase.ts à importer AsyncStorage
+active-session-context.tsx séance en cours partagée (provider monté dans app/_layout.tsx,
+useActiveSession), navigation vers elle (reprendre, terminer), Alert « séance déjà en cours »,
+confirmation d'abandon, vibration d'enregistrement
 theme.ts tokens du design system (couleurs, tailles, interlignes, espacements, rayons,
 dimensions, styles de texte et de champ, thème de navigation) : seule source de style avec components/
 dates.ts jours locaux YYYY-MM-DD et libellés, dont relativeDay (« auj. », « hier », « il y a 3 j »,
@@ -70,7 +80,10 @@ button.tsx bouton primary / secondary / danger, états pressé, désactivé, loa
 stat.tsx chiffre dominant 44 px, libellé et unité en secondaire
 empty-state.tsx état vide : ce qui manque, quoi faire, le bouton pour le faire
 field-error.tsx erreur sous un champ ou au-dessus de l'action qui a échoué
-session-form.tsx formulaire de séance partagé par session/new et session/[id]
+session-form.tsx formulaire de séance partagé par session/new et session/[id] ; exporte
+DurationField, DifficultyField, CommentField, repris par session/finish
+active-session-bar.tsx bandeau « En cours · titre · 12:34 » au-dessus de la barre d'onglets
+(prop tabBar de (tabs)/_layout.tsx), et l'échec éventuel de mémorisation de la séance
 scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts, build-seed-sheets.ts)
 supabase/
 migrations/NNN_description.sql
@@ -167,12 +180,27 @@ ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logiqu
    faite », qui crée une séance `entrainement_specifique` liée. Un test se lit bloc par bloc
    et finit sur la saisie d'une valeur par mesure : séance module `test` liée, puis ses
    `test_results` en un seul insert. L'historique des résultats est dans le Profil.
+   **Séance en cours** (une seule) : ▶ à droite de chaque fiche / test, ou « Démarrer » sur
+   la présentation, démarre le chrono et ouvre le 1er exercice ; une autre en cours → Alert
+   « Reprendre / Terminer l'autre d'abord / Annuler ». Bandeau « En cours · titre · 12:34 »
+   sur les 4 onglets, tap → la fiche à sa dernière étape. Pendant la séance : « Terminer »
+   (secondaire) à chaque écran sauf le dernier, dont l'action principale termine déjà. Fiche :
+   Terminer / « Séance faite » → écran de fin (durée réelle arrondie, min 1, ±5 ; difficulté ;
+   commentaire) → séance `entrainement_specifique` liée, vibration, confirmation sur l'onglet ;
+   « Abandonner la séance » → rien créé. Test : Terminer → saisie des mesures, séance à la
+   durée réelle ; abandon possible sur la saisie. Date d'une séance chronométrée : jour local
+   du démarrage.
 4. **Profil** : identité (email, postes, pied fort, club, niveau, date de naissance) et
    « Modifier » ; les mesures groupées par test : dernière valeur, date, évolution
    « ↑ mieux » / « ↓ moins bien » / « = » selon higher_is_better ; tap sur une mesure →
    courbe, historique, suppression d'un résultat ; volumes par module (30 jours / total).
    Auto-évaluations (grille 64 compétences en jsonb, à migrer depuis l'outil existant) :
    chantier 5b.
+
+Séance en cours : chrono = horodatage (startedAt), jamais de timer d'arrière-plan. La durée
+est maintenant − startedAt, recalculée à l'affichage ; le bandeau ne la rafraîchit chaque
+seconde que visible (onglets au premier plan, app active). Pas de notification, pas de
+chrono par exercice, pas de lib de timer.
 
 ## Hors périmètre v1 — ne pas proposer, ne pas préparer
 
@@ -232,7 +260,10 @@ surface). Les messages bruts de Supabase restent en anglais (erreur jamais aval�
 - `npx expo start` puis `w` / `a` (`npx expo start --clear` après l'ajout d'une dépendance)
 - `npx tsc --noEmit` avant chaque fin de chantier, zéro erreur exigée
 - `npx tsx lib/streak.test.ts`, `npx tsx lib/quiz-select.test.ts`,
-  `npx tsx lib/measure-delta.test.ts`, `npx tsx lib/dates.test.ts` (tests purs, sans framework)
+  `npx tsx lib/measure-delta.test.ts`, `npx tsx lib/dates.test.ts`,
+  `npx tsx lib/active-session.test.ts` (tests purs, sans framework)
+- Stockage de l'appareil (seulement lib/supabase.ts et lib/active-session.ts attendus) :
+  `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'async-storage'`
 - Contrôle du design system (aucune ligne attendue) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx -Exclude theme.ts | Select-String -Pattern '#[0-9A-Fa-f]{3,8}\b'`
 - `npx tsx scripts/build-seed-questions.ts`, `npx tsx scripts/build-seed-sheets.ts`
