@@ -51,6 +51,15 @@ export async function getSheet(id: string): Promise<DbResult<Sheet>> {
   return { data: { ...data, kind: data.kind, intro: intro.data, exercises: exercises.data }, error: null };
 }
 
+/** Durée prévue (minutes) d'une fiche ; data null sans erreur si elle n'existe pas (ou plus). */
+export async function getSheetDuration(id: string): Promise<DbResult<number>> {
+  const { data, error } = await supabase.from('training_sheets').select('duration_min').eq('id', id).maybeSingle();
+  if (error) {
+    return { data: null, error: error.message };
+  }
+  return { data: data ? data.duration_min : null, error: null };
+}
+
 /** Jour (YYYY-MM-DD) de la dernière séance liée à la fiche ou au test ; null s'il n'y en a aucune. */
 export async function getLastSessionForSheet(sheetId: string): Promise<DbResult<string | null>> {
   const { data, error } = await supabase

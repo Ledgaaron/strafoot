@@ -17,6 +17,10 @@ export type ProfilePatch = {
   club_level?: string | null;
   /** Jour YYYY-MM-DD. */
   birth_date?: string | null;
+  /** Objectif, 140 caractères au plus (limite de l'écran d'édition). */
+  goal?: string | null;
+  /** Échéance de l'objectif, jour YYYY-MM-DD. */
+  goal_deadline?: string | null;
 };
 
 /** Profil de l'utilisateur connecté (la RLS ne laisse voir que le sien), ou null s'il n'en a pas. */

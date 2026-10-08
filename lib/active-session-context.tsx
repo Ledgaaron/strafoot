@@ -1,4 +1,3 @@
-import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Alert, Platform } from 'react-native';
@@ -13,6 +12,7 @@ import {
   type ActiveSession,
   type ActiveSessionSheet,
 } from './active-session';
+import { hapticMedium } from './haptics';
 
 // Séance en cours partagée par toute l'app : relue au lancement, puis tenue en
 // mémoire, chaque changement recopié sur l'appareil par lib/active-session.ts.
@@ -189,8 +189,7 @@ export function confirmAbandon(onConfirm: () => void): void {
   ]);
 }
 
-/** Vibration Medium à l'enregistrement d'une séance chronométrée (web : navigator.vibrate s'il existe). */
+/** Vibration Medium à l'enregistrement d'une séance chronométrée (lib/haptics.ts : rien sur le web). */
 export function vibrateOnSave(): void {
-  // Simple retour physique : un appareil sans vibreur ne bloque ni ne signale rien, la séance est enregistrée.
-  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+  hapticMedium();
 }

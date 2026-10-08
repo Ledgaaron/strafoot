@@ -1,11 +1,27 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
+import { useElapsedLabel } from '../../components/active-session-bar';
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
+import { IconButton } from '../../components/icon-button';
+import { PitchPlaceholder } from '../../components/pitch-placeholder';
+import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
 import { elapsedMinutes, elapsedMs, FIRST_EXERCISE_INDEX } from '../../lib/active-session';
 import {
@@ -24,18 +40,17 @@ import {
   type TestRow,
 } from '../../lib/db/test-results';
 import { getLastSessionForSheet, getSheet, type Sheet } from '../../lib/db/training';
-import { diagramUrl } from '../../lib/diagrams';
-import { formatMeasure } from '../../lib/measure-delta';
+import { DIAGRAM_HEIGHT, DIAGRAM_WIDTH, diagramUrl } from '../../lib/diagrams';
+import { hapticMedium, hapticSuccess } from '../../lib/haptics';
+import { formatDecimal, formatMeasure } from '../../lib/measure-delta';
 import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY, TEST_MODULE_KEY } from '../../lib/modules';
 import type { Exercise, Measure } from '../../lib/sheet-types';
-import { colors, input, inputProps, layout, radius, spacing, text } from '../../lib/theme';
+import { colors, input, inputProps, layout, motion, radius, size, spacing, text } from '../../lib/theme';
 
-/** Rapport largeur / hauteur des schémas (722 × 646 px). */
-const DIAGRAM_ASPECT_RATIO = 722 / 646;
 const PLACEHOLDER = '—';
 const NO_SESSION_MESSAGE = 'Supabase n’a renvoyé ni la séance ni d’erreur : vérifier l’Accueil avant de réessayer.';
 const NO_RESULTS_MESSAGE = 'Supabase n’a renvoyé ni les résultats ni d’erreur.';
-/** Sous une mesure refusée ; le message au-dessus du bouton nomme toutes les mesures à compléter. */
+/** Sous une mesure refusée (✓ ou envoi) ; le message au-dessus du bouton nomme toutes les mesures à compléter. */
 const INVALID_MEASURE_MESSAGE = 'Nombre attendu (virgule ou point).';
 /** Valeur d'une mesure, espaces retirés : des chiffres, avec virgule ou point décimal. */
 const DECIMAL_PATTERN = /^(?:\d+(?:[.,]\d*)?|[.,]\d+)$/;
@@ -69,6 +84,9 @@ type SaveState =
   | { status: 'idle' }
   | { status: 'saving' }
   | { status: 'error'; message: string; invalidKeys: ReadonlySet<string> };
+
+/** Test enregistré : sa séance et le nombre de résultats, confirmés à la place de la saisie. */
+type SavedTest = { sessionId: string; resultCount: number };
 
 /**
  * id : la fiche ou le test. finish « 1 » : « Terminer l'autre d'abord » sur un
@@ -237,12 +255,19 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
   const [starting, setStarting] = useState(false);
   // Échec de mémorisation au démarrage : rien n'a démarré.
   const [startError, setStartError] = useState<string | null>(null);
+  // « Plus de tips » déplié ou non : gardé d'un exercice à l'autre, le temps de la lecture.
+  const [tipsOpen, setTipsOpen] = useState(false);
   // Saisie du test, gardée ici : elle survit aux allers-retours entre les blocs.
   const [values, setValues] = useState<Readonly<Partial<Record<string, string>>>>({});
+  // Lignes validées par ✓, et lignes dont le ✓ a été refusé (valeur illisible) : gardées de même.
+  const [validated, setValidated] = useState<ReadonlySet<string>>(NO_KEYS);
+  const [refused, setRefused] = useState<ReadonlySet<string>>(NO_KEYS);
   const [comment, setComment] = useState('');
   const [save, setSave] = useState<SaveState>({ status: 'idle' });
   // Séance du test créée mais résultats non enregistrés : le réessai ne la recrée pas.
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  // Test enregistré : la confirmation remplace la saisie.
+  const [savedTest, setSavedTest] = useState<SavedTest | null>(null);
   // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
   const pendingRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -258,6 +283,10 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
   const saving = save.status === 'saving';
   // Sans chrono seulement : une fiche démarrée peut être refaite le même jour.
   const alreadyDoneToday = !isTimed && loaded.kind === 'training' && loaded.lastSessionDate === today;
+  // Envoi d'un test : chaque mesure validée par ✓ (aucune mesure dans une fiche de lecture).
+  const measureKeys = sheet.exercises.flatMap((block) => block.measures.map((measure) => measure.key));
+  const validatedCount = measureKeys.filter((key) => validated.has(key)).length;
+  const allValidated = validatedCount === measureKeys.length;
 
   function goTo(next: number) {
     setStep(Math.min(Math.max(next, 0), lastStep));
@@ -267,6 +296,25 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
 
   function changeValue(key: string, text: string) {
     setValues((current) => ({ ...current, [key]: text }));
+    // Nouvelle saisie : le refus du ✓ précédent ne la concerne plus.
+    setRefused((current) => withoutKey(current, key));
+  }
+
+  /** ✓ : la valeur proposée (saisie, ou dernière valeur en gris) devient celle de la ligne, si elle se lit. */
+  function validateMeasure(key: string, candidate: string) {
+    if (parseMeasureValue(candidate) === null) {
+      setRefused((current) => withKey(current, key));
+      return;
+    }
+    setValues((current) => ({ ...current, [key]: candidate }));
+    setRefused((current) => withoutKey(current, key));
+    setValidated((current) => withKey(current, key));
+    hapticSuccess();
+  }
+
+  /** Ligne validée touchée (sa valeur ou son ✓) : de nouveau modifiable. */
+  function editMeasure(key: string) {
+    setValidated((current) => withoutKey(current, key));
   }
 
   /** Démarrer : la séance de cette fiche part maintenant, lecture au premier exercice. */
@@ -289,6 +337,14 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
       return;
     }
     goTo(FIRST_EXERCISE_INDEX);
+  }
+
+  /** Séance déjà faite, sans chrono : formulaire de séance pré-rempli (module, nom, durée), date modifiable. */
+  function openDoneForm() {
+    router.push({
+      pathname: '/session/new',
+      params: { sheetId: sheet.id, module: SHEET_MODULE_KEY, name: sheet.title, durationMin: String(sheet.duration_min) },
+    });
   }
 
   /** Terminer : une fiche passe par l'écran de fin ; un test, par sa saisie des mesures. */
@@ -341,6 +397,7 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
       return;
     }
     // pendingRef reste vrai : l'écran se ferme, pas de second envoi possible.
+    hapticMedium();
     router.dismissTo({ pathname: '/training', params: { savedSession: data.id, savedTitle: sheet.title } });
   }
 
@@ -415,7 +472,7 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
       }
       const latestNow = check.data;
       if (entries.every((entry) => latestNow.get(entry.testId)?.session_id === sessionId)) {
-        leaveAfterTest(sessionId, entries.length);
+        showSavedTest(sessionId, entries.length);
         return;
       }
     }
@@ -433,20 +490,23 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
       });
       return;
     }
-    leaveAfterTest(sessionId, saved.data.length);
+    showSavedTest(sessionId, saved.data.length);
   }
 
-  /** Retour à l'onglet, avec la confirmation. pendingRef reste vrai : pas de second envoi possible. */
-  function leaveAfterTest(sessionId: string, resultCount: number) {
+  /** Confirmation à la place de la saisie, avec la vibration. pendingRef reste vrai : pas de second envoi possible. */
+  function showSavedTest(sessionId: string, resultCount: number) {
     // Test démarré : fin de sa séance en cours ; une autre fiche en cours n'est pas touchée.
     if (isTimed) {
       vibrateOnSave();
       void activeSession.clear();
+    } else {
+      hapticMedium();
     }
-    router.dismissTo({
-      pathname: '/training',
-      params: { savedSession: sessionId, savedTitle: sheet.title, savedResults: String(resultCount) },
-    });
+    setSavedTest({ sessionId, resultCount });
+  }
+
+  if (savedTest !== null) {
+    return <TestConfirmation sheet={sheet} saved={savedTest} />;
   }
 
   // En-tête natif : l'étape ; le titre de la fiche est dans le contenu de la présentation.
@@ -477,6 +537,8 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
     primary = (
       <Button
         label={pendingSessionId !== null ? 'Réessayer les résultats' : 'Enregistrer le test'}
+        // Envoi possible une fois chaque mesure validée par ✓.
+        disabled={!allValidated}
         loading={saving}
         onPress={submitTest}
         style={styles.primaryButton}
@@ -492,6 +554,12 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
         <FieldError message={loaded.kind === 'training' ? `Erreur : ${save.message}` : save.message} />
       ) : null}
       {step === 0 ? <FieldError message={startError} /> : null}
+      {/* Saisie d'un test : pourquoi l'envoi attend encore, et ce qu'il reste à valider. */}
+      {loaded.kind === 'test' && step === lastStep && !allValidated ? (
+        <Text style={[text.meta, text.tabular]}>
+          {`Valide chaque mesure avec ✓ : ${validatedCount} / ${measureKeys.length}`}
+        </Text>
+      ) : null}
       {/* Séance en cours : Terminer à tout moment ; au dernier écran, l'action principale termine déjà. */}
       {isTimed && step < lastStep ? (
         <Button variant="secondary" label="Terminer" disabled={saving} onPress={finishTimed} />
@@ -508,6 +576,10 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
         ) : null}
         {primary}
       </View>
+      {/* Présentation d'une fiche hors séance en cours : la noter sans chrono, Démarrer reste l'action principale. */}
+      {step === 0 && !isTimed && loaded.kind === 'training' ? (
+        <Button variant="secondary" label="Séance déjà faite" disabled={starting} onPress={openDoneForm} />
+      ) : null}
       {/* Test en cours, sur sa saisie : abandon possible tant que sa séance n'est pas créée. */}
       {isTimed && loaded.kind === 'test' && step === lastStep && pendingSessionId === null ? (
         <Button variant="danger" label="Abandonner la séance" disabled={saving} onPress={abandon} />
@@ -517,10 +589,19 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
 
   return (
     <>
-      <Stack.Screen options={{ title: headerTitle }} />
+      <Stack.Screen
+        options={{
+          title: headerTitle,
+          // Séance en cours de cette fiche : son chrono à droite. undefined explicite sinon :
+          // setOptions fusionne, le chrono d'une séance finie resterait affiché.
+          headerRight: timed !== null ? () => <HeaderClock startedAt={timed.startedAt} /> : undefined,
+        }}
+      />
       <Screen title={step === 0 ? sheet.title : undefined} scrollRef={scrollRef} footer={footer}>
         {step === 0 ? <Overview sheet={sheet} onOpen={goTo} /> : null}
-        {exercise !== null ? <ExerciseStep exercise={exercise} /> : null}
+        {exercise !== null ? (
+          <ExerciseStep exercise={exercise} tipsOpen={tipsOpen} onToggleTips={() => setTipsOpen((open) => !open)} />
+        ) : null}
 
         {loaded.kind === 'test' && step === lastStep ? (
           <TestForm
@@ -529,11 +610,15 @@ function SheetReader({ loaded, finishRequested }: SheetReaderProps) {
             latest={loaded.latest}
             today={today}
             values={values}
+            validated={validated}
+            refused={refused}
             comment={comment}
             // Séance déjà créée : son commentaire est enregistré, seuls les résultats restent à envoyer.
             commentEditable={pendingSessionId === null}
             invalidKeys={save.status === 'error' ? save.invalidKeys : NO_KEYS}
             onChangeValue={changeValue}
+            onValidate={validateMeasure}
+            onEdit={editMeasure}
             onChangeComment={setComment}
           />
         ) : null}
@@ -556,6 +641,26 @@ function resultsNotSaved(error: string): string {
   return `Séance enregistrée, résultats non enregistrés : ${error}\n« Réessayer les résultats » ne recrée pas la séance.`;
 }
 
+/** Ensemble avec key en plus ; le même s'il la contient déjà (pas de rendu inutile). */
+function withKey(keys: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  return keys.has(key) ? keys : new Set([...keys, key]);
+}
+
+/** Ensemble sans key ; le même s'il ne la contient pas. */
+function withoutKey(keys: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  if (!keys.has(key)) {
+    return keys;
+  }
+  const next = new Set(keys);
+  next.delete(key);
+  return next;
+}
+
+/** Pluriel français, 0 et 1 au singulier : « 1 résultat », « 2 résultats ». */
+function formatCount(count: number, singular: string, plural: string): string {
+  return `${count} ${count >= 2 ? plural : singular}`;
+}
+
 /** « Précision arrêt — pied droit (pts /30) » */
 function formatMeasureLabel(measure: Measure): string {
   return `${measure.name} (${measure.unit})`;
@@ -568,6 +673,67 @@ function sharedEquipment(exercises: readonly Exercise[]): string | null {
   }
   const first = exercises[0].setup.equipment;
   return exercises.every((exercise) => exercise.setup.equipment === first) ? first : null;
+}
+
+/** Chrono de la séance en cours, à droite de l'en-tête natif : même source que le bandeau des onglets. */
+function HeaderClock({ startedAt }: { startedAt: string }) {
+  // Recalculé chaque seconde seulement fiche au premier plan et app active.
+  const elapsed = useElapsedLabel(startedAt);
+  // Libellé stable : un chrono relu chaque seconde par le lecteur d'écran serait du bruit.
+  return (
+    <Text
+      accessibilityLabel="Chrono de la séance"
+      style={[text.bodyStrong, text.tabular, Platform.OS === 'web' && styles.headerClockWeb]}
+    >
+      {elapsed}
+    </Text>
+  );
+}
+
+type TestConfirmationProps = {
+  sheet: Sheet;
+  saved: SavedTest;
+};
+
+/**
+ * Test enregistré, à la place de sa saisie : confirmation, puis sa progression
+ * dans le Profil ou le retour à l'onglet. Plus de Précédent, de Suivant ni
+ * d'abandon : tout est envoyé.
+ */
+function TestConfirmation({ sheet, saved }: TestConfirmationProps) {
+  const results = formatCount(saved.resultCount, 'résultat', 'résultats');
+  return (
+    <>
+      {/* headerRight explicite : setOptions fusionne, le chrono de la séance terminée resterait affiché. */}
+      <Stack.Screen options={{ title: 'Test enregistré', headerRight: undefined }} />
+      <Screen
+        // key : la confirmation glisse une fois, à l'arrivée sur cet état.
+        toast={<SaveToast key={saved.sessionId} message={`Test enregistré : ${sheet.title}, ${results}.`} />}
+        footer={
+          <>
+            <Button
+              label="Voir ma progression"
+              onPress={() =>
+                router.dismissTo({
+                  pathname: '/profile',
+                  params: { focusTest: sheet.id, focusSession: saved.sessionId },
+                })
+              }
+            />
+            <Button variant="secondary" label="Retour à l’entraînement" onPress={() => router.dismissTo('/training')} />
+          </>
+        }
+      >
+        <Card bordered style={styles.savedCard}>
+          <Ionicons name="checkmark-circle" size={size.icon} color={colors.success} aria-hidden />
+          <View style={styles.savedText}>
+            <Text style={text.bodyStrong}>{`Test enregistré : ${sheet.title}`}</Text>
+            <Text style={text.meta}>{`${results} · évolution dans le Profil`}</Text>
+          </View>
+        </Card>
+      </Screen>
+    </>
+  );
 }
 
 type OverviewProps = {
@@ -607,15 +773,28 @@ function Overview({ sheet, onOpen }: OverviewProps) {
   );
 }
 
-/** Un exercice, dans l'ordre imposé ; tout le contenu du JSON s'affiche. */
-function ExerciseStep({ exercise }: { exercise: Exercise }) {
+type ExerciseStepProps = {
+  exercise: Exercise;
+  /** « Plus de tips » déplié : critères, points techniques, variables, mise en place. */
+  tipsOpen: boolean;
+  onToggleTips: () => void;
+};
+
+/**
+ * Un exercice, l'essentiel d'abord : illustration, titre, Objectif, But,
+ * Consignes (et les mesures d'un bloc de test) ; le reste du JSON sous « Plus
+ * de tips ». Tout le contenu du JSON reste affichable.
+ */
+function ExerciseStep({ exercise, tipsOpen, onToggleTips }: ExerciseStepProps) {
   const { setup, variations } = exercise;
   return (
     <>
-      {/* key : l'état chargé / introuvable repart de zéro à chaque schéma. */}
+      {/* key : l'état chargé / introuvable repart de zéro à chaque schéma. Sans schéma : le terrain par défaut. */}
       {exercise.diagram !== null ? (
         <Diagram key={exercise.diagram} file={exercise.diagram} title={exercise.title} />
-      ) : null}
+      ) : (
+        <PitchPlaceholder />
+      )}
 
       <View style={styles.titleBlock}>
         <Text role="heading" style={text.title}>
@@ -633,23 +812,7 @@ function ExerciseStep({ exercise }: { exercise: Exercise }) {
       <Section title="Consignes">
         <TextList items={exercise.instructions} numbered />
       </Section>
-      <Section title="Critères de réussite">
-        <TextList items={exercise.success_criteria} />
-      </Section>
-      <Section title="Points techniques">
-        <TextList items={exercise.technical_points} />
-      </Section>
-      {variations !== null ? (
-        <Section title="Variables">
-          <Text style={text.body}>{`Plus facile : ${variations.easier}`}</Text>
-          <Text style={text.body}>{`Plus dur : ${variations.harder}`}</Text>
-        </Section>
-      ) : null}
-
-      <Text style={text.meta}>
-        {`Surface : ${setup.surface} · Séquence : ${setup.sequence} · Effectif : ${setup.equipment}`}
-      </Text>
-
+      {/* Bloc de test : ce qu'il faut noter pendant le bloc, toujours visible. */}
       {exercise.measures.length > 0 ? (
         <Section title="Mesures, saisies à la fin">
           {exercise.measures.map((measure) => (
@@ -658,6 +821,35 @@ function ExerciseStep({ exercise }: { exercise: Exercise }) {
             </Text>
           ))}
         </Section>
+      ) : null}
+
+      {/* Repli sans animation ; l'état vit dans SheetReader, gardé d'un exercice à l'autre. */}
+      <Button
+        variant="secondary"
+        label="Plus de tips"
+        icon={tipsOpen ? 'chevron-up' : 'chevron-down'}
+        expanded={tipsOpen}
+        onPress={onToggleTips}
+      />
+      {tipsOpen ? (
+        <>
+          <Section title="Critères de réussite">
+            <TextList items={exercise.success_criteria} />
+          </Section>
+          <Section title="Points techniques">
+            <TextList items={exercise.technical_points} />
+          </Section>
+          {variations !== null ? (
+            <Section title="Variables">
+              <Text style={text.body}>{`Plus facile : ${variations.easier}`}</Text>
+              <Text style={text.body}>{`Plus dur : ${variations.harder}`}</Text>
+            </Section>
+          ) : null}
+
+          <Text style={text.meta}>
+            {`Surface : ${setup.surface} · Séquence : ${setup.sequence} · Effectif : ${setup.equipment}`}
+          </Text>
+        </>
       ) : null}
     </>
   );
@@ -717,17 +909,25 @@ type TestFormProps = {
   latest: ReadonlyMap<string, LatestResult>;
   today: string;
   values: Readonly<Partial<Record<string, string>>>;
+  /** Mesures validées par ✓ : valeur affichée en clair sur fond vert. */
+  validated: ReadonlySet<string>;
+  /** Mesures dont le ✓ a été refusé (valeur illisible) : champ encadré en rouge et message dessous. */
+  refused: ReadonlySet<string>;
   comment: string;
   commentEditable: boolean;
   /** Mesures refusées au dernier envoi : champ encadré en rouge et message dessous. */
   invalidKeys: ReadonlySet<string>;
   onChangeValue: (key: string, text: string) => void;
+  /** ✓ sur une ligne non validée, avec la valeur proposée (saisie, ou dernière valeur). */
+  onValidate: (key: string, candidate: string) => void;
+  /** Ligne validée touchée : de nouveau modifiable. */
+  onEdit: (key: string) => void;
   onChangeComment: (text: string) => void;
 };
 
 /**
- * Dernier écran d'un test : une valeur par mesure, bloc par bloc, à côté de la
- * dernière connue. Le bouton d'envoi et son message sont dans le pied de l'écran.
+ * Dernier écran d'un test : une ligne par mesure, bloc par bloc, à valider par ✓
+ * (façon Strong). Le bouton d'envoi et son message sont dans le pied de l'écran.
  */
 function TestForm({
   sheet,
@@ -735,10 +935,14 @@ function TestForm({
   latest,
   today,
   values,
+  validated,
+  refused,
   comment,
   commentEditable,
   invalidKeys,
   onChangeValue,
+  onValidate,
+  onEdit,
   onChangeComment,
 }: TestFormProps) {
   // Pas de titre ici : l'en-tête natif dit déjà « Saisie des mesures ».
@@ -755,13 +959,17 @@ function TestForm({
                 key={measure.key}
                 measure={measure}
                 value={values[measure.key] ?? ''}
-                invalid={invalidKeys.has(measure.key)}
+                lastValue={last ? formatDecimal(last.value) : null}
+                validated={validated.has(measure.key)}
+                invalid={invalidKeys.has(measure.key) || refused.has(measure.key)}
                 lastLabel={
                   last
                     ? `dernier : ${formatMeasure(last.value, measure.unit)} · ${relativeDay(last.date, today)}`
                     : PLACEHOLDER
                 }
                 onChange={(entry) => onChangeValue(measure.key, entry)}
+                onValidate={(candidate) => onValidate(measure.key, candidate)}
+                onEdit={() => onEdit(measure.key)}
               />
             );
           })}
@@ -787,32 +995,123 @@ function TestForm({
 type MeasureFieldProps = {
   measure: Measure;
   value: string;
+  /** Dernière valeur connue (« 18 », « 4,32 »), en gris dans le champ vide ; null si jamais mesurée. */
+  lastValue: string | null;
+  validated: boolean;
   invalid: boolean;
   /** « dernier : 18 pts /30 · il y a 4 j », ou « — » si jamais mesurée. */
   lastLabel: string;
   onChange: (text: string) => void;
+  onValidate: (candidate: string) => void;
+  onEdit: () => void;
 };
 
-function MeasureField({ measure, value, invalid, lastLabel, onChange }: MeasureFieldProps) {
+/**
+ * Une mesure façon Strong : la dernière valeur en gris dans le champ, ✓ valide
+ * la saisie ou, sans saisie, cette valeur grise. Ligne validée : fond vert,
+ * valeur en clair ; touchée (valeur ou ✓), elle redevient modifiable.
+ */
+function MeasureField({
+  measure,
+  value,
+  lastValue,
+  validated,
+  invalid,
+  lastLabel,
+  onChange,
+  onValidate,
+  onEdit,
+}: MeasureFieldProps) {
   const label = formatMeasureLabel(measure);
+  const typed = value.trim();
+  // Micro-interaction b : 1 → 1,04 → 1 au passage à « validée ».
+  const [scale] = useState(() => new Animated.Value(1));
+  // Validée au rendu précédent : une ligne déjà validée à l'affichage (retour d'un bloc) ne s'anime pas.
+  const wasValidated = useRef(validated);
+  const inputRef = useRef<TextInput>(null);
+  // Valeur touchée pour la modifier : le champ qui la remplace prend le focus (pas avec le ✓).
+  const focusOnEdit = useRef(false);
+
+  useEffect(() => {
+    const before = wasValidated.current;
+    wasValidated.current = validated;
+    // Premier affichage : ni animation, ni focus.
+    if (before === validated) {
+      return;
+    }
+    if (!validated) {
+      if (focusOnEdit.current) {
+        focusOnEdit.current = false;
+        inputRef.current?.focus();
+      }
+      return;
+    }
+    const half = motion.validateMs / 2;
+    const pulse = Animated.sequence([
+      Animated.timing(scale, { toValue: motion.validateScale, duration: half, useNativeDriver: motion.useNativeDriver }),
+      Animated.timing(scale, { toValue: 1, duration: half, useNativeDriver: motion.useNativeDriver }),
+    ]);
+    pulse.start();
+    return () => {
+      // Ligne rouverte ou écran quitté pendant l'animation : taille normale aussitôt.
+      pulse.stop();
+      scale.setValue(1);
+    };
+  }, [validated, scale]);
+
+  function validate() {
+    // Sans saisie, la dernière valeur (en gris) devient la valeur de la ligne.
+    const candidate = typed !== '' ? typed : lastValue;
+    if (candidate !== null) {
+      onValidate(candidate);
+    }
+  }
+
+  function editValue() {
+    focusOnEdit.current = true;
+    onEdit();
+  }
+
   return (
-    <View style={styles.measure}>
+    <Animated.View style={[styles.measure, validated && styles.measureValidated, { transform: [{ scale }] }]}>
       <Text style={text.body}>{label}</Text>
       <View style={styles.measureRow}>
-        <TextInput
-          {...inputProps}
-          style={[input.field, styles.valueInput, invalid && input.invalid]}
-          value={value}
-          onChangeText={onChange}
-          // Clavier numérique avec séparateur décimal (decimal-pad natif, inputmode web).
-          inputMode="decimal"
-          placeholder={measure.unit}
-          accessibilityLabel={label}
+        {validated ? (
+          <Pressable
+            role="button"
+            accessibilityLabel={`Modifier : ${measure.name}, ${value}`}
+            onPress={editValue}
+            style={({ pressed }) => [styles.validatedValue, pressed && styles.validatedValuePressed]}
+          >
+            <Text style={[text.title, text.tabular]}>{value}</Text>
+          </Pressable>
+        ) : (
+          <TextInput
+            {...inputProps}
+            ref={inputRef}
+            style={[input.field, styles.valueInput, invalid && input.invalid]}
+            value={value}
+            onChangeText={onChange}
+            // Clavier numérique avec séparateur décimal (decimal-pad natif, inputmode web).
+            inputMode="decimal"
+            // Dernière valeur en gris (placeholderTextColor de inputProps) ; l'unité si jamais mesurée.
+            placeholder={lastValue ?? measure.unit}
+            accessibilityLabel={label}
+          />
+        )}
+        <IconButton
+          icon="checkmark"
+          // Le libellé dit ce que fait le tap : valider, ou rouvrir une ligne validée.
+          accessibilityLabel={validated ? `Modifier : ${measure.name}` : `Valider : ${measure.name}`}
+          // Rien à valider : ni saisie, ni dernière valeur.
+          disabled={!validated && typed === '' && lastValue === null}
+          checked={validated}
+          onPress={validated ? onEdit : validate}
         />
-        <Text style={[text.meta, text.tabular, styles.lastValue]}>{lastLabel}</Text>
       </View>
+      <Text style={[text.meta, text.tabular]}>{lastLabel}</Text>
       <FieldError message={invalid ? INVALID_MEASURE_MESSAGE : null} />
-    </View>
+    </Animated.View>
   );
 }
 
@@ -826,9 +1125,23 @@ const styles = StyleSheet.create({
   primaryButton: {
     flex: 2,
   },
+  // En-tête web : rien n'écarte sa droite du bord (Android et iOS le font déjà).
+  headerClockWeb: {
+    paddingEnd: spacing.lg,
+  },
+  savedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  // Un titre long passe à la ligne à côté de l'icône au lieu de déborder.
+  savedText: {
+    flex: 1,
+    gap: spacing.xs,
+  },
   diagram: {
     width: '100%',
-    aspectRatio: DIAGRAM_ASPECT_RATIO,
+    aspectRatio: DIAGRAM_WIDTH / DIAGRAM_HEIGHT,
     borderRadius: radius.card,
     // Les coins arrondis découpent aussi l'image.
     overflow: 'hidden',
@@ -852,19 +1165,33 @@ const styles = StyleSheet.create({
   blockCard: {
     gap: spacing.lg,
   },
+  // Même marge et mêmes coins validée ou non, seul le fond change : rien ne se décale.
   measure: {
     gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.button,
+  },
+  measureValidated: {
+    backgroundColor: colors.successSoft,
   },
   measureRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
   },
-  // Champ et dernière valeur se partagent la rangée ; un libellé long passe à la ligne.
+  // Le champ prend la rangée, le ✓ garde ses 48 px à droite.
   valueInput: {
     flex: 1,
   },
-  lastValue: {
+  // Valeur validée, à la place du champ : même hauteur, même marge intérieure.
+  validatedValue: {
     flex: 1,
+    minHeight: size.input,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.button,
+  },
+  validatedValuePressed: {
+    backgroundColor: colors.surface2,
   },
 });

@@ -1,6 +1,16 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View, type ScrollView, type ViewStyle } from 'react-native';
+import {
+  ActivityIndicator,
+  LayoutAnimation,
+  Platform,
+  StyleSheet,
+  Text,
+  UIManager,
+  View,
+  type ScrollView,
+  type ViewStyle,
+} from 'react-native';
 
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
@@ -24,6 +34,15 @@ import {
 import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
 
 const NO_ROW_MESSAGE = 'Supabase n’a renvoyé ni la réponse ni d’erreur.';
+
+// Micro-interaction e : les explications se déroulent (LayoutAnimation). Sous la
+// Nouvelle Architecture (RN 0.86, bridgeless), elle marche d'office sur Android
+// et ce drapeau n'est plus qu'un avertissement : on ne l'active que sur
+// l'ancienne. Sur le web, LayoutAnimation ne fait rien.
+const isNewArchitecture = (globalThis as { RN$Bridgeless?: boolean }).RN$Bridgeless === true;
+if (Platform.OS === 'android' && !isNewArchitecture) {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
 
 type OptionScore = QuestionOption['score'];
 
@@ -161,6 +180,8 @@ export default function QuizRunScreen() {
       });
       return;
     }
+    // Score et explications se déroulent au prochain rendu (micro-interaction e).
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     updatePhase(run.id, index, { step: 'answered', chosenIndex, answer: data, flagging: false, flagError: null });
   }
 

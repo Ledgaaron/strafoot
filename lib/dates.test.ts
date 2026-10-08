@@ -1,9 +1,10 @@
-// Tests de relativeDay (lib/dates.ts), sans framework : npx tsx lib/dates.test.ts
+// Tests de relativeDay, daysBetween, startOfWeek et formatWeekRange (lib/dates.ts),
+// sans framework : npx tsx lib/dates.test.ts
 // TypeScript 6 n'inclut plus @types/node d'office : référence explicite pour node:assert.
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 
-import { relativeDay } from './dates';
+import { daysBetween, formatWeekRange, relativeDay, startOfWeek } from './dates';
 
 type Case = { name: string; day: string; today: string; expected: string };
 
@@ -56,6 +57,37 @@ const cases: Case[] = [
   },
 ];
 
+type ValueCase<T> = { name: string; run: () => T; expected: T };
+
+// Semaine du lundi 5 au dimanche 11 octobre 2026.
+const valueCases: ValueCase<string | number>[] = [
+  { name: 'daysBetween : échéance dans 42 jours', run: () => daysBetween(TODAY, '2026-11-18'), expected: 42 },
+  { name: 'daysBetween : même jour, 0', run: () => daysBetween(TODAY, TODAY), expected: 0 },
+  { name: 'daysBetween : jour passé, négatif', run: () => daysBetween(TODAY, '2026-10-04'), expected: -3 },
+  {
+    // 47 h entre les deux minuits locaux en France (heure d’hiver le 25 octobre) : 2 jours.
+    name: 'daysBetween : passage à l’heure d’hiver compris',
+    run: () => daysBetween('2026-10-24', '2026-10-26'),
+    expected: 2,
+  },
+  { name: 'startOfWeek : mercredi → lundi 5 oct.', run: () => startOfWeek(TODAY), expected: '2026-10-05' },
+  { name: 'startOfWeek : un lundi reste lui-même', run: () => startOfWeek('2026-10-05'), expected: '2026-10-05' },
+  { name: 'startOfWeek : dimanche → lundi précédent', run: () => startOfWeek('2026-10-11'), expected: '2026-10-05' },
+  { name: 'startOfWeek : jeudi 1er janv. → lundi 29 déc.', run: () => startOfWeek('2026-01-01'), expected: '2025-12-29' },
+  { name: 'formatWeekRange : même mois', run: () => formatWeekRange('2026-10-05', TODAY), expected: '5 – 11 oct.' },
+  { name: 'formatWeekRange : deux mois', run: () => formatWeekRange('2026-09-28', TODAY), expected: '28 sept. – 4 oct.' },
+  {
+    name: 'formatWeekRange : autre année, l’année suit la fin',
+    run: () => formatWeekRange('2025-12-01', TODAY),
+    expected: '1 – 7 déc. 2025',
+  },
+  {
+    name: 'formatWeekRange : semaine à cheval sur deux années',
+    run: () => formatWeekRange('2026-12-28', TODAY),
+    expected: '28 déc. 2026 – 3 janv. 2027',
+  },
+];
+
 let failures = 0;
 
 function check(name: string, run: () => void): void {
@@ -74,9 +106,17 @@ for (const testCase of cases) {
   });
 }
 
+for (const testCase of valueCases) {
+  check(testCase.name, () => {
+    assert.equal(testCase.run(), testCase.expected);
+  });
+}
+
+const total = cases.length + valueCases.length;
+
 if (failures > 0) {
-  console.error(`\n${failures} cas en échec sur ${cases.length}.`);
+  console.error(`\n${failures} cas en échec sur ${total}.`);
   process.exitCode = 1;
 } else {
-  console.log(`\n${cases.length} cas, tous passent.`);
+  console.log(`\n${total} cas, tous passent.`);
 }

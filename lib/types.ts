@@ -5,8 +5,8 @@
 // (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid()),
 // sur 003 (answers.quiz_run_id, answers.flagged), sur 004
 // (training_sheets.slug, kind, subtitle, intro, pdf_url ; tests.key,
-// higher_is_better ; test_results.session_id) et sur 005 (profiles.strong_foot,
-// club_level).
+// higher_is_better ; test_results.session_id), sur 005 (profiles.strong_foot,
+// club_level) et sur 006 (profiles.goal, goal_deadline).
 // Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
 // colonnes jsonb : lib/json-types.ts et lib/sheet-types.ts).
 
@@ -71,6 +71,8 @@ export type Database = {
           club: string | null
           club_level: string | null
           created_at: string
+          goal: string | null
+          goal_deadline: string | null
           id: string
           main_position: string | null
           secondary_position: string | null
@@ -82,6 +84,8 @@ export type Database = {
           club?: string | null
           club_level?: string | null
           created_at?: string
+          goal?: string | null
+          goal_deadline?: string | null
           id?: string
           main_position?: string | null
           secondary_position?: string | null
@@ -93,6 +97,8 @@ export type Database = {
           club?: string | null
           club_level?: string | null
           created_at?: string
+          goal?: string | null
+          goal_deadline?: string | null
           id?: string
           main_position?: string | null
           secondary_position?: string | null

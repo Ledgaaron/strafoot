@@ -109,6 +109,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** En deçà de 7 jours, une date passée s'écrit en relatif. */
 const RELATIVE_DAY_LIMIT = 7;
 
+/** Jours calendaires de from à to (négatif si to précède from) : « J-42 » d'une échéance. */
+export function daysBetween(from: string, to: string): number {
+  // Minuits locaux : un changement d'heure donne un écart de 23 ou 25 h, l'arrondi le ramène à un jour.
+  return Math.round((fromLocalDateString(to).getTime() - fromLocalDateString(from).getTime()) / DAY_MS);
+}
+
 /**
  * Date d'un jour passé, lisible d'un coup d'œil : « auj. », « hier », « il y a
  * 3 j » jusqu'à 6 jours, puis « 30 sept. », avec l'année si elle diffère de
@@ -119,8 +125,7 @@ const RELATIVE_DAY_LIMIT = 7;
 export function relativeDay(day: string, today: string): string {
   const date = fromLocalDateString(day);
   const reference = fromLocalDateString(today);
-  // Minuits locaux : un changement d'heure donne un écart de 23 ou 25 h, l'arrondi le ramène à un jour.
-  const elapsed = Math.round((reference.getTime() - date.getTime()) / DAY_MS);
+  const elapsed = daysBetween(day, today);
   if (elapsed === 0) {
     return 'auj.';
   }
@@ -159,6 +164,38 @@ export function monthBounds({ year, month }: YearMonth): { from: string; to: str
 /** « octobre 2026 » */
 export function formatMonthTitle({ year, month }: YearMonth): string {
   return `${MONTHS_LONG[month - 1]} ${year}`;
+}
+
+/** Lundi de la semaine (du lundi au dimanche) qui contient day. */
+export function startOfWeek(day: string): string {
+  // getDay() : 0 = dimanche ; décalage pour que lundi = 0.
+  return shiftDay(day, -((fromLocalDateString(day).getDay() + 6) % 7));
+}
+
+/** Les 7 jours de la semaine qui commence le lundi monday, dans l'ordre. */
+export function weekDays(monday: string): string[] {
+  return Array.from({ length: 7 }, (_, index) => shiftDay(monday, index));
+}
+
+/**
+ * Semaine du lundi monday : « 5 – 11 oct. », « 28 sept. – 4 oct. ». Hors de
+ * l'année de today, l'année suit la fin (« 1 – 7 déc. 2025 »), et chaque date
+ * si la semaine change d'année (« 28 déc. 2026 – 3 janv. 2027 »).
+ */
+export function formatWeekRange(monday: string, today: string): string {
+  const start = fromLocalDateString(monday);
+  const end = addDays(start, 6);
+  const currentYear = fromLocalDateString(today).getFullYear();
+  const withYear = start.getFullYear() !== currentYear || end.getFullYear() !== currentYear;
+  const yearSuffix = (date: Date) => (withYear ? ` ${date.getFullYear()}` : '');
+  const endText = `${end.getDate()} ${MONTHS_SHORT[end.getMonth()]}${yearSuffix(end)}`;
+  if (start.getFullYear() !== end.getFullYear()) {
+    return `${start.getDate()} ${MONTHS_SHORT[start.getMonth()]}${yearSuffix(start)} – ${endText}`;
+  }
+  if (start.getMonth() !== end.getMonth()) {
+    return `${start.getDate()} ${MONTHS_SHORT[start.getMonth()]} – ${endText}`;
+  }
+  return `${start.getDate()} – ${endText}`;
 }
 
 /** Grille du mois, lundi en premier : semaines de 7 cases, null hors du mois. */

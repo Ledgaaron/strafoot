@@ -1,41 +1,50 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
+import { IconButton } from '../../components/icon-button';
+import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
 import { Stat, type StatTone } from '../../components/stat';
 import {
-  buildMonthGrid,
   dayOfMonth,
-  formatMonthTitle,
   formatShortDay,
+  formatWeekRange,
   isLocalDateString,
   localToday,
   monthBounds,
   monthOf,
   relativeDay,
-  shiftMonth,
-  type YearMonth,
+  shiftDay,
+  startOfWeek,
+  weekDays,
 } from '../../lib/dates';
 import { listAnswerDays } from '../../lib/db/answers';
 import { countSessions, listActiveDays, listSessionsForDay, type SessionRow } from '../../lib/db/sessions';
 import { moduleLabel } from '../../lib/modules';
 import { computeStreaks, type Streaks } from '../../lib/streak';
-import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
+import { colors, layout, motion, radius, size, spacing, text } from '../../lib/theme';
 
-// Tout l'historique est chargé une fois par focus : la meilleure streak et le
-// calendrier de n'importe quel mois en ont besoin, pas de rechargement par mois.
+// Tout l'historique est chargé une fois par focus : la meilleure streak et la
+// bande de n'importe quelle semaine en ont besoin, pas de rechargement par semaine.
 const HISTORY_START = '2000-01-01';
 
 const PLACEHOLDER = '—';
 /** Espace insécable : un nombre ne se sépare jamais de son unité en fin de ligne (« 12 jours »). */
 const NBSP = ' ';
 const WEEKDAY_INITIALS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const DAYS_PER_WEEK = 7;
+
+type StreakKind = 'training' | 'quiz';
+
+// Dernière streak courante affichée par l'Accueil : survit au démontage de l'écran
+// tant que l'app tourne, jamais persistée (comme lastFilter du Quizz). Une valeur
+// plus haute à un chargement suivant compte depuis celle-ci.
+const lastShownStreak: Record<StreakKind, number | null> = { training: null, quiz: null };
 
 type Summary = {
   trainingDays: ReadonlySet<string>;
@@ -60,23 +69,29 @@ type DaySessionsState =
 export default function HomeScreen() {
   const [today, setToday] = useState(localToday);
   const [selectedDay, setSelectedDay] = useState(today);
-  const [displayedMonth, setDisplayedMonth] = useState(() => monthOf(today));
+  // Lundi de la semaine affichée par la bande ; les flèches la changent sans toucher au jour sélectionné.
+  const [displayedWeek, setDisplayedWeek] = useState(() => startOfWeek(today));
   const [summaryState, setSummaryState] = useState<SummaryState>({ status: 'loading' });
   const [daySessions, setDaySessions] = useState<DaySessionsState>({ status: 'loading' });
   // Incrémentés par « Réessayer » : seul rôle, relancer l'effet de chargement correspondant.
   const [summaryAttempt, setSummaryAttempt] = useState(0);
   const [daySessionsAttempt, setDaySessionsAttempt] = useState(0);
-  const { day, session } = useLocalSearchParams<{ day?: string; session?: string }>();
+  const { day, session, savedTitle, picked } = useLocalSearchParams<{
+    day?: string;
+    session?: string;
+    savedTitle?: string;
+    picked?: string;
+  }>();
 
-  // Retour d'un écran de séance : sélectionne le jour de la séance et affiche son mois.
-  // `session` ne sert qu'à relancer l'effet quand le même jour revient.
+  // Retour d'un écran de séance ou du calendrier : sélectionne le jour reçu et affiche
+  // sa semaine. Ici, `session` et `picked` ne servent qu'à relancer l'effet quand le même jour revient.
   useEffect(() => {
     // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
     if (typeof day === 'string' && isLocalDateString(day)) {
       setSelectedDay(day);
-      setDisplayedMonth(monthOf(day));
+      setDisplayedWeek(startOfWeek(day));
     }
-  }, [day, session]);
+  }, [day, session, picked]);
 
   useFocusEffect(
     useCallback(() => {
@@ -158,24 +173,37 @@ export default function HomeScreen() {
     setDaySessionsAttempt((attempt) => attempt + 1);
   }
 
+  function openMonth() {
+    // Mois du jour sélectionné s'il est dans la semaine affichée, sinon celui de son lundi.
+    const anchor = weekDays(displayedWeek).includes(selectedDay) ? selectedDay : displayedWeek;
+    router.push({ pathname: '/calendar', params: { day: selectedDay, anchor } });
+  }
+
   const summary = summaryState.status === 'ready' ? summaryState.summary : null;
   // Liste d'un autre jour : le jour sélectionné vient de changer, chargement jusqu'à la sienne.
   // Au simple retour sur l'onglet, la liste du même jour reste affichée jusqu'à la réponse.
   const shownSessions: DaySessionsState =
     daySessions.status !== 'loading' && daySessions.day !== selectedDay ? { status: 'loading' } : daySessions;
+  // Séance libre tout juste créée (savedTitle n'est envoyé que par session/new) : la key
+  // rejoue la confirmation à chaque nouvelle séance, jamais au simple retour sur l'onglet.
+  const toast =
+    typeof savedTitle === 'string' && savedTitle !== '' && typeof session === 'string' ? (
+      <SaveToast key={session} message={`Séance enregistrée : ${savedTitle}.`} />
+    ) : null;
 
   return (
     <Screen
       title="Accueil"
       footer={<Button label="Nouvelle séance" onPress={() => router.push('/session/new')} />}
+      toast={toast}
     >
       <View style={layout.section}>
         <View style={styles.streakRow}>
-          <StreakCard label="Entraînement" tone="accent" streaks={summary ? summary.training : null}>
+          <StreakCard kind="training" label="Entraînement" tone="accent" streaks={summary ? summary.training : null}>
             <Text style={text.meta}>ce mois : {summary ? formatSessionCount(summary.monthCount) : PLACEHOLDER}</Text>
             <Text style={text.meta}>total : {summary ? formatSessionCount(summary.totalCount) : PLACEHOLDER}</Text>
           </StreakCard>
-          <StreakCard label="Quizz" tone="quiz" streaks={summary ? summary.quiz : null} />
+          <StreakCard kind="quiz" label="Quizz" tone="quiz" streaks={summary ? summary.quiz : null} />
         </View>
         {summaryState.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {summaryState.status === 'error' ? (
@@ -186,13 +214,14 @@ export default function HomeScreen() {
         ) : null}
       </View>
 
-      <MonthCalendar
-        month={displayedMonth}
+      <WeekStrip
+        week={displayedWeek}
         today={today}
         selectedDay={selectedDay}
         activity={summary}
-        onShiftMonth={(months) => setDisplayedMonth((current) => shiftMonth(current, months))}
+        onShiftWeek={(weeks) => setDisplayedWeek((current) => shiftDay(current, weeks * DAYS_PER_WEEK))}
         onSelectDay={setSelectedDay}
+        onOpenMonth={openMonth}
       />
 
       <View style={layout.section}>
@@ -236,6 +265,8 @@ function formatSessionCount(count: number): string {
 }
 
 type StreakCardProps = {
+  /** Streak affichée : son chiffre compte jusqu'à la nouvelle valeur quand elle augmente. */
+  kind: StreakKind;
   label: string;
   tone: StatTone;
   /** null tant que le résumé n'est pas chargé : « — », sans unité. */
@@ -245,13 +276,15 @@ type StreakCardProps = {
 };
 
 /** Streak courante en chiffre dominant ; meilleure et compteurs en secondaire. */
-function StreakCard({ label, tone, streaks, children }: StreakCardProps) {
+function StreakCard({ kind, label, tone, streaks, children }: StreakCardProps) {
+  const current = useStreakCountUp(kind, streaks ? streaks.current : null);
   return (
     <Card style={styles.streakCard}>
       <Stat
         label={label}
-        value={streaks ? streaks.current : PLACEHOLDER}
-        unit={streaks ? dayUnit(streaks.current) : undefined}
+        value={current ?? PLACEHOLDER}
+        // L'unité suit le chiffre affiché, décompte compris (« 1 jour », puis « 2 jours »).
+        unit={current !== null ? dayUnit(current) : undefined}
         tone={tone}
       />
       <View>
@@ -262,88 +295,113 @@ function StreakCard({ label, tone, streaks, children }: StreakCardProps) {
   );
 }
 
-type MonthCalendarProps = {
-  month: YearMonth;
+/**
+ * Chiffre de la streak courante (micro-interaction d) : target dès qu'elle est
+ * chargée ; plus haute que la dernière valeur affichée, elle compte depuis
+ * celle-ci en motion.countUpMs. null tant que target est null (« — »).
+ */
+function useStreakCountUp(kind: StreakKind, target: number | null): number | null {
+  const [shown, setShown] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (target === null) {
+      return;
+    }
+    const previous = lastShownStreak[kind];
+    if (previous === null || target <= previous) {
+      // Premier affichage depuis le lancement, streak égale ou en baisse : pas de décompte.
+      lastShownStreak[kind] = target;
+      setShown(target);
+      return;
+    }
+    const value = new Animated.Value(previous);
+    const listener = value.addListener(({ value: current }) => {
+      // Chaque chiffre affiché devient la référence : un décompte interrompu reprend là où il en était.
+      const rounded = Math.round(current);
+      lastShownStreak[kind] = rounded;
+      setShown(rounded);
+    });
+    setShown(previous);
+    // Valeur lue en JS pour écrire le chiffre : pas de pilote natif.
+    const animation = Animated.timing(value, {
+      toValue: target,
+      duration: motion.countUpMs,
+      useNativeDriver: false,
+    });
+    animation.start(({ finished }) => {
+      if (finished) {
+        lastShownStreak[kind] = target;
+        setShown(target);
+      }
+    });
+    // Nouvelle valeur, démontage ou double effet de StrictMode : décompte arrêté, le
+    // suivant repart de la dernière valeur affichée.
+    return () => {
+      animation.stop();
+      value.removeListener(listener);
+    };
+  }, [kind, target]);
+
+  return target === null ? null : shown;
+}
+
+type WeekStripProps = {
+  /** Lundi de la semaine affichée. */
+  week: string;
   today: string;
   selectedDay: string;
   /** Jours actifs ; null tant que le résumé n'est pas chargé (aucun point affiché). */
   activity: Pick<Summary, 'trainingDays' | 'quizDays'> | null;
-  onShiftMonth: (months: number) => void;
+  onShiftWeek: (weeks: number) => void;
   onSelectDay: (day: string) => void;
+  /** « Voir le mois » : calendrier mensuel (app/calendar.tsx). */
+  onOpenMonth: () => void;
 };
 
-function MonthCalendar({ month, today, selectedDay, activity, onShiftMonth, onSelectDay }: MonthCalendarProps) {
+/** Bande de la semaine, du lundi au dimanche ; le mois entier est sur app/calendar.tsx. */
+function WeekStrip({ week, today, selectedDay, activity, onShiftWeek, onSelectDay, onOpenMonth }: WeekStripProps) {
   return (
-    <Card>
-      <View style={styles.calendarHeader}>
-        <MonthArrow icon="chevron-back" label="Mois précédent" onPress={() => onShiftMonth(-1)} />
-        <Text style={[text.title, styles.monthTitle]}>{formatMonthTitle(month)}</Text>
-        <MonthArrow icon="chevron-forward" label="Mois suivant" onPress={() => onShiftMonth(1)} />
+    <View style={layout.section}>
+      <View style={styles.weekHeader}>
+        <IconButton icon="chevron-back" accessibilityLabel="Semaine précédente" onPress={() => onShiftWeek(-1)} />
+        <Text style={[text.title, styles.weekTitle]}>{formatWeekRange(week, today)}</Text>
+        <IconButton icon="chevron-forward" accessibilityLabel="Semaine suivante" onPress={() => onShiftWeek(1)} />
       </View>
 
-      <View>
-        <View style={styles.week}>
-          {WEEKDAY_INITIALS.map((initial, index) => (
-            <Text key={index} style={[text.meta, styles.weekday]}>
-              {initial}
-            </Text>
-          ))}
-        </View>
-        {buildMonthGrid(month).map((week, weekIndex) => (
-          <View key={weekIndex} style={styles.week}>
-            {week.map((cellDay, cellIndex) =>
-              cellDay === null ? (
-                <View key={cellIndex} style={styles.cell} />
-              ) : (
-                <DayCell
-                  key={cellIndex}
-                  day={cellDay}
-                  isToday={cellDay === today}
-                  isSelected={cellDay === selectedDay}
-                  hasTraining={activity !== null && activity.trainingDays.has(cellDay)}
-                  hasQuiz={activity !== null && activity.quizDays.has(cellDay)}
-                  onPress={() => onSelectDay(cellDay)}
-                />
-              ),
-            )}
-          </View>
+      <View style={styles.strip}>
+        {weekDays(week).map((cellDay, index) => (
+          <WeekDayCell
+            key={cellDay}
+            day={cellDay}
+            initial={WEEKDAY_INITIALS[index]}
+            isToday={cellDay === today}
+            isSelected={cellDay === selectedDay}
+            hasTraining={activity !== null && activity.trainingDays.has(cellDay)}
+            hasQuiz={activity !== null && activity.quizDays.has(cellDay)}
+            onPress={() => onSelectDay(cellDay)}
+          />
         ))}
       </View>
 
-      <View style={styles.legend}>
-        <Text style={text.meta}>
-          <Text style={styles.trainingMark}>●</Text> Entraînement
-        </Text>
-        <Text style={text.meta}>
-          <Text style={styles.quizMark}>●</Text> Quizz
-        </Text>
+      <View style={styles.stripFooter}>
+        <View style={styles.legend}>
+          <Text style={text.meta}>
+            <Text style={styles.trainingMark}>●</Text> Entraînement
+          </Text>
+          <Text style={text.meta}>
+            <Text style={styles.quizMark}>●</Text> Quizz
+          </Text>
+        </View>
+        <Button variant="text" label="Voir le mois" icon="chevron-forward" onPress={onOpenMonth} />
       </View>
-    </Card>
+    </View>
   );
 }
 
-type MonthArrowProps = {
-  icon: 'chevron-back' | 'chevron-forward';
-  /** Lu par le lecteur d'écran : l'icône seule n'a pas de nom. */
-  label: string;
-  onPress: () => void;
-};
-
-function MonthArrow({ icon, label, onPress }: MonthArrowProps) {
-  return (
-    <Pressable
-      role="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [styles.monthArrow, pressed && styles.monthArrowPressed]}
-    >
-      <Ionicons name={icon} size={size.icon} color={colors.text} />
-    </Pressable>
-  );
-}
-
-type DayCellProps = {
+type WeekDayCellProps = {
   day: string;
+  /** Initiale du jour de la semaine : L, M, M, J, V, S, D. */
+  initial: string;
   isToday: boolean;
   isSelected: boolean;
   hasTraining: boolean;
@@ -351,7 +409,7 @@ type DayCellProps = {
   onPress: () => void;
 };
 
-function DayCell({ day, isToday, isSelected, hasTraining, hasQuiz, onPress }: DayCellProps) {
+function WeekDayCell({ day, initial, isToday, isSelected, hasTraining, hasQuiz, onPress }: WeekDayCellProps) {
   const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quizz' : ''}`;
   return (
     <Pressable
@@ -360,16 +418,17 @@ function DayCell({ day, isToday, isSelected, hasTraining, hasQuiz, onPress }: Da
       accessibilityState={{ selected: isSelected }}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.cell,
+        styles.dayCell,
         isToday && styles.todayCell,
         isSelected && styles.selectedCell,
         pressed && styles.pressedCell,
       ]}
     >
+      <Text style={text.meta}>{initial}</Text>
       <Text style={[text.body, text.tabular]}>{dayOfMonth(day)}</Text>
       {/* Rangée de hauteur fixe : le numéro ne bouge pas quand les points apparaissent.
           Deux places fixes, entraînement à gauche, quizz à droite (ordre de la légende) :
-          les deux oranges sont proches, la place les distingue. */}
+          la place double la couleur (orange, violet). */}
       <View style={styles.dots}>
         <View style={[styles.dot, hasTraining && styles.trainingDot]} />
         <View style={[styles.dot, hasQuiz && styles.quizDot]} />
@@ -406,39 +465,30 @@ const styles = StyleSheet.create({
   streakCard: {
     flex: 1,
   },
-  calendarHeader: {
+  weekHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  monthArrow: {
-    width: size.touch,
-    height: size.touch,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.button,
-    backgroundColor: colors.surface2,
-  },
-  monthArrowPressed: {
-    backgroundColor: colors.border,
-  },
-  monthTitle: {
+  weekTitle: {
     flex: 1,
     textAlign: 'center',
   },
-  week: {
+  // Sept cases d'au moins 48 dp à 8 dp d'écart (règle 3) : 7 × 48 + 6 × 8 = 384 dp,
+  // plus que les 380 dp de contenu d'un Pixel de 412 dp (marges de 16 dp). La bande
+  // mord donc de 8 dp sur chaque marge : 396 dp, des cases d'environ 49,7 dp. Pas de
+  // carte autour : sa marge intérieure mangerait cette largeur.
+  strip: {
     flexDirection: 'row',
+    gap: spacing.sm,
+    marginHorizontal: -spacing.sm,
   },
-  weekday: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  // Sept colonnes sans écart : chaque case garde toute la largeur disponible.
-  cell: {
+  dayCell: {
     flex: 1,
     minHeight: size.touch,
+    paddingVertical: spacing.sm,
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.xs,
     borderRadius: radius.button,
     // Bordure toujours présente, transparente : celle d'aujourd'hui ne décale rien.
     borderWidth: size.border,
@@ -468,6 +518,14 @@ const styles = StyleSheet.create({
   },
   quizDot: {
     backgroundColor: colors.quiz,
+  },
+  // Légende à gauche, « Voir le mois » à droite ; l'un passe sous l'autre si la place manque.
+  stripFooter: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   legend: {
     flexDirection: 'row',

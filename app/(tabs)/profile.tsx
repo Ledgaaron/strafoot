@@ -1,14 +1,27 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type ScrollView,
+} from 'react-native';
 
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
+import { IconButton } from '../../components/icon-button';
+import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
 import { useAuth } from '../../lib/auth-context';
-import { formatNumericDay, formatShortDay, localToday, relativeDay, shiftDay } from '../../lib/dates';
+import { daysBetween, formatNumericDay, formatShortDay, localToday, relativeDay, shiftDay } from '../../lib/dates';
 import { getMyProfile, type ProfileRow } from '../../lib/db/profiles';
 import { countByModule, type ModuleVolume } from '../../lib/db/sessions';
 import {
@@ -22,22 +35,47 @@ import { describeDelta, formatDecimal, formatMeasure, type Delta } from '../../l
 import { moduleLabel } from '../../lib/modules';
 import { positionLabel, strongFootLabel } from '../../lib/profile-taxonomy';
 import { parseExercises } from '../../lib/sheet-types';
-import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
+import { colors, fontSize, layout, radius, size, spacing, text } from '../../lib/theme';
 
 const PLACEHOLDER = '—';
 const NOT_SET = 'non renseigné';
 const NEVER_MEASURED = 'jamais mesurée';
+const SIGN_OUT_QUESTION = 'Se déconnecter de cet appareil ?';
+/** Email de l'en-tête réduit pour tenir sur une ligne, jamais sous la taille du corps : 20 × 0,8 = 16 px. */
+const EMAIL_MIN_FONT_SCALE = fontSize.body / fontSize.title;
 /** Fenêtre de la colonne « 30 jours » : aujourd'hui et les 29 jours précédents. */
 const RECENT_DAY_COUNT = 30;
 /** Colonne « Module » du tableau des volumes : ses libellés sont plus longs que « 12 séances ». */
 const MODULE_COLUMN_FLEX = 1.4;
+
+/** Posés par router.dismissTo à l'arrivée sur l'onglet. */
+type ProfileParams = {
+  /** « Voir ma progression » d'un test : fiche dont la carte est mise en évidence et amenée à l'écran. */
+  focusTest?: string;
+  /** Séance qui a produit les résultats : nonce, une mise en évidence par test passé. */
+  focusSession?: string;
+  /** Nonce posé par l'écran d'édition après un enregistrement : rejoue la confirmation. */
+  saved?: string;
+};
 
 type LoadingState = { status: 'loading' };
 type ErrorState = { status: 'error'; message: string };
 
 type IdentityField = { label: string; value: string };
 
-type IdentityState = LoadingState | ErrorState | { status: 'ready'; fields: IdentityField[] };
+/** Objectif du profil prêt à afficher. */
+type GoalView = {
+  text: string;
+  /** « J-42 » avant l'échéance, « J+3 » après ; null sans échéance. */
+  countdown: string | null;
+  /** « Objectif : …, échéance le 18/11/2026 ». */
+  accessibilityLabel: string;
+};
+
+type IdentityState =
+  | LoadingState
+  | ErrorState
+  | { status: 'ready'; fields: IdentityField[]; goal: GoalView | null };
 
 /** Dernier résultat d'une mesure, prêt à afficher. */
 type LatestLine = {
@@ -92,6 +130,12 @@ type VolumesState =
 
 export default function ProfileScreen() {
   const { session, signOut } = useAuth();
+  const { focusTest, focusSession, saved } = useLocalSearchParams<ProfileParams>();
+  // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
+  const focusTestId = typeof focusTest === 'string' && focusTest !== '' ? focusTest : null;
+  const focusNonce = typeof focusSession === 'string' ? focusSession : null;
+  const savedNonce = typeof saved === 'string' && saved !== '' ? saved : null;
+  const email = session?.user.email ?? null;
   const [identity, setIdentity] = useState<IdentityState>({ status: 'loading' });
   const [measures, setMeasures] = useState<MeasuresState>({ status: 'loading' });
   const [volumes, setVolumes] = useState<VolumesState>({ status: 'loading' });
@@ -99,6 +143,15 @@ export default function ProfileScreen() {
   const [reloadCount, setReloadCount] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  // Carte du test qu'on vient de passer (« Voir ma progression »), le temps de la visite.
+  const [highlightedTest, setHighlightedTest] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  // Fiche dont la carte reste à amener à l'écran ; null une fois fait, ou l'onglet quitté.
+  const pendingFocusRef = useRef<string | null>(null);
+  // Relevés onLayout : y de la section Évaluations dans le contenu défilant, y de
+  // chaque carte de test dans la section.
+  const evaluationsYRef = useRef<number | null>(null);
+  const cardYsRef = useRef(new Map<string, number>());
 
   useFocusEffect(
     useCallback(() => {
@@ -111,7 +164,7 @@ export default function ProfileScreen() {
       // l'édition du profil, un test, une suppression), les données précédentes
       // restent affichées jusqu'à la réponse. Seul « Réessayer » repasse sa section
       // à « chargement ».
-      settle(loadIdentity(), isActive, setIdentity);
+      settle(loadIdentity(today), isActive, setIdentity);
       settle(loadMeasures(today), isActive, setMeasures);
       settle(loadVolumes(today), isActive, setVolumes);
       return () => {
@@ -120,10 +173,50 @@ export default function ProfileScreen() {
     }, [reloadCount]),
   );
 
+  // Quitter l'onglet efface la mise en évidence et annule un défilement encore en attente.
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        setHighlightedTest(null);
+        pendingFocusRef.current = null;
+      },
+      [],
+    ),
+  );
+
+  // Arrivée par « Voir ma progression ». Les paramètres restent sur l'onglet : la
+  // mise en évidence ne revient pas à chaque focus, seulement avec un nouveau test
+  // passé (focusSession).
+  useEffect(() => {
+    if (focusTestId === null) {
+      return;
+    }
+    setHighlightedTest(focusTestId);
+    pendingFocusRef.current = focusTestId;
+    scheduleFocusScroll();
+  }, [focusTestId, focusNonce]);
+
   /** « Réessayer » d'une section en erreur : elle repasse à « chargement », puis les trois sections se relisent. */
   function retry(setSection: (state: LoadingState) => void) {
     setSection({ status: 'loading' });
     setReloadCount((count) => count + 1);
+  }
+
+  function confirmSignOut() {
+    if (signingOut) {
+      return;
+    }
+    // Alert.alert ne fait rien sur web : confirmation du navigateur à la place.
+    if (Platform.OS === 'web') {
+      if (window.confirm(SIGN_OUT_QUESTION)) {
+        handleSignOut();
+      }
+      return;
+    }
+    Alert.alert('Déconnexion', SIGN_OUT_QUESTION, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Déconnexion', style: 'destructive', onPress: handleSignOut },
+    ]);
   }
 
   async function handleSignOut() {
@@ -137,32 +230,112 @@ export default function ProfileScreen() {
     }
   }
 
+  function recordEvaluationsLayout(event: LayoutChangeEvent) {
+    evaluationsYRef.current = event.nativeEvent.layout.y;
+    scheduleFocusScroll();
+  }
+
+  function recordCardLayout(sheetId: string, event: LayoutChangeEvent) {
+    cardYsRef.current.set(sheetId, event.nativeEvent.layout.y);
+    scheduleFocusScroll();
+  }
+
+  /**
+   * Défilement vers la carte en attente, une image plus tard : les autres
+   * onLayout du même passage de mise en page sont alors relevés.
+   */
+  function scheduleFocusScroll() {
+    if (pendingFocusRef.current !== null) {
+      requestAnimationFrame(scrollToPendingCard);
+    }
+  }
+
+  /**
+   * Amène la carte en attente à 16 px sous le haut de l'écran, une seule fois,
+   * dès que la section et la carte affichée sont mesurées. Attend aussi la fin
+   * du chargement de l'Identité : au-dessus, sa hauteur décalerait la carte.
+   */
+  function scrollToPendingCard() {
+    const sheetId = pendingFocusRef.current;
+    const sectionY = evaluationsYRef.current;
+    const cardY = sheetId !== null ? cardYsRef.current.get(sheetId) : undefined;
+    if (
+      sheetId === null ||
+      sectionY === null ||
+      cardY === undefined ||
+      identity.status === 'loading' ||
+      !isTestCardShown(measures, sheetId)
+    ) {
+      return;
+    }
+    pendingFocusRef.current = null;
+    scrollRef.current?.scrollTo({ y: sectionY + cardY - spacing.lg, animated: false });
+  }
+
   return (
-    <Screen title="Profil">
-      <View style={layout.section}>
+    <Screen
+      title="Profil"
+      scrollRef={scrollRef}
+      // Retour de l'édition : saved change à chaque enregistrement et rejoue la confirmation.
+      toast={savedNonce !== null ? <SaveToast key={savedNonce} message="Profil enregistré." /> : null}
+    >
+      <View style={styles.headerBlock}>
+        <View style={styles.header}>
+          <Text
+            style={[text.title, styles.email]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={EMAIL_MIN_FONT_SCALE}
+            // L'adresse entière pour le lecteur d'écran, même tronquée à l'affichage.
+            accessibilityLabel={`Email : ${email ?? NOT_SET}`}
+          >
+            {email ?? PLACEHOLDER}
+          </Text>
+          <View style={layout.buttonRow}>
+            {/* L'écran d'édition relit le profil lui-même : proposé même si l'Identité est en erreur. */}
+            <IconButton
+              icon="create-outline"
+              accessibilityLabel="Modifier le profil"
+              onPress={() => router.push('/profile/edit')}
+            />
+            <IconButton
+              icon="log-out-outline"
+              accessibilityLabel="Se déconnecter"
+              onPress={confirmSignOut}
+              loading={signingOut}
+            />
+          </View>
+        </View>
+        <FieldError message={signOutError} />
+      </View>
+
+      {/* Fin du chargement : l'Identité grandit et la section Évaluations descend.
+          Sur le web, onLayout ne signale que les changements de taille, pas ce
+          déplacement : ce relevé-ci relance alors le défilement en attente. */}
+      <View style={layout.section} onLayout={scheduleFocusScroll}>
         <Text role="heading" style={text.title}>
           Identité
         </Text>
-        <Card>
-          <IdentityRow label="Email" value={session?.user.email ?? PLACEHOLDER} />
-          {identity.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-          {identity.status === 'error' ? (
-            <>
-              <FieldError message={`Erreur : ${identity.message}`} />
-              <Button variant="secondary" label="Réessayer" onPress={() => retry(setIdentity)} />
-            </>
-          ) : null}
-          {identity.status === 'ready'
-            ? identity.fields.map((field) => <IdentityRow key={field.label} label={field.label} value={field.value} />)
-            : null}
-          {/* Toujours proposé : l'écran d'édition relit le profil lui-même. */}
-          <Button variant="secondary" label="Modifier" onPress={() => router.push('/profile/edit')} />
-        </Card>
+        {identity.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+        {identity.status === 'error' ? (
+          <>
+            <FieldError message={`Erreur : ${identity.message}`} />
+            <Button variant="secondary" label="Réessayer" onPress={() => retry(setIdentity)} />
+          </>
+        ) : null}
+        {identity.status === 'ready' ? (
+          <Card>
+            {identity.fields.map((field) => (
+              <IdentityRow key={field.label} label={field.label} value={field.value} />
+            ))}
+            <GoalBlock goal={identity.goal} />
+          </Card>
+        ) : null}
       </View>
 
-      <View style={layout.section}>
+      <View style={layout.section} onLayout={recordEvaluationsLayout}>
         <Text role="heading" style={text.title}>
-          Mesures
+          Évaluations
         </Text>
         {measures.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {measures.status === 'error' ? (
@@ -180,10 +353,17 @@ export default function ProfileScreen() {
           />
         ) : null}
         {measures.status === 'ready'
-          ? measures.groups.map((group) => (
-              // Sans aucun résultat, seuls les problèmes restent affichés : 23 lignes « — » n'apprennent rien.
-              <MeasureGroupCard key={group.sheetId} group={group} showLines={measures.hasResults} />
-            ))
+          ? measures.groups
+              .filter((group) => isGroupShown(group, measures.hasResults))
+              .map((group) => (
+                <MeasureGroupCard
+                  key={group.sheetId}
+                  group={group}
+                  showLines={measures.hasResults}
+                  highlighted={group.sheetId === highlightedTest}
+                  onLayout={(event) => recordCardLayout(group.sheetId, event)}
+                />
+              ))
           : null}
       </View>
 
@@ -208,11 +388,6 @@ export default function ProfileScreen() {
         {volumes.status === 'ready' && volumes.total !== null ? (
           <VolumeTable modules={volumes.modules} total={volumes.total} />
         ) : null}
-      </View>
-
-      <View style={layout.section}>
-        <Button variant="danger" label="Déconnexion" onPress={handleSignOut} loading={signingOut} />
-        <FieldError message={signOutError} />
       </View>
     </Screen>
   );
@@ -242,12 +417,12 @@ function settle<S>(
     });
 }
 
-async function loadIdentity(): Promise<IdentityState> {
+async function loadIdentity(today: string): Promise<IdentityState> {
   const { data, error } = await getMyProfile();
   if (error !== null) {
     return { status: 'error', message: error };
   }
-  return { status: 'ready', fields: toIdentityFields(data) };
+  return { status: 'ready', fields: toIdentityFields(data), goal: toGoalView(data, today) };
 }
 
 /** Champs affichés du profil ; « non renseigné » pour un champ vide ou un profil absent. */
@@ -264,6 +439,28 @@ function toIdentityFields(profile: ProfileRow | null): IdentityField[] {
     { label: 'Date de naissance', value: profile?.birth_date ? formatNumericDay(profile.birth_date) : null },
   ];
   return fields.map(({ label, value }) => ({ label, value: value ?? NOT_SET }));
+}
+
+/**
+ * Objectif et compte à rebours en jours calendaires depuis today ; null sans
+ * objectif, même avec une échéance (l'écran d'édition refuse une échéance seule).
+ */
+function toGoalView(profile: ProfileRow | null, today: string): GoalView | null {
+  const goal = profile?.goal?.trim() ?? '';
+  if (goal === '') {
+    return null;
+  }
+  const deadline = profile?.goal_deadline ?? null;
+  if (deadline === null) {
+    return { text: goal, countdown: null, accessibilityLabel: `Objectif : ${goal}` };
+  }
+  const days = daysBetween(today, deadline);
+  return {
+    text: goal,
+    // Échéance dépassée : jours écoulés depuis (« J+3 »).
+    countdown: days >= 0 ? `J-${days}` : `J+${-days}`,
+    accessibilityLabel: `Objectif : ${goal}, échéance le ${formatNumericDay(deadline)}`,
+  };
 }
 
 async function loadMeasures(today: string): Promise<MeasuresState> {
@@ -283,6 +480,19 @@ async function loadMeasures(today: string): Promise<MeasuresState> {
     groups,
     hasResults: groups.some((group) => group.lines.some((line) => line.latest !== null)),
   };
+}
+
+/** Sans aucun résultat, seuls les problèmes restent affichés : 23 lignes « — » n'apprennent rien. */
+function isGroupShown(group: MeasureGroup, hasResults: boolean): boolean {
+  return hasResults || group.problem !== null;
+}
+
+/** Carte du test à l'écran ; une carte retirée garde son dernier relevé onLayout, périmé. */
+function isTestCardShown(measures: MeasuresState, sheetId: string): boolean {
+  return (
+    measures.status === 'ready' &&
+    measures.groups.some((group) => group.sheetId === sheetId && isGroupShown(group, measures.hasResults))
+  );
 }
 
 /**
@@ -426,16 +636,52 @@ function IdentityRow({ label, value }: IdentityField) {
   );
 }
 
-function MeasureGroupCard({ group, showLines }: { group: MeasureGroup; showLines: boolean }) {
-  if (!showLines && group.problem === null) {
-    return null;
+/** Bas de la carte Identité : l'objectif et son compte à rebours, ou le lien pour en définir un. */
+function GoalBlock({ goal }: { goal: GoalView | null }) {
+  if (goal === null) {
+    return (
+      <View style={styles.goalBlock}>
+        <Text style={text.overline}>Objectif</Text>
+        <Pressable
+          role="button"
+          onPress={() => router.push('/profile/edit')}
+          style={({ pressed }) => [styles.goalLink, pressed && styles.pressed]}
+        >
+          <Text style={[text.body, styles.goalLinkLabel]}>Aucun objectif — en définir un</Text>
+          <Ionicons name="chevron-forward" size={size.icon} color={colors.textMuted} aria-hidden />
+        </Pressable>
+      </View>
+    );
   }
   return (
-    <Card>
-      <Text style={text.bodyStrong}>{group.title}</Text>
-      <FieldError message={group.problem} />
-      {showLines ? group.lines.map((line) => <MeasureRow key={line.testId} line={line} />) : null}
-    </Card>
+    // Lu d'un trait, l'échéance en date plutôt qu'en « J-42 ».
+    <View accessible accessibilityLabel={goal.accessibilityLabel} style={styles.goalBlock}>
+      <Text style={text.overline}>Objectif</Text>
+      <Text style={text.title}>{goal.text}</Text>
+      {goal.countdown !== null ? <Text style={text.meta}>{goal.countdown}</Text> : null}
+    </View>
+  );
+}
+
+type MeasureGroupCardProps = {
+  group: MeasureGroup;
+  showLines: boolean;
+  /** Test qu'on vient de passer (« Voir ma progression ») : bordure accent. */
+  highlighted: boolean;
+  /** Position de la carte dans la section, pour l'amener à l'écran. */
+  onLayout: (event: LayoutChangeEvent) => void;
+};
+
+function MeasureGroupCard({ group, showLines, highlighted, onLayout }: MeasureGroupCardProps) {
+  return (
+    // Card ne prend pas onLayout : la vue qui l'enveloppe relève sa position.
+    <View onLayout={onLayout}>
+      <Card highlighted={highlighted}>
+        <Text style={text.bodyStrong}>{group.title}</Text>
+        <FieldError message={group.problem} />
+        {showLines ? group.lines.map((line) => <MeasureRow key={line.testId} line={line} />) : null}
+      </Card>
+    </View>
   );
 }
 
@@ -541,6 +787,18 @@ const DELTA_STYLES = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
+  /** En-tête et son erreur de déconnexion, serrés. */
+  headerBlock: {
+    gap: spacing.sm,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  email: {
+    flex: 1,
+  },
   identityRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -550,6 +808,23 @@ const styles = StyleSheet.create({
   identityValue: {
     flexShrink: 1,
     textAlign: 'right',
+  },
+  /** Séparé des lignes d'identité par un trait. */
+  goalBlock: {
+    gap: spacing.xs,
+    paddingTop: spacing.sm,
+    borderTopWidth: size.border,
+    borderTopColor: colors.border,
+  },
+  goalLink: {
+    minHeight: size.touch,
+    borderRadius: radius.button,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  goalLinkLabel: {
+    flex: 1,
   },
   measureRow: {
     minHeight: size.touch,

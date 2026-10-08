@@ -14,7 +14,7 @@ import {
   TEST_MODULE_KEY,
   type ModuleKey,
 } from '../lib/modules';
-import { hitSlop, input, inputProps, layout, spacing, text } from '../lib/theme';
+import { fontSize, hitSlop, input, inputProps, layout, spacing, text } from '../lib/theme';
 import { Button } from './button';
 import { Chip } from './chip';
 import { FieldError } from './field-error';
@@ -25,9 +25,15 @@ const FORM_MODULES = MODULES.filter((entry) => entry.key !== TEST_MODULE_KEY);
 const DIFFICULTIES = [1, 2, 3, 4, 5];
 /** Puces de date : aujourd'hui puis les 13 jours précédents. */
 const RECENT_DAY_COUNT = 14;
-/** Pas des boutons de durée et durée minimale, en minutes. */
+/** Pas des boutons de durée, en minutes. */
 const DURATION_STEP = 5;
-const MIN_DURATION = 5;
+/** Bornes d'une durée, en minutes : saisie au clavier comme boutons ±5. */
+export const MIN_DURATION = 1;
+export const MAX_DURATION = 600;
+/** 600 : trois chiffres au plus. */
+const DURATION_MAX_LENGTH = 3;
+const DURATION_ERROR = `Durée attendue : un nombre entier de ${MIN_DURATION} à ${MAX_DURATION} min.`;
+const INVALID_FORM_MESSAGE = 'À corriger : durée.';
 
 /** État du formulaire ; difficulty null : aucune puce choisie. */
 export type SessionFormValues = {
@@ -103,7 +109,8 @@ export function SessionForm({
 }: SessionFormProps) {
   const [date, setDate] = useState(initialValues.date);
   const [moduleKey, setModuleKey] = useState<ModuleKey>(initialValues.module);
-  const [durationMin, setDurationMin] = useState(initialValues.durationMin);
+  // Saisie brute : vide ou hors bornes pendant la frappe, lue à l'enregistrement.
+  const [durationText, setDurationText] = useState(() => String(initialValues.durationMin));
   const [difficulty, setDifficulty] = useState<number | null>(initialValues.difficulty);
   const [name, setName] = useState(initialValues.name);
   const [comment, setComment] = useState(initialValues.comment);
@@ -117,6 +124,8 @@ export function SessionForm({
       initialValues.name.trim() !== '' &&
       initialValues.name !== buildSessionName(initialValues.module, initialValues.date),
   );
+  // Enregistrer refusé : durée illisible ou hors bornes (le détail est sous le champ).
+  const [invalidSubmit, setInvalidSubmit] = useState(false);
 
   // Une séance plus ancienne que les puces récentes garde sa date en dernière puce.
   const recentDays = lastDays(today, RECENT_DAY_COUNT);
@@ -137,7 +146,8 @@ export function SessionForm({
   function selectModule(key: ModuleKey) {
     setModuleKey(key);
     if (!durationTouched) {
-      setDurationMin(getModule(key).defaultDurationMin);
+      setDurationText(String(getModule(key).defaultDurationMin));
+      setInvalidSubmit(false);
     }
     if (!nameTouched) {
       setName(buildSessionName(key, date));
@@ -146,7 +156,15 @@ export function SessionForm({
 
   function stepDuration(delta: number) {
     setDurationTouched(true);
-    setDurationMin((current) => Math.max(MIN_DURATION, current + delta));
+    setInvalidSubmit(false);
+    // Saisie illisible : on repart de la durée par défaut du module.
+    setDurationText((current) => stepDurationText(current, delta, getModule(moduleKey).defaultDurationMin));
+  }
+
+  function changeDurationText(value: string) {
+    setDurationTouched(true);
+    setInvalidSubmit(false);
+    setDurationText(value);
   }
 
   function toggleDifficulty(level: number) {
@@ -161,6 +179,12 @@ export function SessionForm({
 
   function handleSubmit() {
     if (submitting || disabled) {
+      return;
+    }
+    const durationMin = parseDuration(durationText);
+    if (durationMin === null) {
+      // Saisie conservée ; le message détaillé est déjà sous le champ.
+      setInvalidSubmit(true);
       return;
     }
     onSubmit({
@@ -180,7 +204,8 @@ export function SessionForm({
         // Pied fixe, au-dessus du clavier ouvert : Enregistrer reste sous le pouce sans défiler.
         footer={
           <>
-            <FieldError message={error} />
+            {/* Le champ en erreur peut être hors de l'écran : le pied, toujours visible, le dit. */}
+            <FieldError message={invalidSubmit ? INVALID_FORM_MESSAGE : error} />
             <Button label="Enregistrer" onPress={handleSubmit} loading={submitting} disabled={disabled} />
             {footer}
           </>
@@ -220,7 +245,7 @@ export function SessionForm({
           </View>
         </View>
 
-        <DurationField value={durationMin} onStep={stepDuration} />
+        <DurationField text={durationText} onChangeText={changeDurationText} onStep={stepDuration} />
 
         <DifficultyField value={difficulty} onToggle={toggleDifficulty} />
 
@@ -246,15 +271,33 @@ export function SessionForm({
 // (app/session/finish.tsx) : une même durée, une même difficulté, un même
 // commentaire partout.
 
+/** Minutes lues dans la saisie (chiffres seuls, espaces autour ignorés) ; null si vide, illisible ou hors bornes. */
+export function parseDuration(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  const minutes = Number(trimmed);
+  return minutes >= MIN_DURATION && minutes <= MAX_DURATION ? minutes : null;
+}
+
+/** −5 ou +5 appliqué à la saisie, borné de 1 à 600 ; une saisie illisible repart de fallback. */
+export function stepDurationText(value: string, delta: number, fallback: number): string {
+  const current = parseDuration(value) ?? fallback;
+  return String(Math.min(MAX_DURATION, Math.max(MIN_DURATION, current + delta)));
+}
+
 type DurationFieldProps = {
-  /** Minutes affichées. */
-  value: number;
-  /** −5 ou +5 ; l'écran applique son propre minimum. */
+  /** Saisie en cours, en minutes : peut être vide ou hors bornes pendant la frappe. */
+  text: string;
+  onChangeText: (text: string) => void;
+  /** −5 ou +5 : l'écran applique stepDurationText. */
   onStep: (delta: number) => void;
 };
 
-/** Durée : −5, valeur en minutes, +5. */
-export function DurationField({ value, onStep }: DurationFieldProps) {
+/** Durée : −5, minutes saisissables au clavier numérique (1 à 600), +5 ; erreur sous le champ. */
+export function DurationField({ text: value, onChangeText, onStep }: DurationFieldProps) {
+  const invalid = parseDuration(value) === null;
   return (
     <View style={layout.section}>
       <Text style={text.overline}>Durée</Text>
@@ -266,11 +309,20 @@ export function DurationField({ value, onStep }: DurationFieldProps) {
           onPress={() => onStep(-DURATION_STEP)}
           style={styles.durationCell}
         />
-        <Text style={[text.title, text.tabular, styles.durationCell, styles.durationValue]}>
-          {value}
-          {/* Espace insécable : l'unité ne passe jamais seule à la ligne. */}
-          <Text style={text.unit}>{' min'}</Text>
-        </Text>
+        <View style={[styles.durationCell, styles.durationInputRow]}>
+          <TextInput
+            {...inputProps}
+            style={[input.field, styles.durationInput, invalid && input.invalid]}
+            value={value}
+            onChangeText={onChangeText}
+            // Pavé numérique natif, inputmode="numeric" sur le web.
+            inputMode="numeric"
+            maxLength={DURATION_MAX_LENGTH}
+            selectTextOnFocus
+            accessibilityLabel="Durée en minutes"
+          />
+          <Text style={text.meta}>min</Text>
+        </View>
         <Button
           variant="secondary"
           label={`+${DURATION_STEP}`}
@@ -279,6 +331,7 @@ export function DurationField({ value, onStep }: DurationFieldProps) {
           style={styles.durationCell}
         />
       </View>
+      <FieldError message={invalid ? DURATION_ERROR : null} />
     </View>
   );
 }
@@ -349,7 +402,18 @@ const styles = StyleSheet.create({
   durationCell: {
     flex: 1,
   },
-  durationValue: {
+  /** Champ et unité côte à côte, l'unité collée au champ. */
+  durationInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  durationInput: {
+    flex: 1,
+    // Champ étroit : pas de marge intérieure, le nombre reste entier et centré.
+    paddingHorizontal: 0,
     textAlign: 'center',
+    fontSize: fontSize.title,
+    fontWeight: '600',
   },
 });

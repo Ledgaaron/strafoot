@@ -10,6 +10,8 @@ type ScreenProps = {
   title?: string;
   /** Zone fixe en bas, hors défilement : l'action principale de l'écran, sous le pouce. */
   footer?: ReactNode;
+  /** Confirmation flottante (SaveToast) au bas du contenu, au-dessus du pied ou de la barre d'onglets. */
+  toast?: ReactNode;
   /** true par défaut : contenu dans un ScrollView. false : écran court, sans défilement. */
   scroll?: boolean;
   /** ScrollView du contenu, pour revenir en haut (nouvelle étape, nouvelle question). */
@@ -22,7 +24,7 @@ type ScreenProps = {
  * Les marges sûres ne comptent que là où l'écran touche le bord de la fenêtre :
  * elles valent 0 sous un en-tête natif et au-dessus de la barre d'onglets.
  */
-export function Screen({ title, footer, scroll = true, scrollRef, children }: ScreenProps) {
+export function Screen({ title, footer, toast, scroll = true, scrollRef, children }: ScreenProps) {
   // Le clavier se mesure depuis le haut de la fenêtre, l'écran commence sous
   // l'en-tête natif : décalage de sa hauteur (0 sans en-tête).
   const headerHeight = useContext(HeaderHeightContext) ?? 0;
@@ -40,18 +42,22 @@ export function Screen({ title, footer, scroll = true, scrollRef, children }: Sc
     <SafeAreaView style={styles.screen}>
       {/* Clavier ouvert : le pied remonte au-dessus de lui au lieu d'être recouvert. */}
       <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={styles.fill}>
-        {scroll ? (
-          <ScrollView
-            ref={scrollRef}
-            keyboardShouldPersistTaps="handled"
-            style={styles.fill}
-            contentContainerStyle={styles.content}
-          >
-            {body}
-          </ScrollView>
-        ) : (
-          <View style={[styles.fill, styles.content]}>{body}</View>
-        )}
+        <View style={styles.fill}>
+          {scroll ? (
+            <ScrollView
+              ref={scrollRef}
+              keyboardShouldPersistTaps="handled"
+              style={styles.fill}
+              contentContainerStyle={styles.content}
+            >
+              {body}
+            </ScrollView>
+          ) : (
+            <View style={[styles.fill, styles.content]}>{body}</View>
+          )}
+          {/* Par-dessus le bas du contenu ; les touches passent à travers, hors de la confirmation. */}
+          {toast ? <View style={styles.toast}>{toast}</View> : null}
+        </View>
         {footer ? <View style={styles.footer}>{footer}</View> : null}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -69,6 +75,13 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     gap: spacing.xl,
+  },
+  toast: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.md,
+    pointerEvents: 'box-none',
   },
   footer: {
     gap: spacing.sm,

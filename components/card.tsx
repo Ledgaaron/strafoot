@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors, disabledOpacity, radius, size, spacing } from '../lib/theme';
+import { usePressScale } from './press-scale';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 type CardProps = {
   children: ReactNode;
@@ -9,7 +12,7 @@ type CardProps = {
   bordered?: boolean;
   /** Mise en évidence (option choisie) : bordure accent, jamais grisée même désactivée. */
   highlighted?: boolean;
-  /** Présent : carte tappable, fond surface2 pendant l'appui. */
+  /** Présent : carte tappable, fond surface2 et 0,97 pendant l'appui. */
   onPress?: () => void;
   onLongPress?: () => void;
   disabled?: boolean;
@@ -29,6 +32,8 @@ export function Card({
   accessibilityLabel,
   style,
 }: CardProps) {
+  // Micro-interaction a, carte tappable seulement. Appelé avant tout retour : ordre des hooks stable.
+  const press = usePressScale();
   if (onPress === undefined && onLongPress === undefined) {
     return (
       <View style={[styles.card, bordered && styles.bordered, highlighted && styles.highlighted, style]}>
@@ -37,7 +42,7 @@ export function Card({
     );
   }
   return (
-    <Pressable
+    <AnimatedPressable
       role="button"
       accessibilityLabel={accessibilityLabel}
       aria-disabled={disabled}
@@ -45,18 +50,21 @@ export function Card({
       disabled={disabled}
       onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => [
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={[
         styles.card,
         styles.pressable,
         bordered && styles.bordered,
         highlighted && styles.highlighted,
-        pressed && styles.pressed,
+        press.pressed && styles.pressed,
         disabled && !highlighted && styles.disabled,
         style,
+        press.scaleStyle,
       ]}
     >
       {children}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

@@ -1,10 +1,11 @@
 import { DarkTheme, type Theme } from 'expo-router';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 
 // Design system : seule source de style de l'app, avec components/ (Screen, Card,
-// Chip, Button, Stat, EmptyState, FieldError). Un écran n'écrit aucune couleur,
-// taille ni espacement en dur : il combine ces tokens et ces composants. Sombre
-// seulement, pas de mode clair ; police système, aucune police custom.
+// Chip, Button, IconButton, Stat, EmptyState, FieldError, SaveToast,
+// PitchPlaceholder). Un écran n'écrit aucune couleur, taille ni espacement en
+// dur : il combine ces tokens et ces composants. Sombre seulement, pas de mode
+// clair ; police système, aucune police custom.
 
 export const colors = {
   bg: '#0B0B0D',
@@ -20,7 +21,11 @@ export const colors = {
   // de 4,5:1. Même teinte, éclaircie au minimum : 4,51:1 sur surface2.
   danger: '#E85052',
   success: '#3DD68C',
-  quiz: '#FF8F5E',
+  /** Fond d'une ligne de test validée : success à 15 % (0x26 / 0xFF). */
+  successSoft: '#3DD68C26',
+  // Violet clair, distinct de l'orange de l'entraînement : 7,23:1 sur bg,
+  // 6,76:1 sur surface, 6,10:1 sur surface2.
+  quiz: '#A78BFA',
 } as const;
 
 export const fontSize = {
@@ -75,7 +80,7 @@ export const size = {
   dot: 6,
   /** Icônes d'interface (chevrons). */
   icon: 24,
-  /** Courbe d'une mesure : épaisseur du trait, rayon des points. */
+  /** Traits dessinés (courbe d'une mesure, terrain par défaut) ; rayon des points de la courbe. */
   chartStroke: 2,
   chartPoint: 4,
 } as const;
@@ -91,6 +96,29 @@ export const hitSlop = { top: SLOP, bottom: SLOP, left: SLOP, right: SLOP } as c
 
 /** Opacité d'un élément désactivé. */
 export const disabledOpacity = 0.4;
+
+/**
+ * Micro-interactions : liste fermée a–e (CLAUDE.md), API Animated et
+ * LayoutAnimation seulement, jamais Reanimated. Durées en ms.
+ */
+export const motion = {
+  /** a. Card tappable et Button pendant l'appui. */
+  pressScale: 0.97,
+  pressInMs: 80,
+  /** Retour à la taille normale, sous 150 ms. */
+  pressOutMs: 120,
+  /** b. Ligne de test validée : 1 → 1,04 → 1. */
+  validateScale: 1.04,
+  validateMs: 400,
+  /** c. Confirmation d'enregistrement : glisse de 24 px vers le haut, puis disparaît. */
+  toastOffset: spacing.xl,
+  toastInMs: 200,
+  toastVisibleMs: 2000,
+  /** d. Streak de l'Accueil qui augmente : compte jusqu'à sa nouvelle valeur. */
+  countUpMs: 500,
+  /** Pilote natif hors web : react-native-web n'en a pas et le signale en console. */
+  useNativeDriver: Platform.OS !== 'web',
+} as const;
 
 /** Styles de texte : une taille, son interligne de 1,4 et sa couleur. */
 export const text = StyleSheet.create({

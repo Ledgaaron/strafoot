@@ -55,12 +55,14 @@ function SessionBar({ session }: { session: ActiveSession }) {
 }
 
 /**
- * Chrono = maintenant − startedAt, recalculé chaque seconde seulement quand le
- * bandeau est visible : onglets au premier plan de la pile, app au premier plan.
- * Caché, rien ne tourne ; au retour, la valeur est recalculée aussitôt.
+ * Chrono = maintenant − startedAt, recalculé chaque seconde seulement quand il
+ * est visible : écran qui l'affiche au premier plan de sa pile, app au premier
+ * plan. Caché, rien ne tourne ; au retour, la valeur est recalculée aussitôt.
+ * Source unique du bandeau et de l'en-tête de la fiche en cours.
  */
-function useElapsedLabel(startedAt: string): string {
-  // Onglets au sommet de la pile racine : une fiche ouverte par-dessus les rend invisibles.
+export function useElapsedLabel(startedAt: string): string {
+  // Bandeau : onglets au sommet de la pile racine, une fiche ouverte par-dessus
+  // les rend invisibles. En-tête de fiche : la fiche au sommet de sa pile.
   const focused = useIsFocused();
   const [appVisible, setAppVisible] = useState(() => AppState.currentState !== 'background');
   const [now, setNow] = useState(Date.now);
