@@ -1,7 +1,8 @@
-import { HeaderHeightContext } from 'expo-router/react-navigation';
+import { BottomTabBarHeightContext } from 'expo-router/js-tabs';
+import { HeaderHeightContext, HeaderShownContext } from 'expo-router/react-navigation';
 import { useContext, type ReactNode, type RefObject } from 'react';
-import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 
 import { colors, size, spacing, text } from '../lib/theme';
 
@@ -21,13 +22,19 @@ type ScreenProps = {
 
 /**
  * Cadre de tout écran : fond bg, marges de 16 px, titre, contenu et pied fixe.
- * Les marges sûres ne comptent que là où l'écran touche le bord de la fenêtre :
- * elles valent 0 sous un en-tête natif et au-dessus de la barre d'onglets.
+ * Zones sûres : l'en-tête porte déjà la barre d'état, la barre d'onglets
+ * l'indicateur d'accueil ; sur le web, Screen ne double ni l'une ni l'autre.
  */
 export function Screen({ title, footer, toast, scroll = true, scrollRef, children }: ScreenProps) {
   // Le clavier se mesure depuis le haut de la fenêtre, l'écran commence sous
   // l'en-tête natif : décalage de sa hauteur (0 sans en-tête).
   const headerHeight = useContext(HeaderHeightContext) ?? 0;
+  // Sur le web, SafeAreaView ajoute la marge entière de la fenêtre à chaque bord
+  // listé, où que soit l'écran : seuls restent les bords que rien ne couvre.
+  // Natif : bords par défaut.
+  const headerShown = useContext(HeaderShownContext);
+  const inTabs = useContext(BottomTabBarHeightContext) !== undefined;
+  const edges = Platform.OS === 'web' ? webEdges(headerShown, inTabs) : undefined;
   const body = (
     <>
       {title !== undefined ? (
@@ -39,8 +46,8 @@ export function Screen({ title, footer, toast, scroll = true, scrollRef, childre
     </>
   );
   return (
-    <SafeAreaView style={styles.screen}>
-      {/* Clavier ouvert : le pied remonte au-dessus de lui au lieu d'être recouvert. */}
+    <SafeAreaView edges={edges} style={styles.screen}>
+      {/* Clavier ouvert (natif) : le pied remonte au-dessus de lui au lieu d'être recouvert. Sans effet sur le web. */}
       <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={styles.fill}>
         <View style={styles.fill}>
           {scroll ? (
@@ -62,6 +69,18 @@ export function Screen({ title, footer, toast, scroll = true, scrollRef, childre
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+/** Bords sûrs d'un écran web : côtés toujours, haut sans en-tête, bas hors des onglets. */
+function webEdges(headerShown: boolean, inTabs: boolean): Edge[] {
+  const edges: Edge[] = ['left', 'right'];
+  if (!headerShown) {
+    edges.push('top');
+  }
+  if (!inTabs) {
+    edges.push('bottom');
+  }
+  return edges;
 }
 
 const styles = StyleSheet.create({

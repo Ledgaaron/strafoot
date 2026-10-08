@@ -32,6 +32,8 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - Expo Go fonctionne dans l'émulateur Android (Pixel via Android Studio), pas sur mon
   téléphone physique. Test : `npx expo start` puis `a` (émulateur) ou `w` (web). Tout
   code doit fonctionner sur web ET natif : pas d'API native sans fallback web.
+- iPhone : la version web déployée sur Vercel, installée sur l'écran d'accueil (voir
+  Déploiement). Pas de Mac, donc pas d'inspecteur web Safari : tout se constate à l'écran.
 - `.env` existe déjà avec `EXPO_PUBLIC_SUPABASE_URL` et `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
   Ne jamais le lire, l'afficher, le modifier ou le committer. `.env.example` est versionné.
 
@@ -82,8 +84,8 @@ test-results.ts, profiles.ts) ; result.ts : contrat { data, error }
 streak.ts calcul pur, testable, sans dépendance
 types.ts types générés depuis Supabase (npx supabase gen types)
 components/ design system et composants réutilisés par ≥ 2 écrans uniquement
-screen.tsx cadre d'écran : fond, marges, zones sûres, clavier, titre 28, pied fixe de l'action principale,
-confirmation flottante (prop toast)
+screen.tsx cadre d'écran : fond, marges, zones sûres (sur le web, sans doubler celles de l'en-tête et de la
+barre d'onglets), clavier, titre 28, pied fixe de l'action principale, confirmation flottante (prop toast)
 card.tsx carte (surface), tappable avec onPress (0,97 à l'appui), mise en évidence par bordure accent
 chip.tsx puce de choix, la seule de l'app (44 px, zone tactile 48 px)
 button.tsx bouton primary / secondary / danger / text, icône après le libellé, états pressé (0,97),
@@ -106,6 +108,11 @@ migrations/NNN_description.sql
 seed.sql données de démonstration
 seed_questions_NNN.sql, seed_sheets_NNN.sql générés par scripts/ : ne pas modifier à la main
 content/ JSON sources des seeds (questions, fiches, tests) et PNG des schémas (diagrams/)
+public/ fichiers servis à la racine du site web, copiés dans dist/ par l'export
+index.html HTML racine du web, gabarit SPA d'Expo (pas d'app/+html.tsx : lu seulement en sortie static)
+manifest.webmanifest nom, couleurs et icônes de l'app installée sur l'écran d'accueil
+apple-touch-icon.png (180 px), icon-192.png, icon-512.png, icon-1024.png (expo.icon), favicon.png (expo.web.favicon)
+vercel.json déploiement Vercel : build, réécriture SPA, en-têtes de cache
 
 
 Toute lecture/écriture Supabase passe par `lib/db/`. Aucun appel `supabase.from()` dans
@@ -309,6 +316,29 @@ bruts de Supabase restent en anglais (erreur jamais avalée).
 - Git : un commit par chantier, message en français à l'impératif
   (« Ajoute le formulaire de séance libre »). Pas de push automatique.
 
+## Déploiement
+
+- Web : export SPA (`expo.web.output = "single"`, metro) déployé par Vercel à chaque push sur
+  main (intégration Git). Jamais `vercel deploy` depuis le poste : le CLI enverrait `.env`.
+- vercel.json : build `npx expo export -p web`, sortie `dist`, framework null. Toute route hors
+  `/_expo/` et `/assets/` est réécrite vers `/index.html` (un fichier existant passe avant) ;
+  `/_expo/static/*` (noms hachés) en cache immuable d'un an, tout le reste en `no-cache`.
+- HTML racine : `public/index.html`, gabarit de l'export SPA. Y garder `%WEB_TITLE%` (remplacé
+  par `expo.name`), `</head>`, `</body>` et `<div id="root">` : l'export y insère favicon
+  (`favicon.ico` tiré d'`expo.web.favicon`), CSS et scripts. `app/+html.tsx` n'est lu qu'en
+  sortie static ou server : ne pas le créer.
+- `colors.bg` est recopiée en dur dans public/index.html et public/manifest.webmanifest : les
+  modifier en même temps que lib/theme.ts.
+- `EXPO_PUBLIC_SUPABASE_URL` et `EXPO_PUBLIC_SUPABASE_ANON_KEY` sont inlinées dans le bundle au
+  build : à déclarer dans Vercel (Settings → Environment Variables, Production et Preview).
+  Absentes, le build passe mais l'app reste vide (lib/supabase.ts lève). Après un changement,
+  redéployer.
+- Inscriptions Supabase fermées (Authentication → Sign In / Providers → « Allow new users to
+  sign up » désactivé) : l'URL est publique, seul mon compte se connecte.
+- iPhone : Safari → Partager → « Sur l'écran d'accueil ». L'app installée a son propre stockage
+  (s'y reconnecter une fois). iOS fige icône, nom et barre d'état à l'ajout : après un
+  changement de public/, supprimer l'icône puis la rajouter.
+
 ## Commandes
 
 - `npx expo start` puis `w` / `a` (`npx expo start --clear` après l'ajout d'une dépendance)
@@ -327,3 +357,8 @@ bruts de Supabase restent en anglais (erreur jamais avalée).
 - `npx tsx scripts/build-seed-questions.ts`, `npx tsx scripts/build-seed-sheets.ts`
   (régénèrent les seeds depuis supabase/content/)
 - `npx supabase gen types typescript --project-id <id> | Out-File -Encoding utf8 lib/types.ts`
+- Export web, comme sur Vercel : `npx expo export -p web` (dans dist/, variables lues dans .env)
+- Servir dist en local : `npx expo serve --port 8090` (sans repli SPA : une route profonde y
+  répond 404) ou `npx --yes serve -s dist` (repli SPA comme Vercel, port 3000 ; serve n'est
+  pas une dépendance, npx le télécharge)
+- Après un déploiement : `curl.exe -I https://<app>.vercel.app/sheet/xyz` (200, text/html)

@@ -34,6 +34,9 @@ yarn-error.*
 .env
 .env*.local
 
+# Vercel (dossier créé par `vercel link`)
+.vercel
+
 # typescript
 *.tsbuildinfo
 

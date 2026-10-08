@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "strafoot",
+    "name": "Strafoot",
     "slug": "strafoot",
     "scheme": "strafoot",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./public/icon-1024.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true
@@ -21,7 +21,8 @@
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/favicon.png"
+      "output": "single",
+      "favicon": "./public/favicon.png"
     },
     "plugins": [
       "expo-router",
