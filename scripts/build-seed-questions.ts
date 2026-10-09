@@ -17,6 +17,16 @@
 // qui fermerait le bloc do du SQL. Toutes les erreurs d'un fichier sont listées ;
 // un fichier en erreur n'écrit aucun SQL et le script finit en code 1.
 //
+// Schémas (chantier 13a) : supabase/content/diagrams_NNN.json, s'il existe, va
+// avec questions_NNN.json (même numéro) et ajoute à son SQL un update de
+// questions.diagram (migration 009), sur (user_id, situation), seulement là où
+// le schéma diffère. Validation : racine { _format facultatif, diagrams non vide } ;
+// entrée aux clés exactement situation, diagram ; situation = texte exact d'une
+// question du fichier apparié, une seule fois ; diagram conforme à
+// validateDiagram (lib/diagram-types.ts) ; aucune chaîne ni clé du schéma ne
+// contient de caractère de contrôle ni « $$ ». Le jsonb est écrit tel que lu.
+// Un diagrams_NNN.json sans questions_NNN.json est une erreur.
+//
 // Sortie déterministe : ni date ni horodatage, fins de ligne LF, UTF-8 sans BOM,
 // retour à la ligne final. Le SQL n'est réécrit que s'il change (CRLF ramenés à
 // LF pour comparer) : relancé sur le même JSON, le script annonce « inchangé ».
@@ -25,6 +35,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { validateDiagram } from '../lib/diagram-types';
 import {
   isPositionKey,
   isThemeKey,
@@ -38,8 +49,14 @@ import {
 const CONTENT_DIR = 'supabase/content';
 const OUTPUT_DIR = 'supabase';
 const CONTENT_FILE_PATTERN = /^questions_(\d{3})\.json$/;
+const DIAGRAM_FILE_PATTERN = /^diagrams_(\d{3})\.json$/;
 const SCRIPT_PATH = 'scripts/build-seed-questions.ts';
 const MIGRATION_PATH = 'supabase/migrations/003_quiz.sql';
+const DIAGRAM_MIGRATION_PATH = 'supabase/migrations/009_question_diagrams.sql';
+const DIAGRAM_ROOT_KEYS: readonly string[] = ['_format', 'diagrams'];
+const DIAGRAM_KEYS: readonly string[] = ['situation', 'diagram'];
+/** Indentation des champs d'une ligne du values (…) des schémas. */
+const FIELD_INDENT = '      ';
 /** Remplacé par l'utilisateur dans le SQL Editor : une seule occurrence, ligne uid. */
 const UUID_MARKER = '<REMPLACER_PAR_MON_UUID>';
 
@@ -69,14 +86,40 @@ type SeedQuestion = {
   source: string;
 };
 
+/** Schéma d'une question : sa situation (clé de l'update) et le jsonb tel que lu dans le JSON. */
+type SeedDiagram = { situation: string; diagramJson: unknown };
+
+/** Schémas d'un fichier diagrams_NNN.json, prêts pour le SQL. */
+type DiagramFile = { name: string; diagrams: SeedDiagram[] };
+
 function main(): void {
   if (!statSync(CONTENT_DIR, { throwIfNoEntry: false })?.isDirectory()) {
     fail(`Dossier ${CONTENT_DIR} introuvable dans ${process.cwd()}. Lance le script depuis la racine du projet.`);
     return;
   }
+  checkDiagramFiles();
   const args = process.argv.slice(2);
   for (const file of args.length > 0 ? namedContentFiles(args) : allContentFiles()) {
     buildSeedFile(file);
+  }
+}
+
+/**
+ * Fichiers de schémas : un nom hors format est signalé (il serait ignoré sans un
+ * mot) ; un diagrams_NNN.json sans questions_NNN.json est une erreur.
+ */
+function checkDiagramFiles(): void {
+  for (const name of readdirSync(CONTENT_DIR).sort()) {
+    const match = DIAGRAM_FILE_PATTERN.exec(name);
+    if (!match) {
+      if (/^diagrams.*\.json$/i.test(name)) {
+        console.warn(`${CONTENT_DIR}/${name} ignoré : nom attendu diagrams_NNN.json (NNN = 3 chiffres).`);
+      }
+      continue;
+    }
+    if (!statSync(`${CONTENT_DIR}/questions_${match[1]}.json`, { throwIfNoEntry: false })?.isFile()) {
+      fail(`${CONTENT_DIR}/${name} : aucun questions_${match[1]}.json à qui poser ces schémas.`);
+    }
   }
 }
 
@@ -118,7 +161,10 @@ function namedContentFiles(args: readonly string[]): ContentFile[] {
   return files;
 }
 
-/** Valide un fichier de contenu puis écrit son SQL s'il a changé ; en cas d'erreur, n'écrit rien. */
+/**
+ * Valide un fichier de contenu, et ses schémas s'il en a, puis écrit son SQL
+ * s'il a changé ; en cas d'erreur, n'écrit rien.
+ */
 function buildSeedFile(file: ContentFile): void {
   const outputPath = `${OUTPUT_DIR}/seed_questions_${file.number}.sql`;
   const { questions, errors } = validateContent(file.name, readFileSync(`${CONTENT_DIR}/${file.name}`, 'utf8'));
@@ -130,7 +176,22 @@ function buildSeedFile(file: ContentFile): void {
     return;
   }
 
-  const sql = buildSql(file, questions);
+  const diagramName = `diagrams_${file.number}.json`;
+  let diagramFile: DiagramFile | null = null;
+  const diagramText = readIfExists(`${CONTENT_DIR}/${diagramName}`);
+  if (diagramText !== null) {
+    const checked = validateDiagramContent(diagramName, diagramText, file.name, questions);
+    if (checked.errors.length > 0) {
+      for (const message of checked.errors) {
+        console.error(message);
+      }
+      fail(`${diagramName} : ${formatCount(checked.errors.length, 'erreur', 'erreurs')}, ${outputPath} non écrit.`);
+      return;
+    }
+    diagramFile = { name: diagramName, diagrams: checked.diagrams };
+  }
+
+  const sql = buildSql(file, questions, diagramFile);
   // Garde-fou : un texte du JSON qui contiendrait le marqueur le dupliquerait.
   if (sql.split(UUID_MARKER).length !== 2) {
     fail(`${file.name} : ${UUID_MARKER} doit apparaître une seule fois dans le SQL, ${outputPath} non écrit.`);
@@ -142,7 +203,11 @@ function buildSeedFile(file: ContentFile): void {
     writeFileSync(outputPath, sql, 'utf8');
   }
   const valid = formatCount(questions.length, 'question valide', 'questions valides');
-  console.log(`${file.name} : ${valid} → ${outputPath} (${unchanged ? 'inchangé' : 'écrit'})`);
+  const withDiagrams =
+    diagramFile !== null
+      ? `, ${formatCount(diagramFile.diagrams.length, 'schéma valide', 'schémas valides')} (${diagramFile.name})`
+      : '';
+  console.log(`${file.name} : ${valid}${withDiagrams} → ${outputPath} (${unchanged ? 'inchangé' : 'écrit'})`);
 }
 
 // Validation : chaque erreur s'ajoute à `errors` et la lecture continue, pour
@@ -184,6 +249,112 @@ function validateContent(fileName: string, text: string): { questions: SeedQuest
     }
   }
   return { questions, errors };
+}
+
+/**
+ * Schémas d'un fichier diagrams_NNN.json et toutes leurs erreurs, avec les
+ * questions valides du fichier apparié ; les schémas ne servent que sans erreur.
+ */
+function validateDiagramContent(
+  fileName: string,
+  text: string,
+  questionsFile: string,
+  questions: readonly SeedQuestion[],
+): { diagrams: SeedDiagram[]; errors: string[] } {
+  let root: unknown;
+  try {
+    // BOM retiré : un éditeur Windows peut en ajouter un, et JSON.parse le refuse.
+    root = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { diagrams: [], errors: [`${fileName} : JSON illisible (${reason}).`] };
+  }
+  if (!isRecord(root)) {
+    return {
+      diagrams: [],
+      errors: [`${fileName} : racine ${describeValue(root)} invalide ; attendu un objet { "diagrams": [ … ] }.`],
+    };
+  }
+
+  const errors: string[] = [];
+  const rootWhere = `${fileName}, racine`;
+  checkUnknownKeys(root, DIAGRAM_ROOT_KEYS, rootWhere, errors);
+  const items = root.diagrams;
+  if (!isArray(items) || items.length === 0) {
+    errors.push(`${rootWhere} : ${fieldError('diagrams', items)} ; attendu un tableau non vide de { situation, diagram }.`);
+    return { diagrams: [], errors };
+  }
+
+  const situations = new Set(questions.map((question) => question.situation));
+  // Situation → numéro du premier schéma qui la porte.
+  const seen = new Map<string, number>();
+  const diagrams: SeedDiagram[] = [];
+  for (const [index, item] of items.entries()) {
+    const number = index + 1;
+    const where = locateDiagram(fileName, number, isRecord(item) ? item.situation : undefined);
+    if (!isRecord(item)) {
+      errors.push(`${where} : ${describeValue(item)} invalide ; attendu un objet { ${DIAGRAM_KEYS.join(', ')} }.`);
+      continue;
+    }
+    const before = errors.length;
+    checkUnknownKeys(item, DIAGRAM_KEYS, where, errors);
+    const situation = checkText(item.situation, 'situation', where, errors);
+    if (situation !== null) {
+      if (!situations.has(situation)) {
+        errors.push(
+          `${where} : situation absente de ${questionsFile} ; attendu le texte exact d'une de ses questions (clé de l'update).`,
+        );
+      }
+      const first = seen.get(situation);
+      if (first === undefined) {
+        seen.set(situation, number);
+      } else {
+        errors.push(`${where} : même situation que le schéma ${first} ; une question porte un seul schéma.`);
+      }
+    }
+    if (item.diagram === undefined) {
+      errors.push(`${where} : clé "diagram" absente ; attendu un schéma au format de lib/diagram-types.ts.`);
+    } else {
+      for (const message of validateDiagram(item.diagram).errors) {
+        errors.push(`${where}, diagram, ${message}`);
+      }
+      checkJsonText(item.diagram, 'diagram', where, errors);
+    }
+    if (situation !== null && errors.length === before) {
+      diagrams.push({ situation, diagramJson: item.diagram });
+    }
+  }
+  return { diagrams, errors };
+}
+
+/**
+ * Chaque chaîne d'un schéma, à toute profondeur, valeurs et clés : ni caractère
+ * de contrôle, ni « $$ », qui fermerait le bloc do $$ du SQL. L'erreur donne le
+ * chemin JSON de la valeur (« diagram.objects[0].label »).
+ */
+function checkJsonText(value: unknown, jsonPath: string, where: string, errors: string[]): void {
+  const checkOne = (text: string, at: string) => {
+    const control = CONTROL_CHARACTER.exec(text);
+    if (control) {
+      const code = control[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
+      errors.push(`${where} : ${at} contient le caractère de contrôle U+${code} ; un texte tient sur une ligne.`);
+    }
+    if (text.includes('$$')) {
+      errors.push(`${where} : ${at} contient "$$", qui fermerait le bloc do $$ … $$ du SQL.`);
+    }
+  };
+  if (typeof value === 'string') {
+    checkOne(value, jsonPath);
+  } else if (isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      checkJsonText(item, `${jsonPath}[${index}]`, where, errors);
+    }
+  } else if (isRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      checkOne(key, `${jsonPath}.${key} (nom de la clé)`);
+      checkJsonText(item, `${jsonPath}.${key}`, where, errors);
+    }
+  }
 }
 
 /** Une question ; null si elle a une erreur. */
@@ -388,6 +559,15 @@ function locate(fileName: string, number: number, situation: unknown): string {
   return `${where} « ${truncate(situation.trim().replace(/\s+/g, ' '), EXCERPT_LENGTH)} »`;
 }
 
+/** « diagrams_001.json, schéma 2 « Faux 9. Ton milieu… » ». */
+function locateDiagram(fileName: string, number: number, situation: unknown): string {
+  const where = `${fileName}, schéma ${number}`;
+  if (typeof situation !== 'string' || situation.trim() === '') {
+    return where;
+  }
+  return `${where} « ${truncate(situation.trim().replace(/\s+/g, ' '), EXCERPT_LENGTH)} »`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -399,18 +579,61 @@ function isArray(value: unknown): value is readonly unknown[] {
 
 // SQL : même mise en page que supabase/seed.sql.
 
-/** SQL du seed ; même entrée, même texte à l'octet près (aucune date). */
-function buildSql(file: ContentFile, questions: readonly SeedQuestion[]): string {
+/**
+ * SQL du seed ; même entrée, même texte à l'octet près (aucune date). Sans
+ * fichier de schémas, le même SQL qu'avant le chantier 13a.
+ */
+function buildSql(file: ContentFile, questions: readonly SeedQuestion[], diagramFile: DiagramFile | null): string {
   const total = questions.length;
+  const diagramCount = diagramFile?.diagrams.length ?? 0;
+  const source =
+    diagramFile === null
+      ? [
+          `-- seed_questions_${file.number}.sql : ${formatCount(total, 'question', 'questions')} du quizz depuis`,
+          `-- ${CONTENT_DIR}/${file.name}.`,
+          '--',
+          `-- Fichier généré par ${SCRIPT_PATH} : ne pas modifier à la`,
+          `-- main, modifier le JSON puis relancer npx tsx ${SCRIPT_PATH}.`,
+          '--',
+          `-- À exécuter dans le SQL Editor APRÈS ${MIGRATION_PATH}.`,
+        ]
+      : [
+          `-- seed_questions_${file.number}.sql : ${formatCount(total, 'question', 'questions')} du quizz depuis`,
+          `-- ${CONTENT_DIR}/${file.name}, et ${formatCount(diagramCount, 'schéma', 'schémas')} depuis`,
+          `-- ${CONTENT_DIR}/${diagramFile.name}.`,
+          '--',
+          `-- Fichier généré par ${SCRIPT_PATH} : ne pas modifier à la`,
+          `-- main, modifier les JSON puis relancer npx tsx ${SCRIPT_PATH}.`,
+          '--',
+          `-- À exécuter dans le SQL Editor APRÈS ${MIGRATION_PATH} et`,
+          `-- ${DIAGRAM_MIGRATION_PATH} (colonne diagram).`,
+        ];
+  const idempotence =
+    diagramFile === null
+      ? [
+          "-- Idempotent : l'insert ne porte que sur les questions absentes, repérées par",
+          "-- (user_id, situation). Une seconde exécution n'ajoute ni ne modifie rien.",
+        ]
+      : [
+          "-- Idempotent : l'insert ne porte que sur les questions absentes, repérées par",
+          "-- (user_id, situation) ; un schéma n'est posé que sur une question dont le",
+          "-- diagram diffère. Une seconde exécution n'ajoute ni ne modifie rien.",
+        ];
+  const control =
+    diagramFile === null
+      ? [
+          `-- Contrôle (tous utilisateurs confondus) : au moins ${total} après la première`,
+          '-- exécution, inchangé après une seconde.',
+          'select count(*) as questions_total from public.questions;',
+        ]
+      : [
+          `-- Contrôle (tous utilisateurs confondus) : au moins ${total} questions après la`,
+          `-- première exécution, dont au moins ${diagramCount} avec un schéma ; inchangé après une seconde.`,
+          'select count(*) as questions_total, count(diagram) as questions_avec_schema from public.questions;',
+        ];
   const lines = [
     '-- =============================================================================',
-    `-- seed_questions_${file.number}.sql : ${formatCount(total, 'question', 'questions')} du quizz depuis`,
-    `-- ${CONTENT_DIR}/${file.name}.`,
-    '--',
-    `-- Fichier généré par ${SCRIPT_PATH} : ne pas modifier à la`,
-    `-- main, modifier le JSON puis relancer npx tsx ${SCRIPT_PATH}.`,
-    '--',
-    `-- À exécuter dans le SQL Editor APRÈS ${MIGRATION_PATH}.`,
+    ...source,
     '--',
     '-- 1. Récupère ton UUID : Dashboard Supabase → Authentication → Users →',
     '--    clique sur ton utilisateur → copie « User UID ».',
@@ -420,8 +643,7 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[]): string
     '-- 3. Exécute tout le fichier avec le rôle par défaut du SQL Editor (postgres),',
     "--    pas en « Run as authenticated » : ce rôle n'a pas accès à auth.users.",
     '--',
-    "-- Idempotent : l'insert ne porte que sur les questions absentes, repérées par",
-    "-- (user_id, situation). Une seconde exécution n'ajoute ni ne modifie rien.",
+    ...idempotence,
     '--',
     "-- Le trigger set_user_id impose user_id := auth.uid(). Le SQL Editor n'a pas de",
     "-- JWT (auth.uid() est null) : le bloc simule celui de l'utilisateur, le temps",
@@ -432,6 +654,7 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[]): string
     'declare',
     `  uid uuid := '${UUID_MARKER}';`,
     '  inserted_count integer;',
+    ...(diagramFile === null ? [] : ['  updated_count integer;']),
     'begin',
     '  if not exists (select 1 from auth.users where id = uid) then',
     "    raise exception 'Aucun utilisateur % dans auth.users : vérifie l’UUID copié.', uid;",
@@ -461,14 +684,58 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[]): string
     '  get diagnostics inserted_count = row_count;',
     `  raise notice '${file.name} pour % : sur ${formatCount(total, 'question', 'questions')}, insérées : %, déjà présentes : %.',`,
     `    uid, inserted_count, ${total} - inserted_count;`,
+    ...(diagramFile === null ? [] : diagramUpdateLines(diagramFile)),
     'end',
     '$$;',
     '',
-    `-- Contrôle (tous utilisateurs confondus) : au moins ${total} après la première`,
-    '-- exécution, inchangé après une seconde.',
-    'select count(*) as questions_total from public.questions;',
+    ...control,
   ];
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Update des schémas, après l'insert (les questions existent donc toutes) : sur
+ * (user_id, situation), seulement là où diagram diffère (comparaison jsonb, sans
+ * tenir compte de l'ordre des clés).
+ */
+function diagramUpdateLines(diagramFile: DiagramFile): string[] {
+  const count = diagramFile.diagrams.length;
+  return [
+    '',
+    '  -- ---------------------------------------------------------------------------',
+    `  -- Schémas : ${diagramFile.name} → questions.diagram (clé : situation),`,
+    '  -- format de lib/diagram-types.ts ; migration 009',
+    '  -- ---------------------------------------------------------------------------',
+    '  update public.questions q',
+    '  set diagram = v.diagram',
+    '  from (values',
+    ...joinWithCommas(diagramFile.diagrams.map(diagramLines)),
+    '  ) as v(situation, diagram)',
+    '  where q.user_id = uid',
+    '    and q.situation = v.situation',
+    '    and q.diagram is distinct from v.diagram;',
+    '',
+    '  get diagnostics updated_count = row_count;',
+    `  raise notice '${diagramFile.name} pour % : sur ${formatCount(count, 'schéma', 'schémas')}, posés ou mis à jour : %, déjà à jour : %.',`,
+    `    uid, updated_count, ${count} - updated_count;`,
+  ];
+}
+
+/** Une ligne du values (…) des schémas : situation, puis le jsonb tel que lu dans le JSON. */
+function diagramLines(diagram: SeedDiagram): string[] {
+  const fields = [[sqlString(diagram.situation)], jsonbLines(diagram.diagramJson)];
+  return ['    (', ...joinWithCommas(fields).map((line) => `${FIELD_INDENT}${line}`), '    )'];
+}
+
+/**
+ * Littéral jsonb sur plusieurs lignes : JSON.stringify indenté de 2, apostrophes
+ * doublées. Les sauts de ligne tombent entre les jetons JSON, jamais dans une
+ * chaîne (JSON.stringify les y échapperait, et les caractères de contrôle sont
+ * refusés à la validation).
+ */
+function jsonbLines(value: unknown): string[] {
+  const lines = sqlString(JSON.stringify(value, null, 2)).split('\n');
+  return [...lines.slice(0, -1), `${lines[lines.length - 1]}::jsonb`];
 }
 
 /** Une ligne du values (…) : situation, options, theme, positions, level, source. */

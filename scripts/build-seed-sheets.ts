@@ -39,7 +39,9 @@
 // Pour tous : slug en kebab-case, unique sur toutes les fiches, tous les tests et
 // toutes les sessions (clé d'idempotence du SQL) ; positions non vide, dans la
 // liste fermée, sans doublon ; duration_min entier positif ; intro au format de
-// validateIntro. Aucune chaîne, valeur ou clé, à toute profondeur (diagram_data
+// validateIntro ; diagram_data d'un exercice, s'il y en a un, au format de
+// lib/diagram-types.ts (validateDiagram, appelé par validateExercises). Aucune
+// chaîne, valeur ou clé, à toute profondeur (diagram_data
 // compris), ne contient de caractère de contrôle, ni « $$ », qui fermerait le
 // bloc do du SQL, ni le marqueur de l'UUID.
 // Sur les éléments valides : key de mesure unique sur tous les tests (clé

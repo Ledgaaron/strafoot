@@ -16,7 +16,8 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - Pas de lib UI, pas de state manager, pas d'ORM, pas de lib de formulaires en v1
 - react-native-svg (version du SDK, installée par `npx expo install`) : seule lib de dessin,
   importée uniquement dans app/measure/ (courbe d'une mesure), components/pitch-placeholder.tsx
-  (terrain par défaut) et components/flame.tsx (flamme de série) ; pas de lib de charts
+  (terrain par défaut), components/flame.tsx (flamme de série) et components/diagram.tsx (schémas,
+  voir Schémas) ; pas de lib de charts
 - @expo/vector-icons (version du SDK, installée par `npx expo install` : le SDK 57 ne
   l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation, coche d'une
   puce choisie, ▶ de démarrage, boutons icône, avatar de l'Accueil et du Profil, tuile d'un module,
@@ -66,7 +67,8 @@ session/finish.tsx fin d'une fiche ou d'une session de tests chronométrée : du
 commentaire, ou abandon tant que rien n'est enregistré ; session : séance de module test déjà créée par son 1er test,
 mise à jour (updateSession), « N tests enregistrés sur M » ; au-delà de 3 h de chrono, « séance oubliée ? » : durée
 de la fiche (durée prévue d'une session) ou du chrono
-quiz/_layout.tsx garde d'auth + pile de la série ; quiz/run.tsx série de 5 questions puis récap
+quiz/_layout.tsx garde d'auth + pile de la série ; quiz/run.tsx série de 5 questions puis récap ; schéma de la
+question s'il en a un, entre la situation et les options (numérotées comme ses pastilles)
 training/_layout.tsx garde d'auth ; training/[theme].tsx liste des fiches de lecture, ouverte par la carte Fiches du
 Profil : une section par thème, celui de l'URL d'abord (Entraînements spécifiques, puis Récupération, vide), cartes
 et ▶
@@ -81,6 +83,9 @@ par mesure (dernier résultat, date, record, évolution) → courbe ; stats/volu
 measure/_layout.tsx garde d'auth ; measure/[testId].tsx courbe, historique et suppression des résultats
 (dossier sans index à côté d'un onglet du même nom : /quiz, /training et /profile restent les onglets ; /training
 est l'onglet Tests)
+dev/_layout.tsx garde d'auth ; dev/diagrams.tsx prévisualisation des schémas, ouverte seulement par l'URL
+/dev/diagrams, liée nulle part : chaque schéma en base (questions, diagram_data des exercices) nu, option 2
+sélectionnée, réponse au choix 3, et deux démonstrations du format en code
 lib/
 supabase.ts client unique
 auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth
@@ -120,12 +125,16 @@ profile-taxonomy.ts postes du profil (ceux du quiz sans 'tous') et pieds forts
 quiz-select.ts choix des questions d'une série (pur, testé)
 measure-delta.ts évolution d'une mesure et format des valeurs (pur, testé)
 sheet-types.ts format des fiches, tests et sessions (kind, exercises, intro, mesures, blocks ; test atomique =
-un exercice ; diagram_data facultatif d'un exercice : un objet, format au chantier 13a), validation partagée
+un exercice ; diagram_data facultatif d'un exercice : schéma au format de diagram-types.ts), validation partagée
 app / script
+diagram-types.ts format des schémas (vues, joueurs, ballon, objets, options 1-4, trajet, encart ; voir Schémas),
+validateDiagram / parseDiagram partagés app / scripts, viewRegion, optionIdOfIndex (option affichée → id du
+schéma) (pur, testé par diagram-types.test.ts)
 json-types.ts contenu des autres colonnes jsonb (questions.options)
 diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
 db/ une fonction par requête, typée (sessions.ts, dont getSessionDefaults : dernier module et dernière
-durée par module ; answers.ts, questions.ts, profiles.ts ; training.ts : fiches, countSheets, listTests (tests
+durée par module ; answers.ts ; questions.ts : listEligibleQuestions (schéma validé), listQuestionDiagrams
+(/dev/diagrams) ; profiles.ts ; training.ts : fiches, countSheets, listTests (tests
 atomiques avec dernière fois, records et dernier résultat de chaque mesure, deux requêtes), listSessions,
 getTestBySlug ; test-results.ts, dont listTestCatalog, listCatalogByKeys et listResultValues) ; activity.ts :
 listActivityHistory, jours actifs séances + quiz de tout l'historique en une lecture (Accueil, feuille
@@ -156,6 +165,9 @@ month-sheet.tsx calendrier du mois dans une BottomSheet (mois ‹ ›, grille de
 chaque ouverture) ; mode browse (Accueil) ou pick (date d'une séance : jours à venir inertes, mois suivant bloqué)
 save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
 pitch-placeholder.tsx demi-terrain SVG (lignes pitchLine) affiché quand un exercice n'a pas de schéma
+diagram.tsx schéma dessiné depuis ses données (react-native-svg, cadre 722 × 646, sans animation) : terrain,
+joueurs, flèches de vitesse, ballon, objets, trajet d'un test, options 1-4 et leurs pastilles, encart score ·
+minute ; états nu / selected / result ; exporte OptionBadge, la pastille d'une option dans les réponses du quiz
 stat.tsx chiffre dominant 44 px en police d'affichage, libellé, dénominateur à 40 % et unité en
 secondaire, élément de tête optionnel (flamme)
 duration-value.tsx durée en chiffre dominant (text.number) : « 6 h 40 », « 45 min », unité en secondaire dans le
@@ -175,16 +187,18 @@ active-session-bar.tsx bandeau « En cours · titre · 12:34 » au-dessus de la 
 (prop tabBar de (tabs)/_layout.tsx), et l'échec éventuel de mémorisation de la séance ; exporte
 useElapsedLabel et HeaderClock, le même chrono dans l'en-tête de la fiche ou du test en cours
 start-row.tsx carte d'une fiche, d'un test ou d'une session et ▶ à sa droite (deux cibles voisines)
-exercise-content.tsx morceaux d'un exercice partagés par fiche et test : schéma ou terrain par défaut,
-intertitre, liste (numéros en orange), contenu de « Plus de tips »
-scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts ; build-seed-sheets.ts : fiches,
+exercise-content.tsx morceaux d'un exercice partagés par fiche et test : schéma dessiné (diagram_data), sinon
+PNG du bucket, sinon terrain par défaut ; intertitre, liste (numéros en orange), contenu de « Plus de tips »
+scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts : questions depuis questions_NNN.json,
+et leurs schémas depuis diagrams_NNN.json du même numéro ; build-seed-sheets.ts : fiches,
 tests atomiques et sessions depuis sheets_NNN.json, tests_atomic_NNN.json et sessions_NNN.json, validés sans être
 réécrits)
 supabase/
 migrations/NNN_description.sql
 seed.sql données de démonstration
 seed_questions_NNN.sql, seed_sheets_NNN.sql générés par scripts/ : ne pas modifier à la main
-content/ JSON sources des seeds, édités à la main (questions ; sheets_NNN.json : fiches de lecture ;
+content/ JSON sources des seeds, édités à la main (questions ; diagrams_NNN.json : schémas des questions de
+questions_NNN.json, { situation, diagram } ; sheets_NNN.json : fiches de lecture ;
 tests_atomic_NNN.json : tests atomiques ; sessions_NNN.json : sessions prédéfinies ; pour ces trois sortes,
 plusieurs fichiers numérotés permis, NNN sur 3 chiffres) et PNG des schémas (diagrams/) ; archive/ : tests_001.json
 (batteries d'avant le chantier 10, source des tests atomiques jusqu'au 10b), à ne plus éditer, jamais lu
@@ -258,7 +272,8 @@ d'exception.
   (séance de type test qui a produit le résultat, on delete set null)
 - `questions` : situation, options jsonb (4 × { text, score 0-3, explanation }), theme,
   positions text[] (listes fermées de `lib/quiz-taxonomy.ts`, CHECK depuis 003 ; `tous` =
-  valable pour tous les postes), level, source, is_public
+  valable pour tous les postes), level, source, is_public ; depuis 009 : diagram jsonb (schéma au
+  format de `lib/diagram-types.ts`, null permis, CHECK null ou objet ; voir Schémas)
 - `answers` : question_id, chosen_index, score, answered_at ; depuis 003 : quiz_run_id (uuid
   client de la série), flagged (réponse signalée contestable)
 - `self_assessments` : date, grid jsonb
@@ -322,7 +337,11 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    sur 7 jours, streak) ; séries de 5 questions QCM 4 options (jamais vues, puis dernier
    score ≤ 1, puis les plus anciennes) ; après réponse, affichage du score de l'option
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
-   `answers`, signalement d'une réponse contestable, récap de la série.
+   `answers`, signalement d'une réponse contestable, récap de la série. Question à schéma
+   (chantier 13a, intégration minimale avant la refonte 13b) : le schéma entre la situation et les
+   options, chaque option précédée de la pastille de son numéro ; l'option touchée s'allume sur le
+   schéma pendant l'enregistrement (selected), puis la réponse confirmée le colore (result) et les
+   pastilles des réponses prennent les mêmes couleurs.
 3. **Tests** (onglet ; titre d'écran « Tests » depuis le chantier 10), de haut en bas : bouton
    « Proposer une session » → feuille du bas : la session de `proposeSession` (lib/test-plan.ts :
    famille la moins testée sur 28 jours, jamais testée d'abord, puis la plus anciennement testée ;
@@ -339,8 +358,9 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    1re mesure) et ▶. Les fiches de lecture s'ouvrent depuis la carte Fiches du Profil. États vides
    sans bouton : le contenu vient des seeds.
    **Écran d'un test** (app/test/[slug].tsx, maquette ecran-test.png) : titre, « Compétence ·
-   Famille · durée » en caption, carte « PROTOCOLE » (consignes numérotées en orange), schéma ou
-   terrain par défaut, « Plus de tips » (objectif, but, critères, points techniques, variables,
+   Famille · durée » en caption, carte « PROTOCOLE » (consignes numérotées en orange), schéma
+   (dessiné depuis diagram_data, sinon PNG, sinon terrain par défaut), « Plus de tips » (objectif,
+   but, critères, points techniques, variables,
    surface / séquence / effectif, règles communes), « MESURES » : une ligne par mesure (libellé et
    unité, champ pré-rempli en gris de la dernière valeur, ✓ par ligne qui en fait la valeur saisie,
    « Record : … · Dernier : …, il y a 3 j » ou « Jamais mesuré »), commentaire facultatif hors
@@ -359,7 +379,7 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    place de « Terminer » ; dès le premier, « Terminer » (secondaire) à chaque test sauf le
    dernier, dont l'action principale « Terminer la session » enregistre puis ouvre l'écran de fin.
    Fiches de lecture (app/sheet/[id].tsx) : présentation, puis un exercice par écran
-   (schéma ou terrain par défaut, titre, durée, Objectif, But, Consignes ; « Plus de tips » déplie
+   (schéma dessiné, PNG ou terrain par défaut, titre, durée, Objectif, But, Consignes ; « Plus de tips » déplie
    critères, points techniques, variables, surface / séquence / effectif, état gardé pendant la
    lecture), « Séance faite » (séance `entrainement_specifique` liée) ; « Séance déjà faite » sur
    la présentation → formulaire de séance pré-rempli (fiche, module, nom, durée ; date auj.
@@ -407,6 +427,50 @@ ou du test en cours (même hook `useElapsedLabel`) ne la rafraîchissent chaque 
 (écran au premier plan, app active). Pas de notification, pas de chrono par exercice, pas de
 lib de timer.
 
+## Schémas (chantier 13a)
+
+Un schéma est une donnée, jamais une image : format, validation et repères dans
+`lib/diagram-types.ts` (`validateDiagram` liste toutes les erreurs, `parseDiagram` les résume) ;
+`components/diagram.tsx` le dessine en SVG selon la DA (Illustration, « Schéma tactique vu du
+dessus »), cadre 722 × 646, même rendu web et natif, aucune animation (flèches fixes).
+
+- **Où vivent les données** : `questions.diagram` (009), contenu `supabase/content/diagrams_NNN.json`
+  (`{ situation, diagram }`, situation = texte exact d'une question de `questions_NNN.json`, même
+  numéro), posé par un update idempotent de `seed_questions_NNN.sql` ; `diagram_data` d'un exercice
+  (`tests_atomic_NNN.json`, `sheets_NNN.json`), dessiné à la place du PNG `diagram` et du terrain par
+  défaut. Les seeds valident chaque schéma ; l'app le revalide à la lecture (schéma invalide en base :
+  erreur de la liste, comme des options mal formées).
+- **Repère terrain** : 105 × 68 m, x de 0 à 105, y de 0 (touche du haut) à 68. L'équipe qui a le
+  ballon attaque vers la droite (but attaqué en x = 105) ; en phase de pressing (eux au ballon,
+  depuis leur but en x = 0), vue `half_left`. Vues : `full` ; `half_right` x ≥ 52,5 ; `half_left`
+  x ≤ 52,5 ; `box_right` x ≥ 80 et 10 ≤ y ≤ 58 (la surface entière, sinon coupée par le ratio) ;
+  `local` (tests) avec `width_m` : x de 0 à width_m, y de 0 à width_m × 646 / 722. Tout point doit
+  être dans le terrain puis dans sa vue. Même échelle en x et en y (vraies distances) : une demi-vue
+  se cale sur son but et montre aussi un peu de l'autre moitié.
+- **Éléments** : `players` (obligatoire, vide permis) `{ id, team: us | them, number?, x, y, you?,
+  ball?, move?: { dx, dy, speed: walk | run | sprint } }`, un seul `you` (us) ; `ball` libre `{ x, y }`
+  (un seul ballon, libre ou porté) ; `objects?` `{ type: cone | goal | wall | zone | mannequin, x, y
+  (centre), w, h (mètres, goal / wall / zone seulement), label? }` ; `options?` (1 à 4) `{ id: 1-4,
+  kind: pass | dribble | run | shot | hold, from? (défaut : le joueur you), to: { x, y } | id de joueur,
+  path? }`, hold sur place, sans path ; `path?` (tests) `{ points (2+), style: run | dribble }` ;
+  `context?` `{ score: "2-1" (nous-eux), minute }`.
+- **Rendu** (pixels de la DA, schéma de 358 px de large) : nous disque blanc r 11, numéro 12 px gras
+  anthracite ; eux anneau gris 2,5 ; toi halo violet ; ballon cerclé collé au porteur ; vitesse
+  9 / 15 / 22 px et 2 / 2,5 / 3,2 ; passe en pointillé, conduite / course / tir en trait plein, hold en
+  arc autour du joueur ; pastille numérotée 14 px gras à l'extrémité (juste avant la pointe vers un
+  joueur), qui recule le long du trait si un joueur, le ballon ou une autre pastille y est déjà
+  (l'option la plus contrainte se place d'abord) ; trajet d'un test en blanc, conduite : ballon au
+  départ ; plots orange, objets gris ; encart score · minute en `text.scoreboard`.
+- **États** : nu (trait violet à 50 %, pastille violette) ; `selected` (l'option choisie en violet
+  plein, les autres à 40 %) ; `result` (options à 3 en success, la choisie dans sa catégorie :
+  3 success · 2 textMuted · 1 danger · 0 error, les autres couleur border, numéro secondaire).
+  `OptionBadge` : la même pastille dans les réponses du quiz.
+- **Lien avec les réponses** : id d'une option du schéma = rang de l'option dans `questions.options`,
+  à partir de 1 (`optionIdOfIndex`) ; le mélange des réponses (13b) devra garder ce rang d'origine.
+- **/dev/diagrams** : chaque schéma en base dans ses états (nu, option 2 sélectionnée, réponse au
+  choix 3 ; un seul état sans options) et deux démonstrations du format en code ; ouvert seulement
+  par l'URL (sur iPhone, dans Safari : l'app installée n'a pas de barre d'adresse).
+
 ## Hors périmètre v1 — ne pas proposer, ne pas préparer
 
 API FFF, Elo, génération d'exercices paramétrable, plans d'entraînement, notifications,
@@ -416,7 +480,7 @@ le signaler et ne pas coder.
 ## Design system et règles UX
 
 Référence : design/Strafoot_Direction_Artistique.html (Palette, Typographie, Composants,
-Mouvement, Tokens) et design/maquettes/ (planches 01 à 08, écrans de référence Accueil, Quiz,
+Illustration, Mouvement, Tokens) et design/maquettes/ (planches 01 à 08, écrans de référence Accueil, Quiz,
 Test, Profil). Design system : lib/theme.ts et components/ sont la seule source de style.
 Aucune couleur, taille ou espacement en dur dans un écran. Aucune lib UI. Les 14 règles UX
 ci-dessous s'appliquent à tout nouvel écran.
@@ -425,7 +489,8 @@ Police : système pour tout le texte ; une seule police d'affichage, Barlow Cond
 700 (chargée par app/_layout.tsx derrière l'écran de chargement, police système si elle
 échoue), réservée aux chiffres de 28 px et plus et référencée seulement par `text.number`
 (44/44) et `text.hero` (72/68, un par écran au plus) de lib/theme.ts, en chiffres
-tabulaires ; le dénominateur d'un chiffre number (« 74/99 », `text.denominator`) hérite de
+tabulaires, plus une exception de la DA : l'encart score · minute des schémas,
+`text.scoreboard` (20/28) ; le dénominateur d'un chiffre number (« 74/99 », `text.denominator`) hérite de
 sa police à 40 % de sa taille. Interlignes de la DA : meta 14/20, body 16/24, title 20/26,
 screen 28/32, bouton 16/20 700 ; libellés en majuscules (`text.overline`) espacés de 6 %.
 
@@ -487,7 +552,9 @@ Règles UX (figées : tout écran nouveau ou modifié est relu contre cette list
 et screen 28/32 suivent la DA (titres, pas du texte courant). Contrastes de la DA sur bg
 #101013 : text 17,3:1, textMuted 7,4:1, accent 6,6:1, quiz 7,0:1, danger 5,7:1 (4,8:1 sur
 surface2), onAccent sur accent 6,6:1 ; `colors.error` (3,6:1) ne porte jamais de texte. Les
-messages bruts de Supabase restent en anglais (erreur jamais avalée).
+messages bruts de Supabase restent en anglais (erreur jamais avalée). Schémas : numéros de
+maillot en 12 px gras (exception de la DA, toujours repris en toutes lettres dans la question) ;
+options en retrait après réponse couleur border (décoratif), leur numéro en textMuted reste lisible.
 
 ## Méthode de travail
 
@@ -565,7 +632,8 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
 - `npx tsx lib/streak.test.ts`, `npx tsx lib/quiz-select.test.ts`,
   `npx tsx lib/measure-delta.test.ts`, `npx tsx lib/dates.test.ts`,
   `npx tsx lib/active-session.test.ts`, `npx tsx lib/records.test.ts`,
-  `npx tsx lib/test-plan.test.ts`, `npx tsx lib/profile-stats.test.ts` (tests purs, sans framework)
+  `npx tsx lib/test-plan.test.ts`, `npx tsx lib/profile-stats.test.ts`,
+  `npx tsx lib/diagram-types.test.ts` (tests purs, sans framework)
 - Stockage de l'appareil (seulement lib/supabase.ts et lib/active-session.ts attendus) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'async-storage'`
 - Contrôle du design system (aucune ligne attendue) :
@@ -578,10 +646,12 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern '\bmoti\b|react-native-reanimated'`
 - « Quizz » (aucune ligne attendue, commentaires compris) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'quizz' -CaseSensitive:$false`
-- Police d'affichage (attendus : lib/theme.ts pour text.number et text.hero, app/_layout.tsx pour
-  le chargement, app/measure/[testId].tsx pour le sans-serif du SVG sur le web) :
+- Police d'affichage (attendus : lib/theme.ts pour text.number, text.hero et text.scoreboard,
+  app/_layout.tsx pour le chargement, app/measure/[testId].tsx et components/diagram.tsx pour le
+  sans-serif du SVG sur le web) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'BarlowCondensed|fontFamily'`
-- Dessin SVG (seulement app/measure/[testId].tsx, components/pitch-placeholder.tsx, components/flame.tsx) :
+- Dessin SVG (seulement app/measure/[testId].tsx, components/pitch-placeholder.tsx, components/flame.tsx,
+  components/diagram.tsx) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'react-native-svg'`
 - `npx tsx scripts/build-seed-questions.ts`, `npx tsx scripts/build-seed-sheets.ts`
   (régénèrent les seeds depuis supabase/content/ ; le second valide les JSON sans les réécrire et

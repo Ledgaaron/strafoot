@@ -1,3 +1,4 @@
+import { parseDiagram, type DiagramData } from '../diagram-types';
 import type { QuestionOption } from '../json-types';
 import { ALL_POSITIONS, type PositionKey, type ThemeKey } from '../quiz-taxonomy';
 import { supabase } from '../supabase';
@@ -7,13 +8,23 @@ import type { DbResult } from './result';
 export type QuestionRow = Tables<'questions'>;
 
 /**
- * Question prête pour le quiz : options typées, et dernière réponse donnée
- * (instant et score), null si la question n'a jamais été répondue.
+ * Question prête pour le quiz : options typées, schéma validé (null : pas de
+ * schéma), et dernière réponse donnée (instant et score), null si la question
+ * n'a jamais été répondue.
  */
-export type EligibleQuestion = Omit<QuestionRow, 'options'> & {
+export type EligibleQuestion = Omit<QuestionRow, 'options' | 'diagram'> & {
   options: QuestionOption[];
+  diagram: DiagramData | null;
   lastAnsweredAt: string | null;
   lastScore: number | null;
+};
+
+/** Question qui porte un schéma (écran /dev/diagrams) : schéma brut, validé par l'écran, une erreur par question. */
+export type QuestionDiagramRow = {
+  id: string;
+  situation: string;
+  options: QuestionOption[];
+  diagram: Json | null;
 };
 
 /** Filtre du quiz ; un champ absent ne filtre pas (« Tous », « Tous postes »). */
@@ -75,15 +86,53 @@ export async function listEligibleQuestions({
         error: `Question ${question.id} : options mal formées (attendu ${OPTION_COUNT} × { text, score 0-3, explanation }).`,
       };
     }
+    // Colonne absente tant que la migration 009 n'est pas exécutée : undefined, pas de schéma.
+    const rawDiagram: Json | undefined = question.diagram;
+    let diagram: DiagramData | null = null;
+    if (rawDiagram !== null && rawDiagram !== undefined) {
+      const parsed = parseDiagram(rawDiagram);
+      if (parsed.error !== null) {
+        return { data: null, error: `Question ${question.id} : schéma invalide en base.\n${parsed.error}` };
+      }
+      diagram = parsed.data;
+    }
     const last = lastAnswers.get(question.id);
     eligible.push({
       ...question,
       options,
+      diagram,
       lastAnsweredAt: last ? last.answeredAt : null,
       lastScore: last ? last.score : null,
     });
   }
   return { data: eligible, error: null };
+}
+
+/**
+ * Questions qui portent un schéma, dans l'ordre de création, schéma brut :
+ * l'écran de prévisualisation le valide question par question.
+ */
+export async function listQuestionDiagrams(): Promise<DbResult<QuestionDiagramRow[]>> {
+  const { data, error } = await supabase
+    .from('questions')
+    .select('id, situation, options, diagram')
+    .not('diagram', 'is', null)
+    .order('created_at', { ascending: true });
+  if (error) {
+    return { data: null, error: error.message };
+  }
+  const rows: QuestionDiagramRow[] = [];
+  for (const question of data) {
+    const options = parseQuestionOptions(question.options);
+    if (!options) {
+      return {
+        data: null,
+        error: `Question ${question.id} : options mal formées (attendu ${OPTION_COUNT} × { text, score 0-3, explanation }).`,
+      };
+    }
+    rows.push({ id: question.id, situation: question.situation, options, diagram: question.diagram });
+  }
+  return { data: rows, error: null };
 }
 
 /** Options lues en base (jsonb), ou null si leur forme n'est pas celle attendue. */

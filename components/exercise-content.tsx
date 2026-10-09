@@ -4,6 +4,7 @@ import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { DIAGRAM_HEIGHT, DIAGRAM_WIDTH, diagramUrl } from '../lib/diagrams';
 import type { Exercise } from '../lib/sheet-types';
 import { colors, layout, radius, spacing, text } from '../lib/theme';
+import { Diagram } from './diagram';
 import { FieldError } from './field-error';
 import { PitchPlaceholder } from './pitch-placeholder';
 
@@ -11,18 +12,24 @@ import { PitchPlaceholder } from './pitch-placeholder';
 // et sur un test (app/test/[slug].tsx) : schéma ou terrain par défaut, intertitre,
 // listes, et le contenu replié sous « Plus de tips ».
 
-/** Schéma de l'exercice en pleine largeur ; sans schéma, le terrain par défaut. */
+/**
+ * Schéma de l'exercice en pleine largeur : dessiné depuis diagram_data s'il en a,
+ * sinon le PNG du champ diagram, sinon le terrain par défaut.
+ */
 export function ExerciseDiagram({ exercise }: { exercise: Exercise }) {
+  if (exercise.diagram_data !== null) {
+    return <Diagram diagram={exercise.diagram_data} accessibilityLabel={`Schéma : ${exercise.title}`} />;
+  }
   // key : l'état chargé / introuvable repart de zéro à chaque schéma.
   return exercise.diagram !== null ? (
-    <Diagram key={exercise.diagram} file={exercise.diagram} title={exercise.title} />
+    <DiagramImage key={exercise.diagram} file={exercise.diagram} title={exercise.title} />
   ) : (
     <PitchPlaceholder />
   );
 }
 
 /** Un fichier absent du bucket est dit, jamais masqué. */
-function Diagram({ file, title }: { file: string; title: string }) {
+function DiagramImage({ file, title }: { file: string; title: string }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   if (failed) {

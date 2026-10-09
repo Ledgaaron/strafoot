@@ -88,9 +88,9 @@
 
 ---
 
-## Chantier 13 — Quiz refonte (façon chess.com) + contenu + schémas `[ ]`
-- [ ] Réponse en deux temps : sélection (la flèche correspondante s'allume sur le schéma, les autres s'atténuent) puis « Valider ».
-- [ ] Après réponse sur le schéma : meilleur choix en vert, ton choix dans sa couleur, les autres en gris.
+## Chantier 13 — Quiz refonte (façon chess.com) + contenu + schémas `[~]`
+- [ ] Réponse en deux temps : sélection (la flèche correspondante s'allume sur le schéma, les autres s'atténuent) puis « Valider ». (13a : l'état « sélection » du schéma existe, allumé pendant l'enregistrement ; reste le « Valider », 13b.)
+- [x] Après réponse sur le schéma : meilleur choix en vert, ton choix dans sa couleur, les autres en gris. (13a.)
 - [ ] Pas de chrono dans le mode par défaut : le temps n'influence pas l'Elo.
 - [ ] Répétition espacée : une question ratée revient quelques jours plus tard, puis plus tard encore.
 - [ ] Règles de rédaction : le contexte (score, minute, position) change la bonne réponse ; les 4 options ont la même longueur et le même niveau de détail.
@@ -113,11 +113,11 @@
 - [ ] Fond légèrement moins noir (anthracite) à tester, comme chess.com.
 ### Contenu
 - [ ] 100+ questions avant la mise en service du mode illimité (sinon il boucle).
-- [ ] Image : le schéma pour les questions de situation ; une illustration par thème pour les autres.
-### Schémas (en parallèle)
-- [ ] Format de données : terrain, joueurs (équipe, position, vecteur vitesse), ballon, flèches d'options 1-4, contexte (score, minute).
-- [ ] Rendu dans l'app (react-native-svg), taille des flèches proportionnelle à la vitesse.
-- [ ] Même moteur pour les tests et les fiches.
+- [~] Image : le schéma pour les questions de situation ; une illustration par thème pour les autres. (13a : 3 questions pilotes avec schéma ; reste les autres questions de situation et les illustrations.)
+### Schémas (en parallèle) — chantier 13a
+- [x] Format de données : terrain, joueurs (équipe, position, vecteur vitesse), ballon, flèches d'options 1-4, contexte (score, minute). (lib/diagram-types.ts, plus objets, trajet et vue locale pour les tests.)
+- [x] Rendu dans l'app (react-native-svg), taille des flèches proportionnelle à la vitesse. (components/diagram.tsx ; prévisualisation /dev/diagrams.)
+- [x] Même moteur pour les tests et les fiches. (diagram_data d'un exercice ; pilote : Sprint 30 m.)
 
 ---
 

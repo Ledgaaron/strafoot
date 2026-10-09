@@ -4,8 +4,11 @@
 // supabase/content/sheets_NNN.json et tests_atomic_NNN.json, à l'identique :
 // il ne se simplifie pas, tout ce qu'il contient s'affiche.
 // Validation partagée : lib/db/training.ts à la lecture en base, et
-// scripts/build-seed-sheets.ts avant d'écrire le seed. Aucun import à
-// l'exécution : le script la charge hors de l'app, avec npx tsx.
+// scripts/build-seed-sheets.ts avant d'écrire le seed. Seul import :
+// lib/diagram-types.ts (format de diagram_data), sans dépendance à l'app lui
+// aussi : le script la charge hors de l'app, avec npx tsx.
+
+import { validateDiagram, type DiagramData } from './diagram-types';
 
 /**
  * training : fiche de lecture, aucune saisie ; test : test atomique, un seul
@@ -60,10 +63,10 @@ export type Exercise = {
   /** Fichier du bucket Storage `diagrams` ; null : pas de schéma. */
   diagram: string | null;
   /**
-   * Données d'un schéma dessiné, à côté de diagram ; null : clé absente du
-   * JSON. Format fixé au chantier 13a : seul « un objet » est vérifié ici.
+   * Schéma dessiné par l'app (format de lib/diagram-types.ts), affiché à la place
+   * du fichier diagram ou du terrain par défaut ; null : clé absente du JSON.
    */
-  diagram_data: Record<string, unknown> | null;
+  diagram_data: DiagramData | null;
   /**
    * Au moins une pour un bloc de test. Fiche de lecture : clé absente du JSON et
    * de la base (refusée à la validation), [] une fois lue : ne jamais réécrire en
@@ -176,7 +179,8 @@ export function parseIntro(value: unknown): ParseResult<string[]> {
  * obligatoire, pour un test ; interdite pour une fiche) ; order égal au rang ;
  * duration_min entier positif ; textes et listes de textes non vides ; variations
  * null ou { easier, harder } ; setup { surface, sequence, equipment } ; diagram
- * null ou nom de fichier simple ; diagram_data absente ou objet ; mesures aux
+ * null ou nom de fichier simple ; diagram_data absente ou schéma valide
+ * (validateDiagram de lib/diagram-types.ts) ; mesures aux
  * clés exactement key, name, unit, higher_is_better, key en snake_case et unique
  * dans la fiche.
  */
@@ -340,20 +344,24 @@ function checkDiagram(value: unknown, where: string, errors: string[]): string |
 }
 
 /**
- * Clé absente : null ; sinon un objet, sans rien vérifier de son contenu (format
- * fixé au chantier 13a). undefined si invalide : null écrit dans le JSON est
- * refusé, l'absence de données s'écrit en omettant la clé.
+ * Clé absente : null ; sinon un schéma au format de lib/diagram-types.ts, chaque
+ * erreur précédée de « <exercice>, diagram_data ». undefined si invalide : null
+ * écrit dans le JSON est refusé, l'absence de schéma s'écrit en omettant la clé.
  */
-function checkDiagramData(value: unknown, where: string, errors: string[]): Record<string, unknown> | null | undefined {
+function checkDiagramData(value: unknown, where: string, errors: string[]): DiagramData | null | undefined {
   // JSON.parse ne produit jamais undefined : undefined veut dire clé absente.
   if (value === undefined) {
     return null;
   }
-  if (isRecord(value)) {
-    return value;
+  if (!isRecord(value)) {
+    errors.push(`${where} : ${fieldError('diagram_data', value)} ; attendu un schéma, ou pas de clé diagram_data du tout.`);
+    return undefined;
   }
-  errors.push(`${where} : ${fieldError('diagram_data', value)} ; attendu un objet, ou pas de clé diagram_data du tout.`);
-  return undefined;
+  const diagram = validateDiagram(value);
+  for (const message of diagram.errors) {
+    errors.push(`${where}, diagram_data, ${message}`);
+  }
+  return diagram.errors.length === 0 && diagram.value !== null ? diagram.value : undefined;
 }
 
 /** Tableau non vide de mesures valides, key unique dans la fiche ; null sinon. */

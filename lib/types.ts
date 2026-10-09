@@ -7,7 +7,8 @@
 // (training_sheets.slug, kind, subtitle, intro, pdf_url ; tests.key,
 // higher_is_better ; test_results.session_id), sur 005 (profiles.strong_foot,
 // club_level), sur 006 (profiles.goal, goal_deadline), sur 007
-// (training_sheets.family, blocks) et sur 008 (profiles.display_name).
+// (training_sheets.family, blocks), sur 008 (profiles.display_name) et sur 009
+// (questions.diagram).
 // Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
 // colonnes jsonb : lib/json-types.ts et lib/sheet-types.ts).
 
@@ -114,6 +115,7 @@ export type Database = {
       questions: {
         Row: {
           created_at: string
+          diagram: Json | null
           id: string
           is_public: boolean
           level: number | null
@@ -126,6 +128,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          diagram?: Json | null
           id?: string
           is_public?: boolean
           level?: number | null
@@ -138,6 +141,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          diagram?: Json | null
           id?: string
           is_public?: boolean
           level?: number | null

@@ -3,14 +3,15 @@ import { Easing, Platform, StyleSheet } from 'react-native';
 
 // Design system : seule source de style de l'app, avec components/ (Screen, Card,
 // Chip, Button, IconButton, Stat, DurationValue, Flame, EmptyState, FieldError,
-// SaveToast, PitchPlaceholder, DayCell, BottomSheet, MonthSheet, ModuleIcon,
-// StartRow, exercise-content). Référence :
+// SaveToast, PitchPlaceholder, Diagram, DayCell, BottomSheet, MonthSheet,
+// ModuleIcon, StartRow, exercise-content). Référence :
 // design/Strafoot_Direction_Artistique.html
-// (Palette, Typographie, Composants, Mouvement, Tokens) et design/maquettes/.
+// (Palette, Typographie, Composants, Illustration, Mouvement, Tokens) et design/maquettes/.
 // Un écran n'écrit aucune couleur, taille ni espacement en dur : il combine ces
 // tokens et ces composants. Sombre seulement, pas de mode clair ; police système
 // pour tout le texte, une seule police d'affichage (Barlow Condensed) pour les
-// chiffres de 28 px et plus (text.number, text.hero).
+// chiffres de 28 px et plus (text.number, text.hero), et l'encart score · minute
+// des schémas (text.scoreboard, 20 px, DA).
 
 export const colors = {
   /** Fond de tous les écrans ; recopié en dur dans public/index.html et public/manifest.webmanifest. */
@@ -65,7 +66,8 @@ export const quizGradient = {
 
 /**
  * Échelle de la DA. Noms gardés d'avant : meta = caption (14), screen = headline
- * (28). number (44) et hero (72) sont les deux seuls styles en police d'affichage.
+ * (28). number (44) et hero (72) sont les deux styles en police d'affichage, avec
+ * l'encart des schémas (text.scoreboard, à la taille title).
  */
 export const fontSize = {
   meta: 14,
@@ -76,7 +78,7 @@ export const fontSize = {
   hero: 72,
 } as const;
 
-/** Interlignes de la DA : 14/20, 16/24, 20/26, 28/32, 44/44, 72/68 ; libellé de bouton 16/20. */
+/** Interlignes de la DA : 14/20, 16/24, 20/26, 28/32, 44/44, 72/68 ; libellé de bouton 16/20 ; encart d'un schéma 20/28. */
 export const lineHeight = {
   meta: 20,
   body: 24,
@@ -85,6 +87,7 @@ export const lineHeight = {
   number: 44,
   hero: 68,
   button: 20,
+  scoreboard: 28,
 } as const;
 
 /** Intertitres et libellés en majuscules : espacement de 6 % (0,84 px à 14 px). */
@@ -96,8 +99,9 @@ const DENOMINATOR_FONT_SIZE = fontSize.number * 0.4;
 /**
  * Police d'affichage : Barlow Condensed 600 et 700, chargée au démarrage par
  * app/_layout.tsx (@expo-google-fonts/barlow-condensed). Référencée ici seulement,
- * par text.number et text.hero. Si elle n'a pas chargé : police système, par le
- * repli déclaré sur le web, par le système lui-même en natif (nom inconnu).
+ * par text.number, text.hero et text.scoreboard. Si elle n'a pas chargé : police
+ * système, par le repli déclaré sur le web, par le système lui-même en natif
+ * (nom inconnu).
  */
 const DISPLAY_FONT = {
   semiBold: displayFamily('BarlowCondensed_600SemiBold'),
@@ -277,6 +281,17 @@ export const text = StyleSheet.create({
     fontSize: fontSize.hero,
     lineHeight: lineHeight.hero,
     fontFamily: DISPLAY_FONT.bold,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  /**
+   * Encart score · minute d'un schéma (« 2–1 78’ », components/diagram.tsx) :
+   * chiffres d'affichage à 20 px, seule exception de la DA aux 28 px et plus.
+   */
+  scoreboard: {
+    fontSize: fontSize.title,
+    lineHeight: lineHeight.scoreboard,
+    fontFamily: DISPLAY_FONT.semiBold,
     color: colors.text,
     fontVariant: ['tabular-nums'],
   },

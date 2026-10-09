@@ -6,7 +6,7 @@
     "title": "titre du test ; protocol de ses mesures dans le catalogue tests : « Test <Compétence> — <title> »",
     "family": "famille de lib/test-families.ts (FAMILY_KEYS), sous-type de la compétence skill",
     "intro": "règles communes, affichées dans « Plus de tips »",
-    "exercises": "exactement un exercice (order 1, format de lib/sheet-types.ts) et ses mesures ; measure.key unique sur tous les tests, jamais renommée (relie test_results au catalogue tests) ; diagram_data facultatif : un objet (format au chantier 13a)"
+    "exercises": "exactement un exercice (order 1, format de lib/sheet-types.ts) et ses mesures ; measure.key unique sur tous les tests, jamais renommée (relie test_results au catalogue tests) ; diagram_data facultatif : schéma dessiné par l'app, au format de lib/diagram-types.ts (vue local et width_m pour un test), affiché à la place de diagram"
   },
   "tests": [
     {
@@ -774,6 +774,25 @@
             "equipment": "2 plots, chrono"
           },
           "diagram": null,
+          "diagram_data": {
+            "view": "local",
+            "width_m": 30,
+            "players": [
+              { "id": "joueur", "team": "us", "x": 0, "y": 12 }
+            ],
+            "objects": [
+              { "type": "cone", "x": 0, "y": 15, "label": "0 m" },
+              { "type": "cone", "x": 10, "y": 15, "label": "10 m" },
+              { "type": "cone", "x": 30, "y": 15, "label": "30 m" }
+            ],
+            "path": {
+              "points": [
+                { "x": 0, "y": 12 },
+                { "x": 30, "y": 12 }
+              ],
+              "style": "run"
+            }
+          },
           "measures": [
             {
               "key": "phys_sprint_30m",

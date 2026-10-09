@@ -1246,6 +1246,51 @@ begin
             "equipment": "2 plots, chrono"
           },
           "diagram": null,
+          "diagram_data": {
+            "view": "local",
+            "width_m": 30,
+            "players": [
+              {
+                "id": "joueur",
+                "team": "us",
+                "x": 0,
+                "y": 12
+              }
+            ],
+            "objects": [
+              {
+                "type": "cone",
+                "x": 0,
+                "y": 15,
+                "label": "0 m"
+              },
+              {
+                "type": "cone",
+                "x": 10,
+                "y": 15,
+                "label": "10 m"
+              },
+              {
+                "type": "cone",
+                "x": 30,
+                "y": 15,
+                "label": "30 m"
+              }
+            ],
+            "path": {
+              "points": [
+                {
+                  "x": 0,
+                  "y": 12
+                },
+                {
+                  "x": 30,
+                  "y": 12
+                }
+              ],
+              "style": "run"
+            }
+          },
           "measures": [
             {
               "key": "phys_sprint_30m",

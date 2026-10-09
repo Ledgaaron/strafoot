@@ -1,11 +1,13 @@
 -- =============================================================================
 -- seed_questions_001.sql : 30 questions du quizz depuis
--- supabase/content/questions_001.json.
+-- supabase/content/questions_001.json, et 3 schémas depuis
+-- supabase/content/diagrams_001.json.
 --
 -- Fichier généré par scripts/build-seed-questions.ts : ne pas modifier à la
--- main, modifier le JSON puis relancer npx tsx scripts/build-seed-questions.ts.
+-- main, modifier les JSON puis relancer npx tsx scripts/build-seed-questions.ts.
 --
--- À exécuter dans le SQL Editor APRÈS supabase/migrations/003_quiz.sql.
+-- À exécuter dans le SQL Editor APRÈS supabase/migrations/003_quiz.sql et
+-- supabase/migrations/009_question_diagrams.sql (colonne diagram).
 --
 -- 1. Récupère ton UUID : Dashboard Supabase → Authentication → Users →
 --    clique sur ton utilisateur → copie « User UID ».
@@ -16,7 +18,8 @@
 --    pas en « Run as authenticated » : ce rôle n'a pas accès à auth.users.
 --
 -- Idempotent : l'insert ne porte que sur les questions absentes, repérées par
--- (user_id, situation). Une seconde exécution n'ajoute ni ne modifie rien.
+-- (user_id, situation) ; un schéma n'est posé que sur une question dont le
+-- diagram diffère. Une seconde exécution n'ajoute ni ne modifie rien.
 --
 -- Le trigger set_user_id impose user_id := auth.uid(). Le SQL Editor n'a pas de
 -- JWT (auth.uid() est null) : le bloc simule celui de l'utilisateur, le temps
@@ -27,6 +30,7 @@ do $$
 declare
   uid uuid := '<REMPLACER_PAR_MON_UUID>';
   inserted_count integer;
+  updated_count integer;
 begin
   if not exists (select 1 from auth.users where id = uid) then
     raise exception 'Aucun utilisateur % dans auth.users : vérifie l’UUID copié.', uid;
@@ -925,9 +929,423 @@ begin
   get diagnostics inserted_count = row_count;
   raise notice 'questions_001.json pour % : sur 30 questions, insérées : %, déjà présentes : %.',
     uid, inserted_count, 30 - inserted_count;
+
+  -- ---------------------------------------------------------------------------
+  -- Schémas : diagrams_001.json → questions.diagram (clé : situation),
+  -- format de lib/diagram-types.ts ; migration 009
+  -- ---------------------------------------------------------------------------
+  update public.questions q
+  set diagram = v.diagram
+  from (values
+    (
+      'Ailier droit. Ton latéral remonte balle au pied à 40 m du but. Le latéral adverse te marque de près, il y a de l''espace dans son dos.',
+      '{
+        "view": "half_right",
+        "players": [
+          {
+            "id": "us2",
+            "team": "us",
+            "number": 2,
+            "x": 56,
+            "y": 60,
+            "ball": true,
+            "move": {
+              "dx": 1,
+              "dy": 0,
+              "speed": "run"
+            }
+          },
+          {
+            "id": "us7",
+            "team": "us",
+            "number": 7,
+            "x": 72,
+            "y": 58,
+            "you": true
+          },
+          {
+            "id": "us9",
+            "team": "us",
+            "number": 9,
+            "x": 82,
+            "y": 34
+          },
+          {
+            "id": "us8",
+            "team": "us",
+            "number": 8,
+            "x": 66,
+            "y": 40
+          },
+          {
+            "id": "us11",
+            "team": "us",
+            "number": 11,
+            "x": 74,
+            "y": 8
+          },
+          {
+            "id": "them3",
+            "team": "them",
+            "number": 3,
+            "x": 75,
+            "y": 55,
+            "move": {
+              "dx": -1,
+              "dy": 0,
+              "speed": "walk"
+            }
+          },
+          {
+            "id": "them4",
+            "team": "them",
+            "number": 4,
+            "x": 86,
+            "y": 40
+          },
+          {
+            "id": "them5",
+            "team": "them",
+            "number": 5,
+            "x": 86,
+            "y": 26
+          },
+          {
+            "id": "them6",
+            "team": "them",
+            "number": 6,
+            "x": 70,
+            "y": 40
+          },
+          {
+            "id": "them2",
+            "team": "them",
+            "number": 2,
+            "x": 78,
+            "y": 12
+          },
+          {
+            "id": "them1",
+            "team": "them",
+            "number": 1,
+            "x": 101,
+            "y": 34
+          }
+        ],
+        "options": [
+          {
+            "id": 1,
+            "kind": "run",
+            "from": "us7",
+            "to": {
+              "x": 62,
+              "y": 61
+            }
+          },
+          {
+            "id": 2,
+            "kind": "run",
+            "from": "us7",
+            "to": {
+              "x": 94,
+              "y": 62
+            }
+          },
+          {
+            "id": 3,
+            "kind": "run",
+            "from": "us7",
+            "to": {
+              "x": 79,
+              "y": 45
+            }
+          },
+          {
+            "id": 4,
+            "kind": "hold",
+            "from": "us7",
+            "to": {
+              "x": 72,
+              "y": 58
+            }
+          }
+        ]
+      }'::jsonb
+    ),
+    (
+      'Faux 9. Ton milieu axial a le ballon face au jeu à 45 m. Les deux centraux adverses te marquent, tes ailiers sont larges.',
+      '{
+        "view": "half_right",
+        "players": [
+          {
+            "id": "us6",
+            "team": "us",
+            "number": 6,
+            "x": 55,
+            "y": 34,
+            "ball": true
+          },
+          {
+            "id": "us9",
+            "team": "us",
+            "number": 9,
+            "x": 80,
+            "y": 34,
+            "you": true
+          },
+          {
+            "id": "us7",
+            "team": "us",
+            "number": 7,
+            "x": 72,
+            "y": 60
+          },
+          {
+            "id": "us11",
+            "team": "us",
+            "number": 11,
+            "x": 72,
+            "y": 8
+          },
+          {
+            "id": "us8",
+            "team": "us",
+            "number": 8,
+            "x": 66,
+            "y": 46
+          },
+          {
+            "id": "them4",
+            "team": "them",
+            "number": 4,
+            "x": 84,
+            "y": 28
+          },
+          {
+            "id": "them5",
+            "team": "them",
+            "number": 5,
+            "x": 84,
+            "y": 40
+          },
+          {
+            "id": "them6",
+            "team": "them",
+            "number": 6,
+            "x": 68,
+            "y": 30
+          },
+          {
+            "id": "them8",
+            "team": "them",
+            "number": 8,
+            "x": 68,
+            "y": 42
+          },
+          {
+            "id": "them2",
+            "team": "them",
+            "number": 2,
+            "x": 82,
+            "y": 12
+          },
+          {
+            "id": "them3",
+            "team": "them",
+            "number": 3,
+            "x": 82,
+            "y": 56
+          },
+          {
+            "id": "them1",
+            "team": "them",
+            "number": 1,
+            "x": 101,
+            "y": 34
+          }
+        ],
+        "options": [
+          {
+            "id": 1,
+            "kind": "run",
+            "from": "us9",
+            "to": {
+              "x": 68,
+              "y": 36
+            }
+          },
+          {
+            "id": 2,
+            "kind": "hold",
+            "from": "us9",
+            "to": {
+              "x": 80,
+              "y": 34
+            }
+          },
+          {
+            "id": 3,
+            "kind": "run",
+            "from": "us9",
+            "to": {
+              "x": 95,
+              "y": 30
+            }
+          },
+          {
+            "id": 4,
+            "kind": "run",
+            "from": "us9",
+            "to": {
+              "x": 59,
+              "y": 36
+            }
+          }
+        ]
+      }'::jsonb
+    ),
+    (
+      'Ton équipe presse haut. Le gardien adverse passe au central droit, qui reçoit face au jeu. Tu es l''avant-centre, le plus proche.',
+      '{
+        "view": "half_left",
+        "players": [
+          {
+            "id": "them1",
+            "team": "them",
+            "number": 1,
+            "x": 4,
+            "y": 34
+          },
+          {
+            "id": "them4",
+            "team": "them",
+            "number": 4,
+            "x": 15,
+            "y": 22,
+            "ball": true
+          },
+          {
+            "id": "them5",
+            "team": "them",
+            "number": 5,
+            "x": 15,
+            "y": 46
+          },
+          {
+            "id": "them6",
+            "team": "them",
+            "number": 6,
+            "x": 28,
+            "y": 34
+          },
+          {
+            "id": "them2",
+            "team": "them",
+            "number": 2,
+            "x": 30,
+            "y": 8
+          },
+          {
+            "id": "them3",
+            "team": "them",
+            "number": 3,
+            "x": 30,
+            "y": 60
+          },
+          {
+            "id": "us9",
+            "team": "us",
+            "number": 9,
+            "x": 27,
+            "y": 27,
+            "you": true
+          },
+          {
+            "id": "us11",
+            "team": "us",
+            "number": 11,
+            "x": 32,
+            "y": 12
+          },
+          {
+            "id": "us7",
+            "team": "us",
+            "number": 7,
+            "x": 34,
+            "y": 54
+          },
+          {
+            "id": "us8",
+            "team": "us",
+            "number": 8,
+            "x": 40,
+            "y": 32
+          },
+          {
+            "id": "us6",
+            "team": "us",
+            "number": 6,
+            "x": 44,
+            "y": 42
+          }
+        ],
+        "options": [
+          {
+            "id": 1,
+            "kind": "run",
+            "from": "us9",
+            "path": [
+              {
+                "x": 22,
+                "y": 32
+              }
+            ],
+            "to": {
+              "x": 17,
+              "y": 25
+            }
+          },
+          {
+            "id": 2,
+            "kind": "run",
+            "from": "us9",
+            "to": {
+              "x": 17,
+              "y": 23
+            }
+          },
+          {
+            "id": 3,
+            "kind": "hold",
+            "from": "us9",
+            "to": {
+              "x": 27,
+              "y": 27
+            }
+          },
+          {
+            "id": 4,
+            "kind": "run",
+            "from": "us9",
+            "to": {
+              "x": 6,
+              "y": 31
+            }
+          }
+        ]
+      }'::jsonb
+    )
+  ) as v(situation, diagram)
+  where q.user_id = uid
+    and q.situation = v.situation
+    and q.diagram is distinct from v.diagram;
+
+  get diagnostics updated_count = row_count;
+  raise notice 'diagrams_001.json pour % : sur 3 schémas, posés ou mis à jour : %, déjà à jour : %.',
+    uid, updated_count, 3 - updated_count;
 end
 $$;
 
--- Contrôle (tous utilisateurs confondus) : au moins 30 après la première
--- exécution, inchangé après une seconde.
-select count(*) as questions_total from public.questions;
+-- Contrôle (tous utilisateurs confondus) : au moins 30 questions après la
+-- première exécution, dont au moins 3 avec un schéma ; inchangé après une seconde.
+select count(*) as questions_total, count(diagram) as questions_avec_schema from public.questions;

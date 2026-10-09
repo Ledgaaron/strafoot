@@ -14,12 +14,14 @@ import {
 
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
+import { Diagram, OptionBadge } from '../../components/diagram';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
 import { Screen } from '../../components/screen';
 import { Stat } from '../../components/stat';
 import { createAnswer, flagAnswer, type AnswerRow } from '../../lib/db/answers';
 import { listEligibleQuestions, type EligibleQuestion, type QuestionFilter } from '../../lib/db/questions';
+import { optionIdOfIndex, type DiagramResult } from '../../lib/diagram-types';
 import type { QuestionOption } from '../../lib/json-types';
 import { pickQuizQuestions, RUN_LENGTH } from '../../lib/quiz-select';
 import {
@@ -404,6 +406,20 @@ function formatShortRun(count: number): string {
   return `Seulement ${count} question${plural} éligible${plural} pour ce filtre : série de ${count}.`;
 }
 
+/**
+ * Réponse confirmée, pour le schéma : l'option choisie et le score de chacune,
+ * par numéro (id = rang dans questions.options, à partir de 1 ; voir
+ * optionIdOfIndex). undefined si le rang choisi sort de 0 à 3.
+ */
+function diagramResult(options: readonly QuestionOption[], chosenIndex: number): DiagramResult | undefined {
+  const chosen = optionIdOfIndex(chosenIndex);
+  if (chosen === null) {
+    return undefined;
+  }
+  // 4 options, vérifiées par listEligibleQuestions.
+  return { chosen, scores: { 1: options[0].score, 2: options[1].score, 3: options[2].score, 4: options[3].score } };
+}
+
 /** « Tactique · Milieu central, Latéral » */
 function formatQuestionMeta(question: EligibleQuestion): string {
   const positions = question.positions.map(positionLabel).join(', ');
@@ -421,6 +437,12 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
   const index = run.scores.length;
   const question = run.questions[index];
   const { phase } = run;
+  // Schéma : l'option choisie s'allume pendant l'enregistrement, puis la réponse
+  // confirmée colore chaque option selon son score.
+  const selected =
+    phase.step === 'saving' || phase.step === 'saveError' ? (optionIdOfIndex(phase.chosenIndex) ?? undefined) : undefined;
+  const result =
+    question.diagram !== null && phase.step === 'answered' ? diagramResult(question.options, phase.chosenIndex) : undefined;
   return (
     <>
       <View style={layout.section}>
@@ -433,23 +455,42 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
         </Card>
       </View>
 
+      {question.diagram !== null ? <Diagram diagram={question.diagram} selected={selected} result={result} /> : null}
+
       {phase.step === 'answered' ? (
-        <AnswerReview options={question.options} phase={phase} onToggleFlag={onToggleFlag} />
+        <AnswerReview
+          options={question.options}
+          phase={phase}
+          numbered={question.diagram !== null}
+          result={result}
+          onToggleFlag={onToggleFlag}
+        />
       ) : (
         <View style={layout.section}>
           {/* Une fois le choix fait, il reste en évidence (violet) et les autres sont grisées. */}
-          {question.options.map((option, optionIndex) => (
-            <Card
-              key={optionIndex}
-              tone="quiz"
-              onPress={() => onChoose(optionIndex)}
-              highlighted={phase.step !== 'choosing' && phase.chosenIndex === optionIndex}
-              disabled={phase.step !== 'choosing'}
-              style={styles.option}
-            >
-              <Text style={text.body}>{option.text}</Text>
-            </Card>
-          ))}
+          {question.options.map((option, optionIndex) => {
+            const id = question.diagram !== null ? optionIdOfIndex(optionIndex) : null;
+            return (
+              <Card
+                key={optionIndex}
+                tone="quiz"
+                onPress={() => onChoose(optionIndex)}
+                highlighted={phase.step !== 'choosing' && phase.chosenIndex === optionIndex}
+                disabled={phase.step !== 'choosing'}
+                style={styles.option}
+              >
+                {/* Avec un schéma : le numéro de sa pastille, pour relier la réponse à sa flèche. */}
+                {id !== null ? (
+                  <View style={styles.numberedRow}>
+                    <OptionBadge id={id} />
+                    <Text style={[text.body, styles.numberedText]}>{option.text}</Text>
+                  </View>
+                ) : (
+                  <Text style={text.body}>{option.text}</Text>
+                )}
+              </Card>
+            );
+          })}
           {phase.step === 'saving' ? <Text style={text.meta}>Enregistrement…</Text> : null}
           {phase.step === 'saveError' ? (
             <>
@@ -466,22 +507,31 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
 type AnswerReviewProps = {
   options: QuestionOption[];
   phase: AnsweredPhase;
+  /** La question porte un schéma : chaque option garde son numéro, dans la couleur du schéma. */
+  numbered: boolean;
+  result: DiagramResult | undefined;
   onToggleFlag: () => void;
 };
 
 /** Réponse confirmée : le score de l'option choisie, puis les 4 options et leurs explications. */
-function AnswerReview({ options, phase, onToggleFlag }: AnswerReviewProps) {
+function AnswerReview({ options, phase, numbered, result, onToggleFlag }: AnswerReviewProps) {
   const chosen = options[phase.chosenIndex];
   // Score décroissant ; à égalité, ordre d'origine, explicite quel que soit le moteur JS.
   const ranked = options
     .map((option, index) => ({ option, index }))
     .sort((a, b) => b.option.score - a.option.score || a.index - b.index);
   const flagged = phase.answer.flagged;
+  /** Pastille du numéro de l'option (rang d'origine), comme sur le schéma. */
+  const badge = (index: number) => {
+    const id = numbered ? optionIdOfIndex(index) : null;
+    return id !== null ? <OptionBadge id={id} result={result} /> : null;
+  };
   return (
     <>
       <Card highlighted tone="quiz">
         <Text style={text.overline}>Ton choix</Text>
         <View style={styles.scoreRow}>
+          {badge(phase.chosenIndex)}
           <ScorePill score={chosen.score} />
           <Text style={text.meta}>{SCORE_LABELS[chosen.score]}</Text>
         </View>
@@ -493,6 +543,7 @@ function AnswerReview({ options, phase, onToggleFlag }: AnswerReviewProps) {
         {ranked.map(({ option, index }) => (
           <Card key={index} tone="quiz" highlighted={index === phase.chosenIndex}>
             <View style={styles.scoreRow}>
+              {badge(index)}
               <ScorePill score={option.score} />
               <Text style={text.meta}>
                 {SCORE_LABELS[option.score]}
@@ -563,6 +614,15 @@ const styles = StyleSheet.create({
   option: {
     minHeight: size.option,
     justifyContent: 'center',
+  },
+  // Pastille du numéro à gauche, le texte prend le reste et passe à la ligne sous lui-même.
+  numberedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  numberedText: {
+    flex: 1,
   },
   scoreRow: {
     flexDirection: 'row',
