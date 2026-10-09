@@ -65,6 +65,13 @@ export const radius = {
   button: 12,
 } as const;
 
+/**
+ * Onglet de react-navigation, libellé sous l'icône : 5 px de marge en haut et
+ * en bas, icône de 28 px, puis le libellé (meta, sur son interligne).
+ */
+const TAB_ITEM_PADDING = 5;
+const TAB_ICON_HEIGHT = 28;
+
 /** Dimensions fixes partagées par les composants et les écrans. */
 export const size = {
   /** Cible tactile minimale. */
@@ -80,6 +87,11 @@ export const size = {
   dot: 6,
   /** Icônes d'interface (chevrons). */
   icon: 24,
+  /**
+   * Barre d'onglets, hors indicateur d'accueil : le libellé de 14 px tient en
+   * entier sous l'icône (les 49 px par défaut le coupaient à mi-hauteur).
+   */
+  tabBar: Math.ceil(TAB_ITEM_PADDING * 2 + TAB_ICON_HEIGHT + lineHeight.meta),
   /** Traits dessinés (courbe d'une mesure, terrain par défaut) ; rayon des points de la courbe. */
   chartStroke: 2,
   chartPoint: 4,

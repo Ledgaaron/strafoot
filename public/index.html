@@ -37,6 +37,18 @@
         background-color: #0B0B0D;
         overscroll-behavior: none;
       }
+      /*
+        App installée sur l'écran d'accueil (iOS, barre d'état black-translucent) : la
+        page est dessinée dès le haut de l'écran, mais 100 % s'arrête une barre d'état
+        trop tôt, d'où une bande vide en bas. 100lvh vaut tout l'écran ; le min() ne le
+        dépasse jamais et retombe sur 100 % quand l'inset haut est nul (barre opaque,
+        ordinateur, Android). body et #root suivent html à 100 %.
+      */
+      @media (display-mode: standalone) {
+        html {
+          height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px)));
+        }
+      }
     </style>
   </head>
   <body>

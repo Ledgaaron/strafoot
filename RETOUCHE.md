@@ -18,6 +18,16 @@
 - [ ] Inscriptions fermées côté Supabase (l'URL devient publique).
 - [ ] Vibrations : sans effet sur le web iPhone (assumé). App native via TestFlight seulement si besoin (99 $/an).
 - [ ] Icône provisoire (S noir sur orange) à remplacer par le logo conçu avec Claude Design (mêmes noms de fichiers dans public/).
+- [x] 8b — bande vide et libellés coupés en bas sur iPhone ; onglet renommé Tests.
+
+---
+
+## Chantier 8c — Direction artistique Claude Design `[ ]`
+- [ ] Tokens.
+- [ ] Police Barlow Condensed.
+- [ ] Composants.
+- [ ] Logo.
+- [ ] Référence : design/Strafoot_Direction_Artistique.html.
 
 ---
 

@@ -6,7 +6,7 @@ import type { ColorValue } from 'react-native';
 
 import { ActiveSessionBar } from '../../components/active-session-bar';
 import { useAuth } from '../../lib/auth-context';
-import { colors, fontSize, size } from '../../lib/theme';
+import { colors, fontSize, lineHeight, size } from '../../lib/theme';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -28,10 +28,12 @@ export default function TabsLayout() {
   return (
     <Tabs
       // Séance en cours : bandeau posé juste au-dessus de la barre d'onglets, le même sur les 4 onglets.
+      // Hauteur de la barre : son contenu plus l'indicateur d'accueil, compté une seule fois
+      // (BottomTabBar pose ce même insets.bottom en marge basse).
       tabBar={(props) => (
         <>
           <ActiveSessionBar />
-          <BottomTabBar {...props} />
+          <BottomTabBar {...props} style={{ height: size.tabBar + props.insets.bottom }} />
         </>
       )}
       screenOptions={{
@@ -44,12 +46,17 @@ export default function TabsLayout() {
           borderTopColor: colors.border,
           borderTopWidth: size.border,
         },
-        tabBarLabelStyle: { fontSize: fontSize.meta },
+        // Interligne explicite : la hauteur de la barre (size.tabBar) en dépend.
+        tabBarLabelStyle: { fontSize: fontSize.meta, lineHeight: lineHeight.meta },
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Accueil', tabBarIcon: tabIcon('home') }} />
       <Tabs.Screen name="quiz" options={{ title: 'Quizz', tabBarIcon: tabIcon('help-circle') }} />
-      <Tabs.Screen name="training" options={{ title: 'Entraînement', tabBarIcon: tabIcon('fitness') }} />
+      {/* Libellé d'onglet seul : l'écran garde son titre « Entraînement » pour l'instant. */}
+      <Tabs.Screen
+        name="training"
+        options={{ title: 'Entraînement', tabBarLabel: 'Tests', tabBarIcon: tabIcon('fitness') }}
+      />
       <Tabs.Screen name="profile" options={{ title: 'Profil', tabBarIcon: tabIcon('person') }} />
     </Tabs>
   );

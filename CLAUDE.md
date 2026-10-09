@@ -202,8 +202,9 @@ ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logiqu
    score ≤ 1, puis les plus anciennes) ; après réponse, affichage du score de l'option
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
    `answers`, signalement d'une réponse contestable, récap de la série.
-3. **Entraînement** : trois blocs (« Tests », « Entraînements spécifiques », « Récupération »
-   = skill `recuperation`, vide pour l'instant : « Bientôt : étirements, massages, mental »),
+3. **Entraînement** (libellé d'onglet « Tests » depuis 8b ; titre d'écran inchangé) : trois
+   blocs (« Tests », « Entraînements spécifiques », « Récupération » = skill `recuperation`,
+   vide pour l'instant : « Bientôt : étirements, massages, mental »),
    chacun avec son nombre de fiches et sa dernière fois ; tap → liste du thème (titre, durée,
    compétence, dernière fois, ▶). Une fiche se lit écran par écran (présentation, puis un
    exercice par écran : schéma ou terrain par défaut, titre, durée, Objectif, But, Consignes ;
@@ -327,6 +328,18 @@ bruts de Supabase restent en anglais (erreur jamais avalée).
   par `expo.name`), `</head>`, `</body>` et `<div id="root">` : l'export y insère favicon
   (`favicon.ico` tiré d'`expo.web.favicon`), CSS et scripts. `app/+html.tsx` n'est lu qu'en
   sortie static ou server : ne pas le créer.
+- App installée sur iOS 26 (barre d'état `black-translucent`) : iOS dessine la page sous la
+  barre d'état mais calcule 100 % (comme dvh, svh, innerHeight) sans elle, d'où une bande vide
+  en bas, sous la barre d'onglets. Correctif dans public/index.html, sous
+  `@media (display-mode: standalone)` seulement :
+  `html { height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px))) }`, body et #root
+  suivent à 100 %. 100lvh vaut tout l'écran ; le min() ne le dépasse jamais et retombe sur
+  100 % quand l'inset haut est nul (barre opaque, ordinateur, Android). Pas de boîte
+  `position: fixed` (rognée au bord court), pas de dvh ni svh (courts eux aussi).
+- Repli si la bande persiste : ligne 15 de public/index.html, `content="black-translucent"` →
+  `content="black"` (barre opaque, page posée dessous, inset haut nul : le bloc standalone
+  se neutralise et peut rester), puis supprimer l'icône et la rajouter. Apple tient
+  `black-translucent` pour dépréciée (bug WebKit 317153) : c'est la voie durable.
 - `colors.bg` est recopiée en dur dans public/index.html et public/manifest.webmanifest : les
   modifier en même temps que lib/theme.ts.
 - `EXPO_PUBLIC_SUPABASE_URL` et `EXPO_PUBLIC_SUPABASE_ANON_KEY` sont inlinées dans le bundle au
