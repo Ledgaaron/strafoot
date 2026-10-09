@@ -3,7 +3,8 @@ import { Easing, Platform, StyleSheet } from 'react-native';
 
 // Design system : seule source de style de l'app, avec components/ (Screen, Card,
 // Chip, Button, IconButton, Stat, Flame, EmptyState, FieldError, SaveToast,
-// PitchPlaceholder). Référence : design/Strafoot_Direction_Artistique.html
+// PitchPlaceholder, DayCell, BottomSheet, MonthSheet, ModuleIcon). Référence :
+// design/Strafoot_Direction_Artistique.html
 // (Palette, Typographie, Composants, Mouvement, Tokens) et design/maquettes/.
 // Un écran n'écrit aucune couleur, taille ni espacement en dur : il combine ces
 // tokens et ces composants. Sombre seulement, pas de mode clair ; police système
@@ -51,6 +52,8 @@ export const colors = {
   quizGlow: 'rgba(167,139,250,0.22)',
   /** Lignes des schémas et du terrain par défaut. */
   pitchLine: '#3A3A44',
+  /** bg à 60 % : voile derrière une feuille du bas, sous le flou (ou seul quand le flou manque). */
+  scrim: 'rgba(16,16,19,0.6)',
 } as const;
 
 /** Dégradé réservé au quiz : barre de palier Elo (chantier 13), jamais derrière du texte. */
@@ -162,6 +165,12 @@ export const size = {
   /** Flamme de série : de la hauteur des capitales du chiffre number (0,7 × 44). */
   flame: 32,
   /**
+   * Bouton compact (‹ › d'une carte, −5 / +5 de la durée) : 32 px visibles, zone
+   * tactile ramenée à touch par un hitSlop de (touch − compactButton) / 2 ; deux
+   * boutons compacts voisins se tiennent à 16 px pour que leurs zones ne se recouvrent pas.
+   */
+  compactButton: 32,
+  /**
    * Barre d'onglets, hors indicateur d'accueil : le libellé de 14 px tient en
    * entier sous l'icône (les 49 px par défaut le coupaient à mi-hauteur).
    */
@@ -188,7 +197,7 @@ export const motion = {
   micro: 160,
   /** b, c, e. Pulsation d'une mesure validée, confirmation d'enregistrement, explications du quiz. */
   base: 240,
-  /** Changement d'écran, feuille modale (chantiers suivants). */
+  /** Changement d'écran ; feuille du bas (BottomSheet) : glissement et voile. */
   screen: 320,
   /** Décompte de l'Elo après réponse (chantier 13), une seule fois. */
   count: 600,

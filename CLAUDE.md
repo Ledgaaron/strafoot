@@ -19,7 +19,8 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
   (terrain par défaut) et components/flame.tsx (flamme de série) ; pas de lib de charts
 - @expo/vector-icons (version du SDK, installée par `npx expo install` : le SDK 57 ne
   l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation, coche d'une
-  puce choisie, ▶ de démarrage, boutons icône) ; aucune autre lib d'icônes
+  puce choisie, ▶ de démarrage, boutons icône, avatar de l'Accueil, tuile d'un module, calendrier
+  et chevron des lignes de choix, fermeture d'une feuille) ; aucune autre lib d'icônes
 - expo-font (version du SDK) et @expo-google-fonts/barlow-condensed, installés par
   `npx expo install` (plugin expo-font ajouté dans app.json) : Barlow Condensed 600 et 700,
   seule police custom, chargée par app/_layout.tsx depuis les dossiers par graisse du paquet
@@ -28,6 +29,10 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
   lib/haptics.ts : `hapticSuccess` (ligne de mesure validée) et `hapticMedium` (tout
   enregistrement : séance libre, séance déjà faite, « Séance faite », fin de séance
   chronométrée via `vibrateOnSave`, test, profil) ; rien sur le web, jamais d'erreur
+- expo-blur (version du SDK, installée par `npx expo install`) : BlurView importée seulement par
+  components/bottom-sheet.tsx (voile derrière une feuille du bas) ; flou réel sur le web
+  (backdrop-filter) et iOS, simple voile translucide sur Android (pas de cible de flou) ; un voile
+  `colors.scrim` assombrit dans tous les cas
 
 ## Environnement de dev
 
@@ -47,10 +52,12 @@ app/ routes Expo Router
 _layout.tsx racine : providers, police d'affichage (useFonts) chargée derrière l'écran de chargement,
 veille « Réduire les animations » (watchReduceMotion)
 (auth)/login.tsx
-(tabs)/_layout.tsx, index.tsx (Accueil), quiz.tsx, training.tsx, profile.tsx
-calendar.tsx calendrier mensuel (hors onglets, garde d'auth dans l'écran) : un jour touché → Accueil, ce jour choisi
+(tabs)/_layout.tsx, index.tsx (Accueil : en-tête, streaks, carte de la semaine, feuille du mois, séances du jour),
+quiz.tsx, training.tsx, profile.tsx
 session/_layout.tsx garde d'auth + pile des écrans de séance (hors onglets)
-session/new.tsx création d'une séance, pré-remplie depuis une fiche (« Séance déjà faite » : sheetId, module, nom, durée)
+session/new.tsx création d'une séance : derniers réglages lus à l'ouverture (getSessionDefaults : dernier module,
+dernières durées ; en échec, valeurs par défaut et message), pré-remplie depuis une fiche (« Séance déjà faite » :
+sheetId, module, nom, durée)
 session/[id].tsx détail/édition/suppression d'une séance
 session/finish.tsx fin d'une fiche chronométrée : durée réelle (±5 ou saisie), difficulté, commentaire, ou abandon ;
 au-delà de 3 h de chrono, « séance oubliée ? » : durée de la fiche ou du chrono
@@ -76,9 +83,11 @@ theme.ts tokens du design system (couleurs, tailles et interlignes, police d'aff
 rayons, dimensions, styles de texte et de champ, mouvement « motion », thème de navigation) : seule
 source de style avec components/
 dates.ts jours locaux YYYY-MM-DD et libellés, dont relativeDay (« auj. », « hier », « il y a 3 j »,
-puis absolu), semaine (startOfWeek, weekDays, formatWeekRange) et daysBetween (« J-42 ») : seul
-endroit où un jour est calculé ; ces quatre-là testés par dates.test.ts
-modules.ts liste fermée des modules de séance (MODULE_KEYS)
+puis absolu), semaine (startOfWeek, weekDays, formatWeekRange, formatWeekOf « Semaine du 12 oct. »),
+daysBetween (« J-42 »), formatLongDay (« Vendredi 9 octobre »), formatRecentDay (« aujourd’hui »,
+« hier », « mar. 6 oct. ») et formatDateLine (« Aujourd’hui · 09/10/2026 ») : seul endroit où un jour
+est calculé ; ces huit-là testés par dates.test.ts
+modules.ts liste fermée des modules de séance (MODULE_KEYS), icône Ionicons de chaque module (moduleIcon)
 training-themes.ts thèmes fermés de l'onglet Entraînement (tests, specifique, recuperation) et thème d'une fiche
 quiz-taxonomy.ts listes fermées du quiz : thèmes, postes, barème
 profile-taxonomy.ts postes du profil (ceux du quiz sans 'tous') et pieds forts
@@ -87,8 +96,10 @@ measure-delta.ts évolution d'une mesure et format des valeurs (pur, testé)
 sheet-types.ts format des fiches (exercises, intro, mesures), validation partagée app / script
 json-types.ts contenu des autres colonnes jsonb (questions.options)
 diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
-db/ une fonction par requête, typée (sessions.ts, answers.ts, questions.ts, training.ts,
-test-results.ts, profiles.ts) ; result.ts : contrat { data, error }
+db/ une fonction par requête, typée (sessions.ts, dont getSessionDefaults : dernier module et dernière
+durée par module ; answers.ts, questions.ts, training.ts, test-results.ts, profiles.ts) ; activity.ts :
+listActivityHistory, jours actifs séances + quiz de tout l'historique en une lecture (Accueil, feuille
+du mois) ; result.ts : contrat { data, error }
 streak.ts calcul pur, testable, sans dépendance
 types.ts types générés depuis Supabase (npx supabase gen types)
 components/ design system et composants réutilisés par ≥ 2 écrans uniquement
@@ -101,17 +112,32 @@ tone quiz en contexte quiz)
 button.tsx bouton primary / quiz / secondary / danger / text, 56 px, libellé 16/20 700, icône après
 le libellé, états pressé (0,98 et un cran plus sombre), désactivé, loading
 press-scale.ts usePressScale : micro-interaction a, partagée par Card et Button
-icon-button.tsx bouton icône carré de 48 px (flèches, en-tête du profil, ✓ d'une mesure)
+icon-button.tsx bouton icône carré de 48 px (flèches, en-tête du profil, ✓ d'une mesure) ; subtle (sans fond,
+icône textMuted : ‹ › des feuilles, Fermer) et compact (32 px visibles, 48 par hitSlop : ‹ › de la carte de la semaine)
+module-icon.tsx tuile d'un module : carré de 48 px surface2, icône Ionicons de lib/modules.ts (carte d'une séance,
+ligne et feuille de choix du module)
+day-cell.tsx case d'un jour (numéro, aujourd'hui encadré accent, jour choisi surface2, points entraînement / quiz,
+jour à venir en secondaire ou inerte) et ActivityLegend : les mêmes dans la bande de la semaine et la grille du mois
+bottom-sheet.tsx feuille du bas : Modal transparente, voile flouté (expo-blur, seul import) et assombri (scrim),
+feuille surface aux coins xl qui glisse en motion.screen (micro-interaction f), titre et Fermer, fermeture au tap
+sur le voile ; porte la feuille du mois et le choix du module
+month-sheet.tsx calendrier du mois dans une BottomSheet (mois ‹ ›, grille de DayCell, légende, historique relu à
+chaque ouverture) ; mode browse (Accueil) ou pick (date d'une séance : jours à venir inertes, mois suivant bloqué)
 save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
 pitch-placeholder.tsx demi-terrain SVG (lignes pitchLine) affiché quand un exercice n'a pas de schéma
 stat.tsx chiffre dominant 44 px en police d'affichage, libellé, dénominateur à 40 % et unité en
 secondaire, élément de tête optionnel (flamme)
-flame.tsx flamme de série (SVG) : faite (pleine), à faire (contour), perdue (grise, jamais rouge),
-orange ou violet ; ne s'anime qu'en se remplissant (micro-interaction d)
+flame.tsx flamme de série (SVG, silhouette de l'icône « flame » d'Ionicons : base arrondie, cran à gauche,
+pointe effilée un peu courbée, langue intérieure évidée) : faite (pleine), à faire (contour), perdue (grise,
+jamais rouge), orange ou violet ; ne s'anime qu'en se remplissant (micro-interaction d)
 empty-state.tsx état vide : ce qui manque, quoi faire, le bouton pour le faire
 field-error.tsx erreur sous un champ ou au-dessus de l'action qui a échoué
-session-form.tsx formulaire de séance partagé par session/new et session/[id] ; exporte
-DurationField (±5 ou saisie de 1 à 600 min), DifficultyField, CommentField, repris par session/finish
+session-form.tsx formulaire de séance partagé par session/new et session/[id] : module en une ligne
+(tuile, libellé, tap → feuille des modules), date en une ligne (« Aujourd’hui · 09/10/2026 », tap →
+MonthSheet en mode pick), durée automatique du module (durationDefaults : dernière durée, sinon celle du
+module, tant qu'elle n'est pas modifiée à la main), difficulté, nom, commentaire ; exporte DurationField
+(chiffre dominant text.number saisissable de 1 à 600 min, −5 / +5 en boutons compacts), DifficultyField,
+CommentField, repris par session/finish, et automaticDuration / newSessionFormValues
 active-session-bar.tsx bandeau « En cours · titre · 12:34 » au-dessus de la barre d'onglets
 (prop tabBar de (tabs)/_layout.tsx), et l'échec éventuel de mémorisation de la séance ; exporte
 useElapsedLabel, chrono repris par l'en-tête de la fiche en cours
@@ -204,16 +230,29 @@ ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logiqu
 
 Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
 
-1. **Accueil** : 2 streaks (entraînement, quiz : courante avec sa flamme — pleine si faite
-   aujourd'hui, contour tant que la série tient, grise si perdue — et meilleure ; après une
-   action qui l'augmente, la flamme se remplit puis le chiffre passe à sa nouvelle valeur),
-   séances ce mois / total, bouton « Nouvelle
-   séance » → formulaire (date auj. → J-13, module, durée ±5 ou saisie de 1 à 600 min,
-   difficulté optionnelle = 3 si vide, nom auto modifiable, commentaire optionnel) ;
-   bande de la semaine, lundi → dimanche (points entraînement / quiz, aujourd'hui encadré,
-   ‹ › pour changer de semaine) et « Voir le mois » → calendrier mensuel (app/calendar.tsx),
-   dont un jour touché revient à l'Accueil ; tap sur un jour → séances du jour → édition /
-   suppression.
+1. **Accueil** (maquette design/maquettes/ecran-accueil.png) : en-tête = date du jour en
+   secondaire (« Vendredi 9 octobre »), « Aujourd’hui » en headline, avatar rond de 48 px (icône
+   personne, aucune donnée) → onglet Profil. Deux cartes de streak tappables (Entraînement →
+   Profil, Quiz → Quiz) : flamme et chiffre courant (text.number), libellé en title, ligne d'état
+   « À faire aujourd’hui » (couleur de la série) tant que rien n'est fait et que la série tient,
+   « ✓ Fait aujourd’hui » (secondaire) sinon, « Série perdue » (secondaire) à 0 ; la flamme est
+   pleine, contour ou grise selon le même état ; après une action qui augmente la série, la
+   flamme se remplit puis le chiffre passe à sa nouvelle valeur ; plus de meilleure ni de
+   compteurs. Carte « Cette semaine » (« Semaine du 12 oct. » hors semaine courante) : « N jours
+   actifs » (séance ou réponse), ‹ › compacts, bande lundi → dimanche (DayCell : numéro en police
+   système, aujourd'hui encadré accent, jour choisi surface2, jours à venir en secondaire, points
+   entraînement / quiz), légende et « Voir le mois » → feuille du mois (MonthSheet, fond flouté) :
+   mois ‹ ›, un jour touché ferme la feuille et place l'Accueil sur sa semaine et lui. « Séances du
+   jour » (« Séances · hier », « Séances · mar. 6 oct. ») : une carte par séance (tuile du module,
+   nom, « module · durée · difficulté », chevron) → édition / suppression ; état vide en texte
+   secondaire. Bouton « Nouvelle séance » → formulaire : module = dernier utilisé (hors test,
+   sinon séance libre) en une ligne, tap → feuille des modules ; date « Aujourd’hui · 09/10/2026 »
+   en une ligne, tap → feuille du mois en mode sélection (jours à venir inertes) ; durée =
+   dernière durée du module choisi, sinon celle du module, suit le module tant qu'elle n'est pas
+   modifiée à la main, chiffre dominant avec −5 / +5 compacts ou saisie de 1 à 600 min ;
+   difficulté optionnelle = 3 si vide, nom auto modifiable, commentaire optionnel. Les derniers
+   réglages sont lus à l'ouverture ; en échec, le formulaire s'ouvre avec les valeurs par défaut
+   et le dit.
 2. **Quiz** (violet : bouton principal, puces, option choisie) : filtre thème / poste (replié par
    défaut, mémorisé tant que l'app tourne), stats (total, moyenne
    sur 7 jours, streak) ; séries de 5 questions QCM 4 options (jamais vues, puis dernier
@@ -291,9 +330,10 @@ screen 28/32, bouton 16/20 700 ; libellés en majuscules (`text.overline`) espac
 Tokens (lib/theme.ts, valeurs de la planche Tokens) : couleurs (bg #101013, surface,
 surface2, surfacePressed, border, text, textMuted #A1A1AB, accent, accentPressed, accentTint,
 onAccent, danger #F05A5C, error, success, successSoft, quiz, quizPressed, quizTint, quizGlow,
-pitchLine ; `quizGradient` à part), espacements (xs 4 → xxxl 48), rayons (sm 8, md 12 =
-boutons et champs, lg 16 = cartes, xl 20, pill = puces ; alias card / button / chip),
-dimensions (touch 48, chip 48, button 56, flame 32, tabBar) et `motion` (press 100, micro 160,
+pitchLine, scrim = bg à 60 % sous une feuille ; `quizGradient` à part), espacements (xs 4 →
+xxxl 48), rayons (sm 8, md 12 = boutons et champs, lg 16 = cartes, xl 20 = feuilles, pill =
+puces ; alias card / button / chip), dimensions (touch 48, chip 48, button 56, compactButton 32
++ hitSlop 8, flame 32, tabBar) et `motion` (press 100, micro 160,
 base 240, screen 320, count 600, courbe cubic-bezier(0.2, 0, 0, 1), pressScale 0,98,
 validateScale 1,03). quizGlow et quizGradient sont définis mais réservés au chantier 13.
 Onglets : Accueil · Tests · Quiz · Profil, libellés 14 px 600, actif en orange. « Quiz » (un
@@ -302,7 +342,7 @@ seul z) dans tout texte affiché ; tables, colonnes, fichiers et routes gardent 
 Mouvement (principes de la DA) : le mouvement confirme une action ; aucun ressort, aucun
 dépassement ; les chiffres acquis ne s'animent pas à l'affichage ; le rouge ne clignote
 jamais ; avec « Réduire les animations » (lib/reduce-motion.ts), seul l'appui reste.
-Uniquement la liste fermée a–e, avec l'API Animated ou LayoutAnimation de React Native,
+Uniquement la liste fermée a–f, avec l'API Animated ou LayoutAnimation de React Native,
 jamais Reanimated ni Moti (Reanimated reste installé pour expo-router, jamais importé).
 Valeurs dans `motion` de lib/theme.ts ; tout scrollTo en `animated: false`.
 a. Appui : Card tappable et Button à 0,98 et fond un cran plus sombre, 100 ms
@@ -316,8 +356,11 @@ d. Streak de l'Accueil : uniquement quand elle augmente à la suite d'une action
    enregistrée, réponse au quiz), la flamme passe de contour à pleine (160 ms) puis le chiffre
    passe de N à N+1 (160 ms). Jamais d'animation à l'affichage simple de l'Accueil.
 e. Quiz : explications déroulées par LayoutAnimation (easeInEaseOut, 240 ms).
-Les animations propres aux chantiers suivants (décompte de l'Elo, bulle du coach, feuille
-modale du calendrier) seront autorisées dans leur chantier, avec ces durées.
+f. Feuille du bas (components/bottom-sheet.tsx : mois, choix du module, date d'une séance) :
+   glisse depuis le bord bas de sa hauteur en motion.screen, le voile flouté apparaît en même
+   temps ; redescend de même à la fermeture.
+Les animations propres aux chantiers suivants (décompte de l'Elo, bulle du coach) seront
+autorisées dans leur chantier, avec ces durées.
 
 Règles UX (figées : tout écran nouveau ou modifié est relu contre cette liste) :
 
@@ -369,6 +412,8 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
   de début avec Get-Date.
 - Avant de lancer des agents ou une recherche : annoncer leur nombre, leur rôle en une
   ligne chacun et l'attente estimée. Ne pas en lancer si le gain est inférieur à 10 minutes.
+- Toute recherche web porte sur une question fermée et dure 15 minutes au plus ; au-delà,
+  trancher avec la meilleure information disponible et le signaler dans le livrable.
 - Avant chaque étape longue (plus de 5 minutes) : l'annoncer avec sa durée estimée.
 - Si une étape dépasse son estimation de plus de 50 % : le signaler avec la raison et la
   nouvelle estimation.
@@ -380,7 +425,8 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
   main (intégration Git). Jamais `vercel deploy` depuis le poste : le CLI enverrait `.env`.
 - vercel.json : build `npx expo export -p web`, sortie `dist`, framework null. Toute route hors
   `/_expo/` et `/assets/` est réécrite vers `/index.html` (un fichier existant passe avant) ;
-  `/_expo/static/*` (noms hachés) en cache immuable d'un an, tout le reste en `no-cache`.
+  `/_expo/static/*` et `/assets/*` (noms hachés : polices, icônes) en cache immuable d'un an,
+  tout le reste en `no-cache`.
 - HTML racine : `public/index.html`, gabarit de l'export SPA. Y garder `%WEB_TITLE%` (remplacé
   par `expo.name`), `</head>`, `</body>` et `<div id="root">` : l'export y insère favicon
   (`favicon.ico` tiré d'`expo.web.favicon`), CSS et scripts. `app/+html.tsx` n'est lu qu'en
@@ -422,6 +468,8 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx -Exclude theme.ts | Select-String -Pattern '#[0-9A-Fa-f]{3,8}\b'`
 - Vibrations (seulement lib/haptics.ts attendu) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'expo-haptics'`
+- Flou (seulement components/bottom-sheet.tsx attendu) :
+  `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'expo-blur'`
 - Animations hors liste (aucune ligne attendue ; `\b` : le token `motion` contient « moti ») :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern '\bmoti\b|react-native-reanimated'`
 - « Quizz » (aucune ligne attendue, commentaires compris) :

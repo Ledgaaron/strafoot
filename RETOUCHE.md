@@ -31,13 +31,13 @@
 
 ---
 
-## Chantier 9 — Accueil `[ ]`
-- [ ] Flammes colorées (orange entraînement, violet quiz) avec le chiffre de streak, à la place de « N jours ».
-- [ ] Tap sur la flamme entraînement → statistiques du Profil ; tap sur la flamme quiz → onglet Quiz.
-- [ ] « Voir le mois » ouvre un overlay (bottom sheet) avec fond flouté, pas une nouvelle page ; mois précédent / suivant ; un jour touché → l'Accueil se place sur la semaine et le jour.
-- [ ] Nouvelle séance : un seul bloc « Module » = dernier module utilisé, tap pour en choisir un autre.
-- [ ] Nouvelle séance : date « Aujourd'hui · 08/10/2026 », tap → même overlay calendrier.
-- [ ] Nouvelle séance : durée par défaut = dernière durée du module choisi (sinon 45 min) ; boutons ±5 nettement plus petits que la durée.
+## Chantier 9 — Accueil `[~]`
+- [x] Flammes colorées (orange entraînement, violet quiz) avec le chiffre de streak, à la place de « N jours ».
+- [x] Tap sur la flamme entraînement → statistiques du Profil ; tap sur la flamme quiz → onglet Quiz.
+- [x] « Voir le mois » ouvre un overlay (bottom sheet) avec fond flouté, pas une nouvelle page ; mois précédent / suivant ; un jour touché → l'Accueil se place sur la semaine et le jour.
+- [x] Nouvelle séance : un seul bloc « Module » = dernier module utilisé, tap pour en choisir un autre.
+- [x] Nouvelle séance : date « Aujourd'hui · 08/10/2026 », tap → même overlay calendrier.
+- [x] Nouvelle séance : durée par défaut = dernière durée du module choisi (sinon 45 min) ; boutons ±5 nettement plus petits que la durée.
 - [ ] Matchs dans le calendrier : icône ballon (jamais en rouge) — dépend du chantier Matchs.
 
 ---

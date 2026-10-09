@@ -50,11 +50,6 @@ export function shiftDay(day: string, days: number): string {
   return toLocalDateString(addDays(fromLocalDateString(day), days));
 }
 
-/** `count` jours en partant de `today` puis en reculant : [aujourd'hui, J-1, …]. */
-export function lastDays(today: string, count: number): string[] {
-  return Array.from({ length: count }, (_, index) => shiftDay(today, -index));
-}
-
 // Libellés écrits à la main : Intl ne rend pas la même chose sur web et sur Hermes.
 const WEEKDAYS_SHORT = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
 const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
@@ -229,4 +224,49 @@ export function startOfLocalDayTimestamp(day: string): string {
 export function localDateOfTimestamp(timestamp: string): string {
   // Au-delà des millisecondes, l'analyse de Date dépend du moteur : on tronque.
   return toLocalDateString(new Date(timestamp.replace(/(\.\d{3})\d+/, '$1')));
+}
+
+// Libellés de l'Accueil (en-tête, carte de la semaine, titre des séances du jour)
+// et de la ligne de date du formulaire de séance. Testés par dates.test.ts.
+
+const WEEKDAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+
+function capitalize(label: string): string {
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** « Vendredi 9 octobre » : date du jour en tête de l'Accueil, sans année. */
+export function formatLongDay(day: string): string {
+  const date = fromLocalDateString(day);
+  return capitalize(`${WEEKDAYS_LONG[date.getDay()]} ${date.getDate()} ${MONTHS_LONG[date.getMonth()]}`);
+}
+
+/**
+ * « aujourd’hui », « hier », sinon le jour en court (« mar. 6 oct. »), avec
+ * l'année si elle diffère de celle de today : titre des séances d'un jour
+ * (« Séances · hier ») et ligne de date du formulaire.
+ */
+export function formatRecentDay(day: string, today: string): string {
+  const elapsed = daysBetween(day, today);
+  if (elapsed === 0) {
+    return 'aujourd’hui';
+  }
+  if (elapsed === 1) {
+    return 'hier';
+  }
+  const year = fromLocalDateString(day).getFullYear();
+  const short = formatShortDay(day);
+  return year === fromLocalDateString(today).getFullYear() ? short : `${short} ${year}`;
+}
+
+/** « Aujourd’hui · 09/10/2026 », « Hier · 08/10/2026 », « Mar. 6 oct. · 06/10/2026 » : ligne de date d'une séance. */
+export function formatDateLine(day: string, today: string): string {
+  return `${capitalize(formatRecentDay(day, today))} · ${formatNumericDay(day)}`;
+}
+
+/** « Semaine du 12 oct. » (l'année suit hors de celle de today) : carte de la semaine quand ce n'est pas la semaine courante. */
+export function formatWeekOf(monday: string, today: string): string {
+  const date = fromLocalDateString(monday);
+  const label = `Semaine du ${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
+  return date.getFullYear() === fromLocalDateString(today).getFullYear() ? label : `${label} ${date.getFullYear()}`;
 }

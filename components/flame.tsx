@@ -17,11 +17,15 @@ type FlameProps = {
 
 type Look = { state: FlameState; tone: FlameTone };
 
-// Goutte renversée, pointe en haut, évidée d'une petite goutte (fill-rule evenodd),
-// dans un repère de 24 × 24 ; dessinée à size.flame, trait de taille fixe.
+// Flamme (silhouette de l'icône « flame » d'Ionicons) : base arrondie (arc de
+// rayon 7), flanc gauche entaillé d'un cran qui remonte en pointe effilée, un peu
+// courbée vers la droite ; langue intérieure évidée (fill-rule evenodd), dans un
+// repère de 24 × 24 ; dessinée à size.flame, trait de taille fixe.
+// Choisie parmi cinq tracés rendus à 160, 64 et 32 px (chantier 9).
 const FLAME_PATH =
-  'M12 2 C9.5 6 5 10 5 15 A7 7 0 0 0 19 15 C19 10 14.5 6 12 2 Z ' +
-  'M12 12 C10.5 14 9.5 15.5 9.5 17 A2.5 2.5 0 0 0 14.5 17 C14.5 15.5 13.5 14 12 12 Z';
+  'M13 1.5 C13.6 5 11.5 7 9.6 8.2 C8.9 7.6 8.4 6.8 8.2 5.8 C6.2 8 5 10.8 5 14.6 ' +
+  'A7 7 0 0 0 19 14.6 C19 9.6 15.6 5.4 13 1.5 Z ' +
+  'M12 11 C13 12.8 14.6 14.3 14.6 16.4 A2.6 2.6 0 0 1 9.4 16.4 C9.4 14.3 11 12.8 12 11 Z';
 const VIEW_BOX = '0 0 24 24';
 
 /**

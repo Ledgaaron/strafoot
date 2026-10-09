@@ -1,4 +1,4 @@
-import { MODULE_KEYS, type ModuleKey, type SessionType } from '../modules';
+import { isModuleKey, MODULE_KEYS, TEST_MODULE_KEY, type ModuleKey, type SessionType } from '../modules';
 import { supabase } from '../supabase';
 import type { Tables } from '../types';
 import type { DbResult } from './result';
@@ -190,4 +190,42 @@ export async function countByModule({
 function moduleRank(module: string): number {
   const index = MODULE_KEYS.findIndex((key) => key === module);
   return index === -1 ? MODULE_KEYS.length : index;
+}
+
+/** Pré-remplissage d'une nouvelle séance : dernier module choisi, dernière durée de chaque module. */
+export type SessionDefaults = {
+  /** Module de la dernière séance enregistrée hors `test` ; null sans aucune séance. */
+  lastModule: ModuleKey | null;
+  /** Durée (minutes) de la dernière séance de chaque module qui en a déjà une. */
+  lastDurationByModule: Partial<Record<ModuleKey, number>>;
+};
+
+/**
+ * Dernier module et dernières durées, dans l'ordre d'enregistrement (created_at),
+ * pas de date : la séance saisie en dernier donne le réglage. Une ligne par
+ * séance revient, dans la limite du max rows du projet (1000 par défaut).
+ */
+export async function getSessionDefaults(): Promise<DbResult<SessionDefaults>> {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('module, duration_min')
+    .order('created_at', { ascending: false });
+  if (error) {
+    return { data: null, error: error.message };
+  }
+  let lastModule: ModuleKey | null = null;
+  const lastDurationByModule: Partial<Record<ModuleKey, number>> = {};
+  for (const row of data) {
+    // Module hors liste (lu en base) : ignoré, le formulaire ne le propose pas.
+    if (!isModuleKey(row.module)) {
+      continue;
+    }
+    if (lastModule === null && row.module !== TEST_MODULE_KEY) {
+      lastModule = row.module;
+    }
+    if (lastDurationByModule[row.module] === undefined) {
+      lastDurationByModule[row.module] = row.duration_min;
+    }
+  }
+  return { data: { lastModule, lastDurationByModule }, error: null };
 }

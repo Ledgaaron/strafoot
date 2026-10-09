@@ -1,7 +1,10 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator } from 'react-native';
 
+import { Screen } from '../../components/screen';
 import {
+  automaticDuration,
   newSessionFormValues,
   parseDuration,
   SessionForm,
@@ -9,9 +12,10 @@ import {
   type SessionFormValues,
 } from '../../components/session-form';
 import { localToday } from '../../lib/dates';
-import { createSession, type SessionInput } from '../../lib/db/sessions';
+import { createSession, getSessionDefaults, type SessionDefaults, type SessionInput } from '../../lib/db/sessions';
 import { hapticMedium } from '../../lib/haptics';
 import { buildSessionName, getModule, isModuleKey, TEST_MODULE_KEY } from '../../lib/modules';
+import { colors } from '../../lib/theme';
 
 /**
  * Posés par « Séance déjà faite » sur la présentation d'une fiche
@@ -26,16 +30,42 @@ type NewSessionParams = {
   durationMin?: string;
 };
 
+/** Derniers réglages (dernier module, dernières durées), lus une fois à l'ouverture. */
+type DefaultsState =
+  | { status: 'loading' }
+  | { status: 'ready'; defaults: SessionDefaults }
+  // Lecture en échec : le formulaire s'ouvre quand même, avec les valeurs par défaut, et le dit.
+  | { status: 'error'; message: string };
+
+const NO_DEFAULTS_MESSAGE = 'Supabase n’a renvoyé ni les derniers réglages ni d’erreur.';
+
 export default function NewSessionScreen() {
   const params = useLocalSearchParams<NewSessionParams>();
   // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
   const sheetId = typeof params.sheetId === 'string' && params.sheetId !== '' ? params.sheetId : null;
-  // Jour figé à l'ouverture : les puces de date ne bougent pas pendant la saisie.
+  // Jour figé à l'ouverture : la date proposée ne bouge pas pendant la saisie.
   const [today] = useState(localToday);
-  // Pré-remplissage lu une seule fois, à l'ouverture ; tout reste modifiable.
-  const [initialValues] = useState(() => prefilledValues(today, params));
+  const [defaultsState, setDefaultsState] = useState<DefaultsState>({ status: 'loading' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const title = sheetId !== null ? 'Séance déjà faite' : 'Nouvelle séance';
+
+  useEffect(() => {
+    let active = true;
+    getSessionDefaults().then(({ data, error: loadError }) => {
+      if (!active) {
+        return;
+      }
+      if (loadError !== null || data === null) {
+        setDefaultsState({ status: 'error', message: loadError ?? NO_DEFAULTS_MESSAGE });
+      } else {
+        setDefaultsState({ status: 'ready', defaults: data });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSubmit(result: SessionFormResult) {
     if (submitting) {
@@ -72,11 +102,31 @@ export default function NewSessionScreen() {
     }
   }
 
+  if (defaultsState.status === 'loading') {
+    return (
+      <>
+        <Stack.Screen options={{ title }} />
+        <Screen>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </Screen>
+      </>
+    );
+  }
+
+  const defaults = defaultsState.status === 'ready' ? defaultsState.defaults : null;
+
   return (
     <SessionForm
-      title={sheetId !== null ? 'Séance déjà faite' : 'Nouvelle séance'}
+      title={title}
       today={today}
-      initialValues={initialValues}
+      // Le formulaire lit ses valeurs de départ une seule fois : il n'est monté qu'une fois les réglages lus.
+      initialValues={prefilledValues(today, params, defaults)}
+      durationDefaults={defaults?.lastDurationByModule}
+      warning={
+        defaultsState.status === 'error'
+          ? `Derniers réglages non lus, valeurs par défaut proposées : ${defaultsState.message}`
+          : null
+      }
       submitting={submitting}
       error={error}
       onSubmit={handleSubmit}
@@ -85,23 +135,24 @@ export default function NewSessionScreen() {
 }
 
 /**
- * Valeurs de départ d'une séance libre, remplacées par celles de la fiche
- * d'origine quand elles sont lisibles ; date du jour dans tous les cas.
+ * Valeurs de départ d'une séance libre (dernier module et sa durée), remplacées
+ * par celles de la fiche d'origine quand elles sont lisibles ; date du jour dans
+ * tous les cas.
  */
-function prefilledValues(today: string, params: NewSessionParams): SessionFormValues {
-  const defaults = newSessionFormValues(today);
+function prefilledValues(today: string, params: NewSessionParams, defaults: SessionDefaults | null): SessionFormValues {
+  const base = newSessionFormValues(today, defaults);
   // `test` écarté : réservé à l'enregistrement d'un test, absent du formulaire.
   const moduleKey =
     typeof params.module === 'string' && isModuleKey(params.module) && params.module !== TEST_MODULE_KEY
       ? params.module
-      : defaults.module;
+      : base.module;
   const name = typeof params.name === 'string' ? params.name.trim() : '';
-  // Durée hors bornes (1 à 600) ou illisible : celle du module.
+  // Durée hors bornes (1 à 600) ou illisible : la durée automatique du module.
   const durationMin = typeof params.durationMin === 'string' ? parseDuration(params.durationMin) : null;
   return {
-    ...defaults,
+    ...base,
     module: moduleKey,
     name: name !== '' ? name : buildSessionName(moduleKey, today),
-    durationMin: durationMin ?? getModule(moduleKey).defaultDurationMin,
+    durationMin: durationMin ?? automaticDuration(moduleKey, defaults?.lastDurationByModule),
   };
 }

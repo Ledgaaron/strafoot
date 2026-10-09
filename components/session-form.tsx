@@ -1,9 +1,10 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatShortDay, lastDays, relativeDay } from '../lib/dates';
-import type { SessionRow } from '../lib/db/sessions';
+import { formatDateLine } from '../lib/dates';
+import type { SessionDefaults, SessionRow } from '../lib/db/sessions';
 import {
   buildSessionName,
   DEFAULT_DIFFICULTY,
@@ -14,17 +15,18 @@ import {
   TEST_MODULE_KEY,
   type ModuleKey,
 } from '../lib/modules';
-import { fontSize, input, inputProps, layout, spacing, text } from '../lib/theme';
+import { colors, fontSize, input, inputProps, layout, lineHeight, radius, size, spacing, text } from '../lib/theme';
+import { BottomSheet } from './bottom-sheet';
 import { Button } from './button';
 import { Chip } from './chip';
 import { FieldError } from './field-error';
+import { ModuleIcon } from './module-icon';
+import { MonthSheet } from './month-sheet';
 import { Screen } from './screen';
 
 /** Modules proposés : tous sauf `test`, créé seulement par l'écran de test. */
 const FORM_MODULES = MODULES.filter((entry) => entry.key !== TEST_MODULE_KEY);
 const DIFFICULTIES = [1, 2, 3, 4, 5];
-/** Puces de date : aujourd'hui puis les 13 jours précédents. */
-const RECENT_DAY_COUNT = 14;
 /** Pas des boutons de durée, en minutes. */
 const DURATION_STEP = 5;
 /** Bornes d'une durée, en minutes : saisie au clavier comme boutons ±5. */
@@ -34,6 +36,11 @@ export const MAX_DURATION = 600;
 const DURATION_MAX_LENGTH = 3;
 const DURATION_ERROR = `Durée attendue : un nombre entier de ${MIN_DURATION} à ${MAX_DURATION} min.`;
 const INVALID_FORM_MESSAGE = 'À corriger : durée.';
+/** Zone tactile d'un bouton compact ramenée à size.touch en hauteur (sa largeur y est déjà). */
+const COMPACT_HIT_SLOP = { top: (size.touch - size.compactButton) / 2, bottom: (size.touch - size.compactButton) / 2 };
+
+/** Dernière durée de chaque module (lib/db/sessions.ts) ; vide : la durée par défaut du module. */
+export type DurationDefaults = SessionDefaults['lastDurationByModule'];
 
 /** État du formulaire ; difficulty null : aucune puce choisie. */
 export type SessionFormValues = {
@@ -58,10 +65,14 @@ export type SessionFormResult = {
 type SessionFormProps = {
   /** Titre de l'en-tête natif. */
   title: string;
-  /** Jour local figé par l'écran : base des puces de date. */
+  /** Jour local figé par l'écran : libellé de la date, jours à venir inertes dans le calendrier. */
   today: string;
   /** Lu une seule fois, au montage : l'édition remonte le formulaire avec key. */
   initialValues: SessionFormValues;
+  /** Durée automatique de chaque module : sa dernière durée enregistrée, sinon celle du module. */
+  durationDefaults?: DurationDefaults;
+  /** Au-dessus des champs : la lecture des derniers réglages a échoué, la séance reste saisissable. */
+  warning?: string | null;
   /** Enregistrement en cours : indicateur sur Enregistrer. */
   submitting: boolean;
   /** Autre requête de l'écran en cours (suppression) : Enregistrer seulement désactivé. */
@@ -73,12 +84,21 @@ type SessionFormProps = {
   footer?: ReactNode;
 };
 
-export function newSessionFormValues(today: string): SessionFormValues {
-  const moduleKey = DEFAULT_MODULE_KEY;
+/** Durée proposée pour un module : sa dernière durée enregistrée, sinon celle du module. */
+export function automaticDuration(moduleKey: ModuleKey, defaults: DurationDefaults = {}): number {
+  return defaults[moduleKey] ?? getModule(moduleKey).defaultDurationMin;
+}
+
+/**
+ * Valeurs de départ d'une séance libre : dernier module utilisé (hors test) et
+ * sa durée automatique ; sans historique, le module par défaut et sa durée.
+ */
+export function newSessionFormValues(today: string, defaults: SessionDefaults | null = null): SessionFormValues {
+  const moduleKey = defaults?.lastModule ?? DEFAULT_MODULE_KEY;
   return {
     date: today,
     module: moduleKey,
-    durationMin: getModule(moduleKey).defaultDurationMin,
+    durationMin: automaticDuration(moduleKey, defaults?.lastDurationByModule),
     difficulty: null,
     name: buildSessionName(moduleKey, today),
     comment: '',
@@ -101,6 +121,8 @@ export function SessionForm({
   title,
   today,
   initialValues,
+  durationDefaults = {},
+  warning = null,
   submitting,
   disabled = false,
   error,
@@ -117,7 +139,7 @@ export function SessionForm({
   // Durée et nom suivent le module et la date tant qu'ils n'ont pas été modifiés
   // à la main ; une valeur égale à la valeur automatique reste automatique.
   const [durationTouched, setDurationTouched] = useState(
-    () => initialValues.durationMin !== getModule(initialValues.module).defaultDurationMin,
+    () => initialValues.durationMin !== automaticDuration(initialValues.module, durationDefaults),
   );
   const [nameTouched, setNameTouched] = useState(
     () =>
@@ -126,17 +148,15 @@ export function SessionForm({
   );
   // Enregistrer refusé : durée illisible ou hors bornes (le détail est sous le champ).
   const [invalidSubmit, setInvalidSubmit] = useState(false);
+  const [moduleSheetVisible, setModuleSheetVisible] = useState(false);
+  const [dateSheetVisible, setDateSheetVisible] = useState(false);
 
-  // Une séance plus ancienne que les puces récentes garde sa date en dernière puce.
-  const recentDays = lastDays(today, RECENT_DAY_COUNT);
-  const dayOptions = recentDays.includes(initialValues.date)
-    ? recentDays
-    : [...recentDays, initialValues.date];
-  // De même, une séance test (écran de test) garde sa puce de module, en dernier.
+  // Une séance test (écran de test) garde son module dans la liste, en dernier.
   const moduleOptions: readonly (typeof MODULES)[number][] =
     initialValues.module === TEST_MODULE_KEY ? MODULES : FORM_MODULES;
 
   function selectDate(day: string) {
+    setDateSheetVisible(false);
     setDate(day);
     if (!nameTouched) {
       setName(buildSessionName(moduleKey, day));
@@ -144,9 +164,10 @@ export function SessionForm({
   }
 
   function selectModule(key: ModuleKey) {
+    setModuleSheetVisible(false);
     setModuleKey(key);
     if (!durationTouched) {
-      setDurationText(String(getModule(key).defaultDurationMin));
+      setDurationText(String(automaticDuration(key, durationDefaults)));
       setInvalidSubmit(false);
     }
     if (!nameTouched) {
@@ -157,8 +178,8 @@ export function SessionForm({
   function stepDuration(delta: number) {
     setDurationTouched(true);
     setInvalidSubmit(false);
-    // Saisie illisible : on repart de la durée par défaut du module.
-    setDurationText((current) => stepDurationText(current, delta, getModule(moduleKey).defaultDurationMin));
+    // Saisie illisible : on repart de la durée automatique du module.
+    setDurationText((current) => stepDurationText(current, delta, automaticDuration(moduleKey, durationDefaults)));
   }
 
   function changeDurationText(value: string) {
@@ -197,6 +218,8 @@ export function SessionForm({
     });
   }
 
+  const moduleLabel = getModule(moduleKey).label;
+
   return (
     <>
       <Stack.Screen options={{ title }} />
@@ -211,38 +234,26 @@ export function SessionForm({
           </>
         }
       >
-        <View style={layout.section}>
-          <Text style={text.overline}>Date</Text>
-          {/* Sans keyboardShouldPersistTaps ici aussi, le premier tap ne ferait que fermer le clavier. */}
-          <ScrollView
-            horizontal
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.dayRow}
-          >
-            {dayOptions.map((day) => (
-              <Chip
-                key={day}
-                label={relativeDay(day, today)}
-                accessibilityLabel={formatShortDay(day)}
-                selected={day === date}
-                onPress={() => selectDate(day)}
-              />
-            ))}
-          </ScrollView>
-        </View>
+        <FieldError message={warning} />
 
         <View style={layout.section}>
           <Text style={text.overline}>Module</Text>
-          <View style={layout.chipRow}>
-            {moduleOptions.map((entry) => (
-              <Chip
-                key={entry.key}
-                label={entry.label}
-                selected={entry.key === moduleKey}
-                onPress={() => selectModule(entry.key)}
-              />
-            ))}
-          </View>
+          <PickerRow
+            leading={<ModuleIcon module={moduleKey} />}
+            label={moduleLabel}
+            accessibilityLabel={`Module : ${moduleLabel}. Changer de module`}
+            onPress={() => setModuleSheetVisible(true)}
+          />
+        </View>
+
+        <View style={layout.section}>
+          <Text style={text.overline}>Date</Text>
+          <PickerRow
+            leading={<Ionicons name="calendar-outline" size={size.icon} color={colors.textMuted} aria-hidden />}
+            label={formatDateLine(date, today)}
+            accessibilityLabel={`Date : ${formatDateLine(date, today)}. Changer de date`}
+            onPress={() => setDateSheetVisible(true)}
+          />
         </View>
 
         <DurationField text={durationText} onChangeText={changeDurationText} onStep={stepDuration} />
@@ -263,7 +274,81 @@ export function SessionForm({
 
         <CommentField value={comment} onChange={setComment} />
       </Screen>
+
+      <BottomSheet visible={moduleSheetVisible} onClose={() => setModuleSheetVisible(false)} title="Module">
+        <View>
+          {moduleOptions.map((entry) => (
+            <ModuleOption
+              key={entry.key}
+              moduleKey={entry.key}
+              label={entry.label}
+              selected={entry.key === moduleKey}
+              onPress={() => selectModule(entry.key)}
+            />
+          ))}
+        </View>
+      </BottomSheet>
+
+      <MonthSheet
+        visible={dateSheetVisible}
+        mode="pick"
+        today={today}
+        selectedDay={date}
+        onClose={() => setDateSheetVisible(false)}
+        onPickDay={selectDate}
+      />
     </>
+  );
+}
+
+type PickerRowProps = {
+  /** Tuile du module, ou icône du calendrier. */
+  leading: ReactNode;
+  label: string;
+  /** Valeur courante et action, pour le lecteur d'écran. */
+  accessibilityLabel: string;
+  onPress: () => void;
+};
+
+/** Ligne de choix : valeur courante avec son icône, chevron ; le tap ouvre une feuille du bas. */
+function PickerRow({ leading, label, accessibilityLabel, onPress }: PickerRowProps) {
+  return (
+    <Pressable
+      role="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      style={({ pressed }) => [styles.pickerRow, pressed && styles.rowPressed]}
+    >
+      {leading}
+      <Text numberOfLines={1} style={[text.bodyStrong, styles.rowLabel]}>
+        {label}
+      </Text>
+      <Ionicons name="chevron-down" size={size.icon} color={colors.textMuted} aria-hidden />
+    </Pressable>
+  );
+}
+
+type ModuleOptionProps = {
+  moduleKey: ModuleKey;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+};
+
+/** Ligne de la feuille des modules : tuile, libellé, coche sur le module choisi. */
+function ModuleOption({ moduleKey, label, selected, onPress }: ModuleOptionProps) {
+  return (
+    <Pressable
+      role="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.moduleOption, pressed && styles.rowPressed]}
+    >
+      <ModuleIcon module={moduleKey} />
+      <Text style={[text.bodyStrong, styles.rowLabel, selected && styles.selectedLabel]}>{label}</Text>
+      {selected ? <Ionicons name="checkmark" size={size.icon} color={colors.accent} aria-hidden /> : null}
+    </Pressable>
   );
 }
 
@@ -295,24 +380,21 @@ type DurationFieldProps = {
   onStep: (delta: number) => void;
 };
 
-/** Durée : −5, minutes saisissables au clavier numérique (1 à 600), +5 ; erreur sous le champ. */
+/**
+ * Durée : le chiffre domine (text.number, saisissable au clavier numérique de 1 à
+ * 600), −5 et +5 en boutons compacts de part et d'autre ; erreur sous le champ.
+ */
 export function DurationField({ text: value, onChangeText, onStep }: DurationFieldProps) {
   const invalid = parseDuration(value) === null;
   return (
     <View style={layout.section}>
       <Text style={text.overline}>Durée</Text>
-      <View style={[layout.buttonRow, styles.durationRow]}>
-        <Button
-          variant="secondary"
-          label={`−${DURATION_STEP}`}
-          accessibilityLabel={`Diminuer de ${DURATION_STEP} minutes`}
-          onPress={() => onStep(-DURATION_STEP)}
-          style={styles.durationCell}
-        />
-        <View style={[styles.durationCell, styles.durationInputRow]}>
+      <View style={styles.durationRow}>
+        <StepButton label={`−${DURATION_STEP}`} accessibilityLabel={`Diminuer de ${DURATION_STEP} minutes`} onPress={() => onStep(-DURATION_STEP)} />
+        <View style={styles.durationValue}>
           <TextInput
             {...inputProps}
-            style={[input.field, styles.durationInput, invalid && input.invalid]}
+            style={[input.field, text.number, styles.durationInput, invalid && input.invalid]}
             value={value}
             onChangeText={onChangeText}
             // Pavé numérique natif, inputmode="numeric" sur le web.
@@ -323,16 +405,31 @@ export function DurationField({ text: value, onChangeText, onStep }: DurationFie
           />
           <Text style={text.meta}>min</Text>
         </View>
-        <Button
-          variant="secondary"
-          label={`+${DURATION_STEP}`}
-          accessibilityLabel={`Augmenter de ${DURATION_STEP} minutes`}
-          onPress={() => onStep(DURATION_STEP)}
-          style={styles.durationCell}
-        />
+        <StepButton label={`+${DURATION_STEP}`} accessibilityLabel={`Augmenter de ${DURATION_STEP} minutes`} onPress={() => onStep(DURATION_STEP)} />
       </View>
       <FieldError message={invalid ? DURATION_ERROR : null} />
     </View>
+  );
+}
+
+type StepButtonProps = {
+  label: string;
+  accessibilityLabel: string;
+  onPress: () => void;
+};
+
+/** −5 / +5 : 32 px de haut, 48 de large au moins, surface2 ; zone tactile de 48 de haut par hitSlop. */
+function StepButton({ label, accessibilityLabel, onPress }: StepButtonProps) {
+  return (
+    <Pressable
+      role="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      hitSlop={COMPACT_HIT_SLOP}
+      style={({ pressed }) => [styles.stepButton, pressed && styles.stepPressed]}
+    >
+      <Text style={styles.stepLabel}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -385,32 +482,75 @@ export function CommentField({ value, onChange }: { value: string; onChange: (te
 }
 
 const styles = StyleSheet.create({
-  dayRow: {
-    gap: spacing.md,
-  },
   /** Libellé et sa précision serrés ; les puces restent à 12 px dessous. */
   labelGroup: {
     gap: spacing.xs,
   },
-  durationRow: {
-    alignItems: 'center',
-  },
-  /** −5, valeur, +5 : trois colonnes de même largeur. */
-  durationCell: {
-    flex: 1,
-  },
-  /** Champ et unité côte à côte, l'unité collée au champ. */
-  durationInputRow: {
+  /** Ligne de choix : même fond et mêmes coins qu'un champ, au moins la hauteur d'un bouton. */
+  pickerRow: {
+    minHeight: size.button,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.button,
+    backgroundColor: colors.surface2,
   },
+  moduleOption: {
+    minHeight: size.button,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.button,
+  },
+  rowPressed: {
+    backgroundColor: colors.surfacePressed,
+  },
+  rowLabel: {
+    flex: 1,
+  },
+  selectedLabel: {
+    color: colors.accent,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  /** Champ et unité côte à côte, l'unité collée au champ. */
+  durationValue: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  /** Chiffre dominant centré ; hauteur d'un bouton, sans marge intérieure (le nombre reste entier). */
   durationInput: {
     flex: 1,
-    // Champ étroit : pas de marge intérieure, le nombre reste entier et centré.
+    height: size.button,
     paddingHorizontal: 0,
+    paddingVertical: 0,
     textAlign: 'center',
-    fontSize: fontSize.title,
+  },
+  stepButton: {
+    minWidth: size.touch,
+    height: size.compactButton,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface2,
+  },
+  stepPressed: {
+    backgroundColor: colors.surfacePressed,
+  },
+  stepLabel: {
+    fontSize: fontSize.meta,
+    lineHeight: lineHeight.meta,
     fontWeight: '600',
+    color: colors.text,
   },
 });

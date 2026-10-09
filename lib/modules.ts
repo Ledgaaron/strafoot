@@ -1,5 +1,11 @@
+import type Ionicons from '@expo/vector-icons/Ionicons';
+import type { ComponentProps } from 'react';
+
 import { formatShortDay } from './dates';
 import type { Enums } from './types';
+
+/** Nom d'une icône Ionicons (même type que IconName de components/icon-button.tsx, sans importer un composant ici). */
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 // Modules de séance : liste fermée, seule source de vérité côté app. La
 // contrainte sessions_module_check_v2 (migration 004) reprend MODULE_KEYS à
@@ -16,17 +22,25 @@ export type SessionModule = {
   /** Valeur de sessions.type quand ce module est choisi. */
   type: SessionType;
   defaultDurationMin: number;
+  /** Icône Ionicons de la tuile du module (ModuleIcon) : carte de séance, choix du module. */
+  icon: IoniconName;
 };
 
 export const MODULES = [
-  { key: 'entrainement_club', label: 'Entraînement club', type: 'collectif', defaultDurationMin: 90 },
-  { key: 'entrainement_specifique', label: 'Entraînement spécifique', type: 'solo', defaultDurationMin: 45 },
-  { key: 'seance_libre', label: 'Séance libre', type: 'solo', defaultDurationMin: 45 },
-  { key: 'recup_active', label: 'Récup active', type: 'recup', defaultDurationMin: 30 },
-  { key: 'etirements', label: 'Étirements', type: 'recup', defaultDurationMin: 20 },
-  { key: 'massage', label: 'Massage', type: 'recup', defaultDurationMin: 20 },
-  { key: 'piscine', label: 'Piscine', type: 'recup', defaultDurationMin: 45 },
-  { key: 'test', label: 'Test', type: 'test', defaultDurationMin: 30 },
+  { key: 'entrainement_club', label: 'Entraînement club', type: 'collectif', defaultDurationMin: 90, icon: 'people' },
+  {
+    key: 'entrainement_specifique',
+    label: 'Entraînement spécifique',
+    type: 'solo',
+    defaultDurationMin: 45,
+    icon: 'football',
+  },
+  { key: 'seance_libre', label: 'Séance libre', type: 'solo', defaultDurationMin: 45, icon: 'barbell' },
+  { key: 'recup_active', label: 'Récup active', type: 'recup', defaultDurationMin: 30, icon: 'walk' },
+  { key: 'etirements', label: 'Étirements', type: 'recup', defaultDurationMin: 20, icon: 'body' },
+  { key: 'massage', label: 'Massage', type: 'recup', defaultDurationMin: 20, icon: 'hand-left' },
+  { key: 'piscine', label: 'Piscine', type: 'recup', defaultDurationMin: 45, icon: 'water' },
+  { key: 'test', label: 'Test', type: 'test', defaultDurationMin: 30, icon: 'stopwatch' },
 ] as const satisfies readonly SessionModule[];
 
 export type ModuleKey = (typeof MODULES)[number]['key'];
@@ -61,6 +75,11 @@ export function getModule(key: ModuleKey): SessionModule {
 /** Libellé d'une valeur lue en base ; la valeur brute si elle n'est pas dans la liste. */
 export function moduleLabel(value: string): string {
   return isModuleKey(value) ? getModule(value).label : value;
+}
+
+/** Icône d'une valeur lue en base ; celle du module par défaut si elle n'est pas dans la liste. */
+export function moduleIcon(value: string): IoniconName {
+  return getModule(isModuleKey(value) ? value : DEFAULT_MODULE_KEY).icon;
 }
 
 /** Nom proposé par défaut : « Séance libre — mar. 7 oct. ». */

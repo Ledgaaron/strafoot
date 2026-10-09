@@ -1,44 +1,38 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
-import { EmptyState } from '../../components/empty-state';
+import { ActivityLegend, DayCell, WEEKDAY_INITIALS } from '../../components/day-cell';
 import { FieldError } from '../../components/field-error';
 import { Flame, type FlameState, type FlameTone } from '../../components/flame';
 import { IconButton } from '../../components/icon-button';
+import { ModuleIcon } from '../../components/module-icon';
+import { MonthSheet } from '../../components/month-sheet';
 import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
-import { Stat } from '../../components/stat';
 import {
-  dayOfMonth,
-  formatShortDay,
-  formatWeekRange,
+  formatLongDay,
+  formatRecentDay,
+  formatWeekOf,
   isLocalDateString,
   localToday,
-  monthBounds,
-  monthOf,
-  relativeDay,
   shiftDay,
   startOfWeek,
   weekDays,
 } from '../../lib/dates';
-import { listAnswerDays } from '../../lib/db/answers';
-import { countSessions, listActiveDays, listSessionsForDay, type SessionRow } from '../../lib/db/sessions';
+import { listActivityHistory, type ActivityDays } from '../../lib/db/activity';
+import { listSessionsForDay, type SessionRow } from '../../lib/db/sessions';
 import { moduleLabel } from '../../lib/modules';
 import { useReduceMotion } from '../../lib/reduce-motion';
 import { computeStreaks, type Streaks } from '../../lib/streak';
-import { colors, layout, motion, radius, size, spacing, text } from '../../lib/theme';
-
-// Tout l'historique est chargé une fois par focus : la meilleure streak et la
-// bande de n'importe quelle semaine en ont besoin, pas de rechargement par semaine.
-const HISTORY_START = '2000-01-01';
+import { colors, layout, motion, size, spacing, text } from '../../lib/theme';
 
 const PLACEHOLDER = '—';
 /** Espace insécable : un nombre ne se sépare jamais de son unité en fin de ligne (« 12 jours »). */
-const NBSP = ' ';
-const WEEKDAY_INITIALS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const NBSP = ' ';
 const DAYS_PER_WEEK = 7;
 
 type StreakKind = 'training' | 'quiz';
@@ -48,13 +42,9 @@ type StreakKind = 'training' | 'quiz';
 // plus haute à un chargement suivant compte depuis celle-ci.
 const lastShownStreak: Record<StreakKind, number | null> = { training: null, quiz: null };
 
-type Summary = {
-  trainingDays: ReadonlySet<string>;
-  quizDays: ReadonlySet<string>;
+type Summary = ActivityDays & {
   training: Streaks;
   quiz: Streaks;
-  monthCount: number;
-  totalCount: number;
 };
 
 type SummaryState =
@@ -71,29 +61,31 @@ type DaySessionsState =
 export default function HomeScreen() {
   const [today, setToday] = useState(localToday);
   const [selectedDay, setSelectedDay] = useState(today);
-  // Lundi de la semaine affichée par la bande ; les flèches la changent sans toucher au jour sélectionné.
+  // Lundi de la semaine affichée par la carte ; les flèches la changent sans toucher au jour sélectionné.
   const [displayedWeek, setDisplayedWeek] = useState(() => startOfWeek(today));
   const [summaryState, setSummaryState] = useState<SummaryState>({ status: 'loading' });
   const [daySessions, setDaySessions] = useState<DaySessionsState>({ status: 'loading' });
   // Incrémentés par « Réessayer » : seul rôle, relancer l'effet de chargement correspondant.
   const [summaryAttempt, setSummaryAttempt] = useState(0);
   const [daySessionsAttempt, setDaySessionsAttempt] = useState(0);
-  const { day, session, savedTitle, picked } = useLocalSearchParams<{
+  // Feuille du mois : ouverte par « Voir le mois », sur le mois de monthAnchor.
+  const [monthVisible, setMonthVisible] = useState(false);
+  const [monthAnchor, setMonthAnchor] = useState(today);
+  const { day, session, savedTitle } = useLocalSearchParams<{
     day?: string;
     session?: string;
     savedTitle?: string;
-    picked?: string;
   }>();
 
-  // Retour d'un écran de séance ou du calendrier : sélectionne le jour reçu et affiche
-  // sa semaine. Ici, `session` et `picked` ne servent qu'à relancer l'effet quand le même jour revient.
+  // Retour d'un écran de séance : sélectionne le jour reçu et affiche sa semaine.
+  // Ici, `session` ne sert qu'à relancer l'effet quand le même jour revient.
   useEffect(() => {
     // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
     if (typeof day === 'string' && isLocalDateString(day)) {
       setSelectedDay(day);
       setDisplayedWeek(startOfWeek(day));
     }
-  }, [day, session, picked]);
+  }, [day, session]);
 
   useFocusEffect(
     useCallback(() => {
@@ -101,45 +93,33 @@ export default function HomeScreen() {
       // Relu à chaque focus : l'app peut rester ouverte après minuit.
       const today = localToday();
       setToday(today);
-      Promise.all([
-        listActiveDays({ from: HISTORY_START, to: today }),
-        listAnswerDays({ from: HISTORY_START, to: today }),
-        countSessions(monthBounds(monthOf(today))),
-        countSessions(),
-      ]).then(([sessionDays, answerDays, monthCount, totalCount]) => {
-        if (!active) {
-          return;
-        }
-        const errors = [sessionDays.error, answerDays.error, monthCount.error, totalCount.error].filter(
-          (message) => message !== null,
-        );
-        if (errors.length > 0) {
-          // Une même panne (réseau, session expirée) remonte souvent sur les quatre requêtes.
-          setSummaryState({ status: 'error', message: [...new Set(errors)].join('\n') });
-          return;
-        }
-        const trainingDays = new Set(sessionDays.data ?? []);
-        const quizDays = new Set(answerDays.data ?? []);
-        setSummaryState({
-          status: 'ready',
-          summary: {
-            trainingDays,
-            quizDays,
-            training: computeStreaks(trainingDays, today),
-            quiz: computeStreaks(quizDays, today),
-            monthCount: monthCount.data ?? 0,
-            totalCount: totalCount.data ?? 0,
-          },
-        });
-      }).catch((exception: unknown) => {
-        // Exception inattendue (ex. jour mal formé refusé par computeStreaks) : affichée, jamais avalée.
-        if (active) {
+      listActivityHistory(today)
+        .then(({ data, error }) => {
+          if (!active) {
+            return;
+          }
+          if (error !== null || data === null) {
+            setSummaryState({ status: 'error', message: error ?? 'Supabase n’a renvoyé ni les jours actifs ni d’erreur.' });
+            return;
+          }
           setSummaryState({
-            status: 'error',
-            message: exception instanceof Error ? exception.message : String(exception),
+            status: 'ready',
+            summary: {
+              ...data,
+              training: computeStreaks(data.trainingDays, today),
+              quiz: computeStreaks(data.quizDays, today),
+            },
           });
-        }
-      });
+        })
+        .catch((exception: unknown) => {
+          // Exception inattendue (ex. jour mal formé refusé par computeStreaks) : affichée, jamais avalée.
+          if (active) {
+            setSummaryState({
+              status: 'error',
+              message: exception instanceof Error ? exception.message : String(exception),
+            });
+          }
+        });
       return () => {
         active = false;
       };
@@ -177,8 +157,15 @@ export default function HomeScreen() {
 
   function openMonth() {
     // Mois du jour sélectionné s'il est dans la semaine affichée, sinon celui de son lundi.
-    const anchor = weekDays(displayedWeek).includes(selectedDay) ? selectedDay : displayedWeek;
-    router.push({ pathname: '/calendar', params: { day: selectedDay, anchor } });
+    setMonthAnchor(weekDays(displayedWeek).includes(selectedDay) ? selectedDay : displayedWeek);
+    setMonthVisible(true);
+  }
+
+  /** Jour touché dans la feuille du mois : la feuille se ferme, l'Accueil se place sur sa semaine et lui. */
+  function pickDay(pickedDay: string) {
+    setMonthVisible(false);
+    setSelectedDay(pickedDay);
+    setDisplayedWeek(startOfWeek(pickedDay));
   }
 
   const summary = summaryState.status === 'ready' ? summaryState.summary : null;
@@ -194,11 +181,25 @@ export default function HomeScreen() {
     ) : null;
 
   return (
-    <Screen
-      title="Accueil"
-      footer={<Button label="Nouvelle séance" onPress={() => router.push('/session/new')} />}
-      toast={toast}
-    >
+    <Screen footer={<Button label="Nouvelle séance" onPress={() => router.push('/session/new')} />} toast={toast}>
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={text.meta}>{formatLongDay(today)}</Text>
+          <Text role="heading" style={text.screen}>
+            Aujourd’hui
+          </Text>
+        </View>
+        {/* Avatar sans donnée (aucune photo, aucune initiale) : l'icône personne, vers le Profil. */}
+        <Pressable
+          role="button"
+          accessibilityLabel="Profil"
+          onPress={() => router.navigate('/profile')}
+          style={({ pressed }) => [styles.avatar, pressed && styles.avatarPressed]}
+        >
+          <Ionicons name="person" size={size.icon} color={colors.textMuted} />
+        </Pressable>
+      </View>
+
       <View style={layout.section}>
         <View style={styles.streakRow}>
           <StreakCard
@@ -207,16 +208,15 @@ export default function HomeScreen() {
             tone="accent"
             streaks={summary ? summary.training : null}
             todayDone={summary !== null && summary.trainingDays.has(today)}
-          >
-            <Text style={text.meta}>ce mois : {summary ? formatSessionCount(summary.monthCount) : PLACEHOLDER}</Text>
-            <Text style={text.meta}>total : {summary ? formatSessionCount(summary.totalCount) : PLACEHOLDER}</Text>
-          </StreakCard>
+            onPress={() => router.navigate('/profile')}
+          />
           <StreakCard
             kind="quiz"
             label="Quiz"
             tone="quiz"
             streaks={summary ? summary.quiz : null}
             todayDone={summary !== null && summary.quizDays.has(today)}
+            onPress={() => router.navigate('/quiz')}
           />
         </View>
         {summaryState.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
@@ -228,7 +228,7 @@ export default function HomeScreen() {
         ) : null}
       </View>
 
-      <WeekStrip
+      <WeekCard
         week={displayedWeek}
         today={today}
         selectedDay={selectedDay}
@@ -240,7 +240,7 @@ export default function HomeScreen() {
 
       <View style={layout.section}>
         <Text role="heading" style={text.title}>
-          Séances · {relativeDay(selectedDay, today)}
+          {selectedDay === today ? 'Séances du jour' : `Séances · ${formatRecentDay(selectedDay, today)}`}
         </Text>
         {shownSessions.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {shownSessions.status === 'error' ? (
@@ -250,16 +250,21 @@ export default function HomeScreen() {
           </>
         ) : null}
         {shownSessions.status === 'ready' && shownSessions.sessions.length === 0 ? (
-          // Pas de bouton ici : le pied de l'écran porte déjà « Nouvelle séance ».
-          <EmptyState
-            title="Aucune séance ce jour"
-            message="Ajoute-la avec « Nouvelle séance », en bas de l’écran."
-          />
+          // En secondaire, sans bouton : le pied de l'écran porte déjà « Nouvelle séance ».
+          <Text style={text.meta}>Aucune séance ce jour. Ajoute-la avec « Nouvelle séance », en bas de l’écran.</Text>
         ) : null}
-        {shownSessions.status === 'ready'
-          ? shownSessions.sessions.map((row) => <SessionCard key={row.id} row={row} today={today} />)
-          : null}
+        {shownSessions.status === 'ready' ? shownSessions.sessions.map((row) => <SessionCard key={row.id} row={row} />) : null}
       </View>
+
+      <MonthSheet
+        visible={monthVisible}
+        mode="browse"
+        today={today}
+        selectedDay={selectedDay}
+        anchorDay={monthAnchor}
+        onClose={() => setMonthVisible(false)}
+        onPickDay={pickDay}
+      />
     </Screen>
   );
 }
@@ -273,9 +278,9 @@ function formatDayCount(count: number): string {
   return `${count}${NBSP}${dayUnit(count)}`;
 }
 
-/** Pluriel français : « 0 séance », « 1 séance », « 2 séances ». */
-function formatSessionCount(count: number): string {
-  return `${count}${NBSP}séance${count >= 2 ? 's' : ''}`;
+/** « 0 jour actif », « 1 jour actif », « 4 jours actifs ». */
+function formatActiveDays(count: number): string {
+  return `${formatDayCount(count)} actif${count >= 2 ? 's' : ''}`;
 }
 
 type StreakCardProps = {
@@ -287,31 +292,28 @@ type StreakCardProps = {
   streaks: Streaks | null;
   /** Au moins une activité aujourd'hui : flamme pleine. */
   todayDone: boolean;
-  /** Lignes secondaires sous la meilleure streak. */
-  children?: ReactNode;
+  /** Entraînement : onglet Profil ; Quiz : onglet Quiz. */
+  onPress: () => void;
 };
 
-/** Streak courante en chiffre dominant, flamme à sa gauche ; meilleure et compteurs en secondaire. */
-function StreakCard({ kind, label, tone, streaks, todayDone, children }: StreakCardProps) {
+/** Carte de streak : flamme et chiffre dominant, libellé, ligne d'état du jour ; tappable. */
+function StreakCard({ kind, label, tone, streaks, todayDone, onPress }: StreakCardProps) {
   const reduceMotion = useReduceMotion();
   const current = useStreakCountUp(kind, streaks ? streaks.current : null, reduceMotion);
   const flame = streaks !== null ? flameState(streaks.current, todayDone) : null;
+  const spoken =
+    current !== null && flame !== null ? `${label} : ${formatDayCount(current)}, ${FLAME_LABELS[flame]}` : `${label} : ${PLACEHOLDER}`;
   return (
-    <Card style={styles.streakCard}>
-      <Stat
-        label={label}
-        value={current ?? PLACEHOLDER}
-        tone={flame === 'lost' ? 'muted' : tone}
-        // Flamme seulement une fois la streak chargée : montée dans son état, sans transition.
-        leading={flame !== null ? <Flame state={flame} tone={tone} /> : undefined}
-        accessibilityLabel={
-          current !== null && flame !== null ? `${label} : ${formatDayCount(current)}, ${FLAME_LABELS[flame]}` : undefined
-        }
-      />
-      <View>
-        <Text style={text.meta}>meilleure : {streaks ? formatDayCount(streaks.best) : PLACEHOLDER}</Text>
-        {children}
+    <Card onPress={onPress} accessibilityLabel={spoken} style={styles.streakCard}>
+      <View style={styles.streakValue}>
+        {/* Flamme seulement une fois la streak chargée : montée dans son état, sans transition. */}
+        {flame !== null ? <Flame state={flame} tone={tone} /> : null}
+        <Text numberOfLines={1} style={[text.number, flame === 'lost' && styles.lostNumber]}>
+          {current ?? PLACEHOLDER}
+        </Text>
       </View>
+      <Text style={text.title}>{label}</Text>
+      <StreakStatus state={flame} tone={tone} />
     </Card>
   );
 }
@@ -329,6 +331,28 @@ const FLAME_LABELS: Readonly<Record<FlameState, string>> = {
   todo: 'à faire aujourd’hui',
   lost: 'série perdue',
 };
+
+/** « À faire aujourd’hui » dans la couleur de sa série. */
+const TODO_STYLES = StyleSheet.create({
+  accent: { color: colors.accent },
+  quiz: { color: colors.quiz },
+});
+
+/** Ligne d'état sous le libellé : à faire (couleur de la série), fait (coche, secondaire), perdue (secondaire). */
+function StreakStatus({ state, tone }: { state: FlameState | null; tone: FlameTone }) {
+  if (state === 'todo') {
+    return <Text style={[text.meta, TODO_STYLES[tone]]}>À faire aujourd’hui</Text>;
+  }
+  if (state === 'done') {
+    return (
+      <View style={styles.statusRow}>
+        <Ionicons name="checkmark" size={size.iconSmall} color={colors.textMuted} aria-hidden />
+        <Text style={text.meta}>Fait aujourd’hui</Text>
+      </View>
+    );
+  }
+  return <Text style={text.meta}>{state === 'lost' ? 'Série perdue' : PLACEHOLDER}</Text>;
+}
 
 /**
  * Chiffre de la streak courante (micro-interaction d) : target dès qu'elle est
@@ -388,37 +412,50 @@ function useStreakCountUp(kind: StreakKind, target: number | null, reduceMotion:
   return target === null ? null : shown;
 }
 
-type WeekStripProps = {
+type WeekCardProps = {
   /** Lundi de la semaine affichée. */
   week: string;
   today: string;
   selectedDay: string;
-  /** Jours actifs ; null tant que le résumé n'est pas chargé (aucun point affiché). */
-  activity: Pick<Summary, 'trainingDays' | 'quizDays'> | null;
+  /** Jours actifs ; null tant que le résumé n'est pas chargé (aucun point, « — » jours actifs). */
+  activity: ActivityDays | null;
   onShiftWeek: (weeks: number) => void;
   onSelectDay: (day: string) => void;
-  /** « Voir le mois » : calendrier mensuel (app/calendar.tsx). */
+  /** « Voir le mois » : feuille du mois (MonthSheet). */
   onOpenMonth: () => void;
 };
 
-/** Bande de la semaine, du lundi au dimanche ; le mois entier est sur app/calendar.tsx. */
-function WeekStrip({ week, today, selectedDay, activity, onShiftWeek, onSelectDay, onOpenMonth }: WeekStripProps) {
+/** Carte « Cette semaine » : jours actifs, ‹ ›, bande du lundi au dimanche, légende et « Voir le mois ». */
+function WeekCard({ week, today, selectedDay, activity, onShiftWeek, onSelectDay, onOpenMonth }: WeekCardProps) {
+  const days = weekDays(week);
+  const isCurrentWeek = week === startOfWeek(today);
+  const activeCount =
+    activity === null ? null : days.filter((cellDay) => activity.trainingDays.has(cellDay) || activity.quizDays.has(cellDay)).length;
   return (
-    <View style={layout.section}>
+    <Card style={styles.weekCard}>
       <View style={styles.weekHeader}>
-        <IconButton icon="chevron-back" accessibilityLabel="Semaine précédente" onPress={() => onShiftWeek(-1)} />
-        <Text style={[text.title, styles.weekTitle]}>{formatWeekRange(week, today)}</Text>
-        <IconButton icon="chevron-forward" accessibilityLabel="Semaine suivante" onPress={() => onShiftWeek(1)} />
+        <Text numberOfLines={1} style={[text.overline, styles.weekTitle]}>
+          {isCurrentWeek ? 'Cette semaine' : formatWeekOf(week, today)}
+        </Text>
+        <Text style={text.meta}>{activeCount === null ? PLACEHOLDER : formatActiveDays(activeCount)}</Text>
+        {/* Deux boutons compacts à 16 px : leurs zones tactiles de 48 se touchent sans se recouvrir. */}
+        <View style={styles.weekNav}>
+          <IconButton compact subtle icon="chevron-back" accessibilityLabel="Semaine précédente" onPress={() => onShiftWeek(-1)} />
+          <IconButton compact subtle icon="chevron-forward" accessibilityLabel="Semaine suivante" onPress={() => onShiftWeek(1)} />
+        </View>
       </View>
 
+      {/* Sept cases sans écart (comme la grille du mois) : à 8 px des bords de la carte, elles gardent 48 px de large sur un iPhone de 390. */}
       <View style={styles.strip}>
-        {weekDays(week).map((cellDay, index) => (
-          <WeekDayCell
+        {days.map((cellDay, index) => (
+          <DayCell
             key={cellDay}
             day={cellDay}
             initial={WEEKDAY_INITIALS[index]}
             isToday={cellDay === today}
             isSelected={cellDay === selectedDay}
+            // Jours YYYY-MM-DD : l'ordre des chaînes est l'ordre des jours.
+            isFuture={cellDay > today}
             hasTraining={activity !== null && activity.trainingDays.has(cellDay)}
             hasQuiz={activity !== null && activity.quizDays.has(cellDay)}
             onPress={() => onSelectDay(cellDay)}
@@ -426,159 +463,121 @@ function WeekStrip({ week, today, selectedDay, activity, onShiftWeek, onSelectDa
         ))}
       </View>
 
-      <View style={styles.stripFooter}>
-        <View style={styles.legend}>
-          <Text style={text.meta}>
-            <Text style={styles.trainingMark}>●</Text> Entraînement
-          </Text>
-          <Text style={text.meta}>
-            <Text style={styles.quizMark}>●</Text> Quiz
-          </Text>
-        </View>
+      <View style={styles.weekFooter}>
+        <ActivityLegend />
         <Button variant="text" label="Voir le mois" icon="chevron-forward" onPress={onOpenMonth} />
       </View>
-    </View>
+    </Card>
   );
 }
 
-type WeekDayCellProps = {
-  day: string;
-  /** Initiale du jour de la semaine : L, M, M, J, V, S, D. */
-  initial: string;
-  isToday: boolean;
-  isSelected: boolean;
-  hasTraining: boolean;
-  hasQuiz: boolean;
-  onPress: () => void;
-};
-
-function WeekDayCell({ day, initial, isToday, isSelected, hasTraining, hasQuiz, onPress }: WeekDayCellProps) {
-  const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quiz' : ''}`;
-  return (
-    <Pressable
-      role="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected: isSelected }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.dayCell,
-        isToday && styles.todayCell,
-        isSelected && styles.selectedCell,
-        pressed && styles.pressedCell,
-      ]}
-    >
-      <Text style={text.meta}>{initial}</Text>
-      <Text style={[text.body, text.tabular]}>{dayOfMonth(day)}</Text>
-      {/* Rangée de hauteur fixe : le numéro ne bouge pas quand les points apparaissent.
-          Deux places fixes, entraînement à gauche, quiz à droite (ordre de la légende) :
-          la place double la couleur (orange, violet). */}
-      <View style={styles.dots}>
-        <View style={[styles.dot, hasTraining && styles.trainingDot]} />
-        <View style={[styles.dot, hasQuiz && styles.quizDot]} />
-      </View>
-    </Pressable>
-  );
-}
-
-function SessionCard({ row, today }: { row: SessionRow; today: string }) {
+/** Carte d'une séance du jour : tuile du module, nom, « module · durée · difficulté », chevron. */
+function SessionCard({ row }: { row: SessionRow }) {
   const label = moduleLabel(row.module);
   const name = row.name?.trim() || label;
-  const details = [
-    label,
-    `${row.duration_min}${NBSP}min`,
-    `difficulté ${row.difficulty}/5`,
-    relativeDay(row.date, today),
-  ].join(' · ');
+  const details = [label, `${row.duration_min}${NBSP}min`, `difficulté ${row.difficulty}/5`].join(' · ');
   return (
     <Card
       accessibilityLabel={`${name}, ${details}`}
       onPress={() => router.push({ pathname: '/session/[id]', params: { id: row.id } })}
+      style={styles.sessionCard}
     >
-      <Text style={text.bodyStrong}>{name}</Text>
-      <Text style={text.meta}>{details}</Text>
+      <ModuleIcon module={row.module} />
+      <View style={styles.sessionText}>
+        <Text numberOfLines={1} style={text.bodyStrong}>
+          {name}
+        </Text>
+        <Text numberOfLines={1} style={text.meta}>
+          {details}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={size.icon} color={colors.textMuted} aria-hidden />
     </Card>
   );
 }
 
 const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  headerText: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  /** Rond de 48 px, surface2 ; un cran plus sombre à l'appui. */
+  avatar: {
+    width: size.touch,
+    height: size.touch,
+    borderRadius: size.touch / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface2,
+  },
+  avatarPressed: {
+    backgroundColor: colors.surfacePressed,
+  },
   streakRow: {
     flexDirection: 'row',
     gap: spacing.md,
   },
   streakCard: {
     flex: 1,
+    gap: spacing.xs,
+  },
+  /** Flamme et chiffre centrés sur une même ligne. */
+  streakValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  lostNumber: {
+    color: colors.textMuted,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  /** Marges latérales réduites à 8 px : la place va aux sept cases. */
+  weekCard: {
+    paddingHorizontal: spacing.sm,
+    gap: spacing.sm,
   },
   weekHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
   },
   weekTitle: {
     flex: 1,
-    textAlign: 'center',
   },
-  // Sept cases d'au moins 48 dp à 8 dp d'écart (règle 3) : 7 × 48 + 6 × 8 = 384 dp,
-  // plus que les 380 dp de contenu d'un Pixel de 412 dp (marges de 16 dp). La bande
-  // mord donc de 8 dp sur chaque marge : 396 dp, des cases d'environ 49,7 dp. Pas de
-  // carte autour : sa marge intérieure mangerait cette largeur.
+  weekNav: {
+    flexDirection: 'row',
+    gap: spacing.lg,
+  },
   strip: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    marginHorizontal: -spacing.sm,
-  },
-  dayCell: {
-    flex: 1,
-    minHeight: size.touch,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderRadius: radius.button,
-    // Bordure toujours présente, transparente : celle d'aujourd'hui ne décale rien.
-    borderWidth: size.border,
-    borderColor: 'transparent',
-  },
-  todayCell: {
-    borderColor: colors.accent,
-  },
-  selectedCell: {
-    backgroundColor: colors.surface2,
-  },
-  pressedCell: {
-    backgroundColor: colors.surfacePressed,
-  },
-  dots: {
-    height: size.dot,
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
-  dot: {
-    width: size.dot,
-    height: size.dot,
-    borderRadius: size.dot / 2,
-  },
-  trainingDot: {
-    backgroundColor: colors.accent,
-  },
-  quizDot: {
-    backgroundColor: colors.quiz,
   },
   // Légende à gauche, « Voir le mois » à droite ; l'un passe sous l'autre si la place manque.
-  stripFooter: {
+  weekFooter: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+    paddingLeft: spacing.sm,
   },
-  legend: {
+  sessionCard: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.md,
   },
-  trainingMark: {
-    color: colors.accent,
-  },
-  quizMark: {
-    color: colors.quiz,
+  sessionText: {
+    flex: 1,
+    gap: spacing.xs,
   },
 });

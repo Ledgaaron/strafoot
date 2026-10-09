@@ -1,10 +1,20 @@
-// Tests de relativeDay, daysBetween, startOfWeek et formatWeekRange (lib/dates.ts),
-// sans framework : npx tsx lib/dates.test.ts
+// Tests de relativeDay, daysBetween, startOfWeek, formatWeekRange et des libellés
+// de l'Accueil et du formulaire (formatLongDay, formatRecentDay, formatDateLine,
+// formatWeekOf) de lib/dates.ts, sans framework : npx tsx lib/dates.test.ts
 // TypeScript 6 n'inclut plus @types/node d'office : référence explicite pour node:assert.
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 
-import { daysBetween, formatWeekRange, relativeDay, startOfWeek } from './dates';
+import {
+  daysBetween,
+  formatDateLine,
+  formatLongDay,
+  formatRecentDay,
+  formatWeekOf,
+  formatWeekRange,
+  relativeDay,
+  startOfWeek,
+} from './dates';
 
 type Case = { name: string; day: string; today: string; expected: string };
 
@@ -86,6 +96,32 @@ const valueCases: ValueCase<string | number>[] = [
     run: () => formatWeekRange('2026-12-28', TODAY),
     expected: '28 déc. 2026 – 3 janv. 2027',
   },
+  // En-tête de l'Accueil : jour de la semaine, numéro, mois en toutes lettres, sans année.
+  { name: 'formatLongDay : vendredi 9 octobre', run: () => formatLongDay('2026-10-09'), expected: 'Vendredi 9 octobre' },
+  { name: 'formatLongDay : 1er de l’an, jeudi', run: () => formatLongDay('2026-01-01'), expected: 'Jeudi 1 janvier' },
+  { name: 'formatLongDay : dimanche 2 août', run: () => formatLongDay('2026-08-02'), expected: 'Dimanche 2 août' },
+  // Titre des séances d'un jour (« Séances · hier », « Séances · dim. 4 oct. »).
+  { name: 'formatRecentDay : même jour', run: () => formatRecentDay(TODAY, TODAY), expected: 'aujourd’hui' },
+  { name: 'formatRecentDay : veille', run: () => formatRecentDay('2026-10-06', TODAY), expected: 'hier' },
+  { name: 'formatRecentDay : 3 jours avant, en court', run: () => formatRecentDay('2026-10-04', TODAY), expected: 'dim. 4 oct.' },
+  { name: 'formatRecentDay : jour à venir, en court', run: () => formatRecentDay('2026-10-09', TODAY), expected: 'ven. 9 oct.' },
+  {
+    name: 'formatRecentDay : autre année, l’année suit',
+    run: () => formatRecentDay('2025-12-20', '2026-01-05'),
+    expected: 'sam. 20 déc. 2025',
+  },
+  // Ligne de date du formulaire de séance : libellé capitalisé, puis JJ/MM/AAAA.
+  { name: 'formatDateLine : aujourd’hui', run: () => formatDateLine(TODAY, TODAY), expected: 'Aujourd’hui · 07/10/2026' },
+  { name: 'formatDateLine : hier', run: () => formatDateLine('2026-10-06', TODAY), expected: 'Hier · 06/10/2026' },
+  { name: 'formatDateLine : jour en court', run: () => formatDateLine('2026-10-04', TODAY), expected: 'Dim. 4 oct. · 04/10/2026' },
+  {
+    name: 'formatDateLine : autre année',
+    run: () => formatDateLine('2025-12-20', '2026-01-05'),
+    expected: 'Sam. 20 déc. 2025 · 20/12/2025',
+  },
+  // Carte de la semaine, hors semaine courante.
+  { name: 'formatWeekOf : semaine du 12 oct.', run: () => formatWeekOf('2026-10-12', TODAY), expected: 'Semaine du 12 oct.' },
+  { name: 'formatWeekOf : autre année', run: () => formatWeekOf('2025-12-29', TODAY), expected: 'Semaine du 29 déc. 2025' },
 ];
 
 let failures = 0;
