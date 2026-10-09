@@ -15,7 +15,13 @@ import {
   parseDuration,
   stepDurationText,
 } from '../../components/session-form';
-import { elapsedMinutes, elapsedMs, formatElapsed, type ActiveSession } from '../../lib/active-session';
+import {
+  elapsedMinutes,
+  elapsedMs,
+  formatElapsed,
+  type ActiveSheetSession,
+  type ActiveTestRun,
+} from '../../lib/active-session';
 import {
   confirmAbandon,
   finishActiveSession,
@@ -23,9 +29,9 @@ import {
   vibrateOnSave,
 } from '../../lib/active-session-context';
 import { localDateOfTimestamp } from '../../lib/dates';
-import { createSession } from '../../lib/db/sessions';
+import { createSession, updateSession } from '../../lib/db/sessions';
 import { getSheetDuration } from '../../lib/db/training';
-import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY } from '../../lib/modules';
+import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY, TEST_MODULE_KEY } from '../../lib/modules';
 import { colors, layout, spacing, text } from '../../lib/theme';
 
 const TITLE = 'Terminer la séance';
@@ -47,13 +53,16 @@ type DurationSource = 'sheet' | 'chrono';
 /** Saisie de la durée et la puce qui l'a posée ; source null après une frappe ou ±5 : aucune puce choisie. */
 type DurationDraft = { text: string; source: DurationSource | null };
 
-/** Durée prévue de la fiche, lue seulement pour une séance oubliée. */
+/** Durée prévue de la fiche (lue seulement pour une séance oubliée) ou de la session (connue au démarrage). */
 type SheetDurationState =
   | { status: 'loading' }
   | { status: 'ready'; minutes: number }
   | { status: 'error'; message: string };
 
-/** Fin d'une fiche chronométrée : durée réelle ajustable, difficulté, commentaire ; ou abandon. */
+/**
+ * Fin d'une fiche ou d'une session de tests chronométrée : durée réelle
+ * ajustable, difficulté, commentaire ; ou abandon tant que rien n'est enregistré.
+ */
 export default function FinishSessionScreen() {
   const { loading, session } = useActiveSession();
   // Séance figée à son arrivée : l'effacer en partant (enregistrée ou abandonnée)
@@ -63,7 +72,7 @@ export default function FinishSessionScreen() {
     setShown(session);
   }
 
-  if (shown !== null && shown.kind === 'training') {
+  if (shown !== null && shown.kind !== 'test') {
     return <FinishForm key={shown.startedAt} session={shown} />;
   }
 
@@ -75,16 +84,16 @@ export default function FinishSessionScreen() {
         {!loading && shown === null ? (
           <EmptyState
             title="Aucune séance en cours"
-            message="Démarre une fiche avec ▶ dans l’onglet Entraînement."
-            action={{ label: 'Voir les fiches', onPress: () => router.dismissTo('/training') }}
+            message="Démarre un test ou une session avec ▶ dans l’onglet Tests."
+            action={{ label: 'Voir les tests', onPress: () => router.dismissTo('/training') }}
           />
         ) : null}
         {shown !== null && shown.kind === 'test' ? (
-          // Lien direct (web) : un test se termine sur sa saisie des mesures, pas ici.
+          // Lien direct (web) : un test seul se termine sur son écran, où se saisissent ses mesures.
           <EmptyState
             title="Un test est en cours"
-            message={`« ${shown.title} » se termine sur sa saisie des mesures.`}
-            action={{ label: 'Ouvrir la saisie', onPress: () => finishActiveSession(shown, 'replace') }}
+            message={`« ${shown.title} » se termine sur son écran, avec ses mesures.`}
+            action={{ label: 'Ouvrir le test', onPress: () => finishActiveSession(shown, 'replace') }}
           />
         ) : null}
       </Screen>
@@ -92,8 +101,13 @@ export default function FinishSessionScreen() {
   );
 }
 
-function FinishForm({ session }: { session: ActiveSession }) {
+function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }) {
   const { clear } = useActiveSession();
+  // Session de tests : séance de module test ; déjà créée au premier test enregistré, elle est
+  // complétée ici (durée réelle, difficulté, commentaire) et ne s'abandonne plus.
+  const run = session.kind === 'session' ? session : null;
+  const moduleKey = run !== null ? TEST_MODULE_KEY : SHEET_MODULE_KEY;
+  const existingSessionId = run?.sessionId ?? null;
   // Chrono lu à l'arrivée sur l'écran : la durée proposée ne bouge plus pendant la saisie.
   const [measuredMs] = useState(() => elapsedMs(session.startedAt, Date.now()));
   const forgotten = measuredMs > FORGOTTEN_SESSION_MIN * MINUTE_MS;
@@ -101,8 +115,10 @@ function FinishForm({ session }: { session: ActiveSession }) {
   const chronoMinutes = Math.min(MAX_DURATION, elapsedMinutes(measuredMs));
   // Saisie brute : vide ou hors bornes pendant la frappe, lue à l'enregistrement.
   const [duration, setDuration] = useState<DurationDraft>(() => ({ text: String(chronoMinutes), source: 'chrono' }));
-  // Lue au montage pour une séance oubliée seulement ; ignorée sinon.
-  const [sheetDuration, setSheetDuration] = useState<SheetDurationState>({ status: 'loading' });
+  // Fiche : lue au montage pour une séance oubliée seulement ; ignorée sinon. Session : connue.
+  const [sheetDuration, setSheetDuration] = useState<SheetDurationState>(() =>
+    run !== null ? { status: 'ready', minutes: run.plannedMin } : { status: 'loading' },
+  );
   // Incrémenté par « Réessayer » : relance la lecture de la durée de la fiche.
   const [loadCount, setLoadCount] = useState(0);
   const [difficulty, setDifficulty] = useState<number | null>(null);
@@ -117,12 +133,20 @@ function FinishForm({ session }: { session: ActiveSession }) {
   // enregistrement, aucune valeur fausse ne passe.
   const durationLoading = forgotten && sheetDuration.status === 'loading';
 
+  // Durée prévue d'une session présélectionnée d'emblée pour une séance oubliée.
+  const [plannedApplied, setPlannedApplied] = useState(false);
+  if (run !== null && forgotten && !plannedApplied) {
+    setPlannedApplied(true);
+    setDuration({ text: String(run.plannedMin), source: 'sheet' });
+  }
+
+  const sheetId = session.kind === 'training' ? session.sheetId : null;
   useEffect(() => {
-    if (!forgotten) {
+    if (!forgotten || sheetId === null) {
       return;
     }
     let active = true;
-    getSheetDuration(session.sheetId).then(({ data, error: loadError }) => {
+    getSheetDuration(sheetId).then(({ data, error: loadError }) => {
       if (!active) {
         return;
       }
@@ -139,7 +163,7 @@ function FinishForm({ session }: { session: ActiveSession }) {
     return () => {
       active = false;
     };
-  }, [forgotten, session.sheetId, loadCount]);
+  }, [forgotten, sheetId, loadCount]);
 
   function reloadSheetDuration() {
     setSheetDuration({ status: 'loading' });
@@ -180,18 +204,24 @@ function FinishForm({ session }: { session: ActiveSession }) {
     pendingRef.current = true;
     setSaving(true);
     setError(null);
-    // Jamais de user_id : la base le tire du JWT. Jour du démarrage, en heure
-    // locale : une séance commencée à 23h30 compte pour ce jour-là.
-    const { data, error: createError } = await createSession({
-      date: localDateOfTimestamp(session.startedAt),
-      module: SHEET_MODULE_KEY,
-      type: getModule(SHEET_MODULE_KEY).type,
-      name: session.title,
+    const fields = {
       duration_min: durationMin,
       difficulty: difficulty ?? DEFAULT_DIFFICULTY,
       comment: comment.trim() || null,
-      sheet_id: session.sheetId,
-    });
+    };
+    // Jamais de user_id : la base le tire du JWT. Jour du démarrage, en heure
+    // locale : une séance commencée à 23h30 compte pour ce jour-là.
+    const { data, error: createError } =
+      existingSessionId !== null
+        ? await updateSession(existingSessionId, fields)
+        : await createSession({
+            ...fields,
+            date: localDateOfTimestamp(session.startedAt),
+            module: moduleKey,
+            type: getModule(moduleKey).type,
+            name: session.title,
+            sheet_id: session.sheetId,
+          });
     if (createError !== null || data === null) {
       pendingRef.current = false;
       setSaving(false);
@@ -225,7 +255,10 @@ function FinishForm({ session }: { session: ActiveSession }) {
             {/* Le champ en erreur peut être hors de l'écran : le pied, toujours visible, le dit. */}
             <FieldError message={invalidSubmit ? INVALID_DURATION_MESSAGE : error} />
             <Button label="Enregistrer" onPress={save} loading={saving} disabled={durationLoading} />
-            <Button variant="danger" label="Abandonner la séance" onPress={abandon} disabled={saving} />
+            {/* Session dont un test est enregistré : sa séance existe, rien à abandonner. */}
+            {existingSessionId === null ? (
+              <Button variant="danger" label="Abandonner la séance" onPress={abandon} disabled={saving} />
+            ) : null}
           </>
         }
       >
@@ -234,8 +267,11 @@ function FinishForm({ session }: { session: ActiveSession }) {
             {session.title}
           </Text>
           <Text style={[text.meta, text.tabular]}>
-            {`${getModule(SHEET_MODULE_KEY).label} · chrono ${formatElapsed(measuredMs)}`}
+            {`${getModule(moduleKey).label} · chrono ${formatElapsed(measuredMs)}`}
           </Text>
+          {run !== null ? (
+            <Text style={[text.meta, text.tabular]}>{formatRunProgress(run)}</Text>
+          ) : null}
         </View>
 
         {forgotten ? (
@@ -252,7 +288,7 @@ function FinishForm({ session }: { session: ActiveSession }) {
               <View style={layout.chipRow}>
                 {sheetDuration.status === 'ready' ? (
                   <Chip
-                    label={`Durée de la fiche (${sheetDuration.minutes} min)`}
+                    label={`${run !== null ? 'Durée prévue' : 'Durée de la fiche'} (${sheetDuration.minutes} min)`}
                     selected={duration.source === 'sheet'}
                     onPress={() => pickDuration('sheet', sheetDuration.minutes)}
                   />
@@ -277,6 +313,15 @@ function FinishForm({ session }: { session: ActiveSession }) {
       </Screen>
     </>
   );
+}
+
+/**
+ * Tests enregistrés d'une session : chacun fait passer au suivant, donc ceux
+ * d'avant le test en cours (tous après le dernier). « 3 tests enregistrés sur 4 ».
+ */
+function formatRunProgress(run: ActiveTestRun): string {
+  const saved = Math.min(Math.max(run.lastExerciseIndex - 1, 0), run.tests.length);
+  return `${saved} ${saved >= 2 ? 'tests enregistrés' : 'test enregistré'} sur ${run.tests.length}`;
 }
 
 /** Chrono en heures et minutes : « 6 h 12 », « 3 h 05 » ; secondes ignorées, comme dans formatElapsed. */

@@ -1,13 +1,16 @@
 -- =============================================================================
--- seed_sheets_001.sql : 7 fiches de l'onglet Entraînement (2 fiches de
--- lecture, 5 tests) et le catalogue de leurs 23 mesures, depuis
--- supabase/content/sheets_001.json et supabase/content/tests_001.json.
+-- seed_sheets_001.sql : 25 fiches de l'onglet Tests (2 fiches de lecture,
+-- 18 tests atomiques, 5 sessions) et le catalogue de leurs 23 mesures,
+-- depuis supabase/content/sheets_001.json et tests_001.json. Tests
+-- atomiques et sessions : tests_atomic_001.json et sessions_001.json,
+-- générés en même temps que ce fichier.
 --
 -- Fichier généré par scripts/build-seed-sheets.ts : ne pas modifier à la
--- main, modifier les JSON puis relancer npx tsx scripts/build-seed-sheets.ts.
+-- main, modifier les JSON sources (sheets_001.json, tests_001.json) puis
+-- relancer npx tsx scripts/build-seed-sheets.ts.
 --
 -- À exécuter dans le SQL Editor APRÈS
--- supabase/migrations/004_training_sheets_and_tests.sql.
+-- supabase/migrations/007_tests_atomic.sql : 007 d'abord, puis ce fichier.
 --
 -- 1. Récupère ton UUID : Dashboard Supabase → Authentication → Users →
 --    clique sur ton utilisateur → copie « User UID ».
@@ -17,11 +20,22 @@
 -- 3. Exécute tout le fichier avec le rôle par défaut du SQL Editor (postgres),
 --    pas en « Run as authenticated » : ce rôle n'a pas accès à auth.users.
 --
--- Idempotent : upsert sur (user_id, key) pour les mesures et sur
--- (user_id, slug) pour les fiches. Une ligne absente est insérée ; une ligne qui
--- diffère du JSON est mise à jour sur place (même id : séances et résultats
--- liés conservés) ; une ligne identique n'est pas touchée. Une seconde
--- exécution ne change rien.
+-- Trois parties, chacune en upsert idempotent : une ligne absente est insérée ;
+-- une ligne qui diffère est mise à jour sur place (même id : séances et
+-- résultats liés conservés) ; une ligne identique n'est pas touchée.
+-- 1. Catalogue des mesures, sur (user_id, key) : les 23 mesures d'avant le
+--    découpage, à l'identique (protocol = « titre de la batterie — titre du
+--    bloc ») : une ré-exécution n'en change aucune.
+-- 2. Fiches de lecture et tests atomiques, sur (user_id, slug) : un test par
+--    bloc de batterie (slug <batterie>-<n>), avec sa famille ; subtitle et
+--    blocks null pour un test, family et blocks null pour une fiche.
+-- 3. Sessions, sur (user_id, slug) : une par batterie, même slug ; la ligne
+--    de la batterie déjà en base devient la session (même id). Seuls kind,
+--    title, skill, family, duration_min (somme des durées de ses tests) et
+--    blocks sont mis à jour, jamais exercises, intro, subtitle ni positions :
+--    les anciens blocs restent stockés, sans être lus.
+-- Une seconde exécution ne change rien. Aucune ligne supprimée ; test_results
+-- n'est pas touchée (comptée avant et après, en fin de bloc).
 -- Les schémas (champ diagram) sont des fichiers du bucket Storage diagrams,
 -- déposés à la main : ce fichier ne les crée pas.
 --
@@ -35,6 +49,8 @@ declare
   uid uuid := '<REMPLACER_PAR_MON_UUID>';
   existing_count integer;
   changed_count integer;
+  results_before integer;
+  results_after integer;
 begin
   if not exists (select 1 from auth.users where id = uid) then
     raise exception 'Aucun utilisateur % dans auth.users : vérifie l’UUID copié.', uid;
@@ -49,8 +65,12 @@ begin
     raise exception 'Simulation du JWT inopérante : auth.uid() = %, attendu %.', auth.uid(), uid;
   end if;
 
+  -- Résultats de l'utilisateur : le seed n'y touche pas (recomptés en fin de bloc).
+  select count(*) into results_before from public.test_results r where r.user_id = uid;
+
   -- ---------------------------------------------------------------------------
-  -- Catalogue des mesures (clé : key) ; protocol = titre du test — titre du bloc
+  -- 1. Catalogue des mesures (clé : key) ; protocol = titre de la batterie —
+  --    titre du bloc, comme avant le découpage en tests atomiques
   -- ---------------------------------------------------------------------------
   select count(*) into existing_count
   from public.tests t
@@ -125,7 +145,8 @@ begin
     existing_count - (changed_count - (23 - existing_count));
 
   -- ---------------------------------------------------------------------------
-  -- Fiches et tests (clé : slug) ; exercises = tableau complet du JSON
+  -- 2. Fiches de lecture et tests atomiques (clé : slug) ; exercises = tableau
+  --    complet du JSON, un seul bloc pour un test ; blocks toujours null
   -- ---------------------------------------------------------------------------
   select count(*) into existing_count
   from public.training_sheets s
@@ -133,16 +154,30 @@ begin
     and s.slug in (
       'bo-tir-finition-surface',
       'bo-passe-remise-controle-scan',
-      'test-tir',
-      'test-passe',
-      'test-dribble',
-      'test-jonglerie',
-      'test-physique'
+      'test-tir-1',
+      'test-tir-2',
+      'test-tir-3',
+      'test-passe-1',
+      'test-passe-2',
+      'test-passe-3',
+      'test-dribble-1',
+      'test-dribble-2',
+      'test-dribble-3',
+      'test-dribble-4',
+      'test-jonglerie-1',
+      'test-jonglerie-2',
+      'test-jonglerie-3',
+      'test-jonglerie-4',
+      'test-physique-1',
+      'test-physique-2',
+      'test-physique-3',
+      'test-physique-4'
     );
 
   insert into public.training_sheets
-    (slug, kind, title, subtitle, positions, skill, duration_min, intro, exercises, is_public)
-  select v.slug, v.kind, v.title, v.subtitle, v.positions, v.skill, v.duration_min, v.intro, v.exercises, false
+    (slug, kind, title, subtitle, positions, skill, family, duration_min, intro, exercises, blocks, is_public)
+  select v.slug, v.kind, v.title, v.subtitle, v.positions, v.skill, v.family, v.duration_min, v.intro,
+         v.exercises, v.blocks, false
   from (values
     (
       'bo-tir-finition-surface',
@@ -151,6 +186,7 @@ begin
       'Séance BO — solo, but réel',
       array['avant_centre', 'ailier', 'milieu_offensif'],
       'tir',
+      null,
       45,
       '[
         "45'' hors échauffement. 1 joueur, 2 ballons, plots, but réel avec filet. Intérieur du pied D / G, placé « petit filet ».",
@@ -287,7 +323,8 @@ begin
           },
           "diagram": "tir-exo4.png"
         }
-      ]'::jsonb
+      ]'::jsonb,
+      null::text[]
     ),
     (
       'bo-passe-remise-controle-scan',
@@ -296,6 +333,7 @@ begin
       'Séance BO — solo, mur bas — routine quotidienne',
       array['tous'],
       'passe',
+      null,
       45,
       '[
         "45'' hors échauffement. 1 joueur, 2 ballons, plots, mur < 1 m : tout ballon qui monte au-dessus est une passe ratée, c''est le juge de la séance.",
@@ -438,16 +476,18 @@ begin
           },
           "diagram": "passe-exo4.png"
         }
-      ]'::jsonb
+      ]'::jsonb,
+      null::text[]
     ),
     (
-      'test-tir',
+      'test-tir-1',
       'test',
-      'Test Tir',
-      'Mensuel — but réel, 2 ballons, plots — 30''',
+      'Précision à l''arrêt',
+      null,
       array['tous'],
       'tir',
-      30,
+      'tir_arret',
+      10,
       '[
         "Même protocole chaque mois : mêmes distances, même but, même échauffement avant (10'' hors test).",
         "Zone petit filet = ballon au sol entre le poteau et un plot posé à 1 m. Noter chaque frappe immédiatement, pas de mémoire."
@@ -492,9 +532,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-tir-2',
+      'test',
+      'Finition après contrôle',
+      null,
+      array['tous'],
+      'tir',
+      'tir_mouvement',
+      10,
+      '[
+        "Même protocole chaque mois : mêmes distances, même but, même échauffement avant (10'' hors test).",
+        "Zone petit filet = ballon au sol entre le poteau et un plot posé à 1 m. Noter chaque frappe immédiatement, pas de mémoire."
+      ]'::jsonb,
+      '[
         {
-          "order": 2,
+          "order": 1,
           "title": "Finition après contrôle",
           "duration_min": 10,
           "objective": "Mesurer la finition en 2 touches après un contrôle orienté, des deux côtés.",
@@ -525,9 +582,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-tir-3',
+      'test',
+      'Enchaînement sous chrono',
+      null,
+      array['tous'],
+      'tir',
+      'tir_surface',
+      8,
+      '[
+        "Même protocole chaque mois : mêmes distances, même but, même échauffement avant (10'' hors test).",
+        "Zone petit filet = ballon au sol entre le poteau et un plot posé à 1 m. Noter chaque frappe immédiatement, pas de mémoire."
+      ]'::jsonb,
+      '[
         {
-          "order": 3,
+          "order": 1,
           "title": "Enchaînement sous chrono",
           "duration_min": 8,
           "objective": "Mesurer la qualité de frappe quand la vitesse d''exécution est imposée.",
@@ -565,16 +639,18 @@ begin
             }
           ]
         }
-      ]'::jsonb
+      ]'::jsonb,
+      null::text[]
     ),
     (
-      'test-passe',
+      'test-passe-1',
       'test',
-      'Test Passe',
-      'Mensuel — mur bas, plots, 25 m d''espace — 30''',
+      'Précision courte au mur',
+      null,
       array['tous'],
       'passe',
-      30,
+      'passe_courte',
+      8,
       '[
         "Même mur, même distance, mêmes portes chaque mois. Ballon qui monte au-dessus du mur = non compté.",
         "Chrono au téléphone pour les blocs de 2''."
@@ -618,9 +694,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-passe-2',
+      'test',
+      'Passe longue dans la zone',
+      null,
+      array['tous'],
+      'passe',
+      'passe_longue',
+      12,
+      '[
+        "Même mur, même distance, mêmes portes chaque mois. Ballon qui monte au-dessus du mur = non compté.",
+        "Chrono au téléphone pour les blocs de 2''."
+      ]'::jsonb,
+      '[
         {
-          "order": 2,
+          "order": 1,
           "title": "Passe longue dans la zone",
           "duration_min": 12,
           "objective": "Mesurer la précision de la passe longue au sol ou aérienne, des deux pieds.",
@@ -657,9 +750,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-passe-3',
+      'test',
+      'Passe en mouvement',
+      null,
+      array['tous'],
+      'passe',
+      'passe_mouvement',
+      10,
+      '[
+        "Même mur, même distance, mêmes portes chaque mois. Ballon qui monte au-dessus du mur = non compté.",
+        "Chrono au téléphone pour les blocs de 2''."
+      ]'::jsonb,
+      '[
         {
-          "order": 3,
+          "order": 1,
           "title": "Passe en mouvement",
           "duration_min": 10,
           "objective": "Mesurer la précision de la passe après une conduite, en alternant les pieds.",
@@ -691,16 +801,18 @@ begin
             }
           ]
         }
-      ]'::jsonb
+      ]'::jsonb,
+      null::text[]
     ),
     (
-      'test-dribble',
+      'test-dribble-1',
       'test',
-      'Test Dribble',
-      'Mensuel — plots, 20 m — 25''',
+      'Slalom conduite libre',
+      null,
       array['tous'],
       'dribble',
-      25,
+      'dribble_slalom',
+      7,
       '[
         "Chrono au téléphone. Pour les slaloms, noter le meilleur de 3 ; les deux autres passages sont le repos de l''autre.",
         "Plot touché = +1 s ajouté au chrono."
@@ -738,9 +850,26 @@ begin
               "higher_is_better": false
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-dribble-2',
+      'test',
+      'Slalom pied gauche',
+      null,
+      array['tous'],
+      'dribble',
+      'dribble_slalom',
+      7,
+      '[
+        "Chrono au téléphone. Pour les slaloms, noter le meilleur de 3 ; les deux autres passages sont le repos de l''autre.",
+        "Plot touché = +1 s ajouté au chrono."
+      ]'::jsonb,
+      '[
         {
-          "order": 2,
+          "order": 1,
           "title": "Slalom pied gauche",
           "duration_min": 7,
           "objective": "Mesurer la conduite du pied faible sur le même dispositif.",
@@ -771,9 +900,26 @@ begin
               "higher_is_better": false
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-dribble-3',
+      'test',
+      'Conduite-vitesse 20 m',
+      null,
+      array['tous'],
+      'dribble',
+      'dribble_conduite',
+      5,
+      '[
+        "Chrono au téléphone. Pour les slaloms, noter le meilleur de 3 ; les deux autres passages sont le repos de l''autre.",
+        "Plot touché = +1 s ajouté au chrono."
+      ]'::jsonb,
+      '[
         {
-          "order": 3,
+          "order": 1,
           "title": "Conduite-vitesse 20 m",
           "duration_min": 5,
           "objective": "Mesurer la vitesse pure en conduite de balle sur une ligne droite avec demi-tour.",
@@ -804,9 +950,26 @@ begin
               "higher_is_better": false
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-dribble-4',
+      'test',
+      'Huit en 30 secondes',
+      null,
+      array['tous'],
+      'dribble',
+      'dribble_slalom',
+      6,
+      '[
+        "Chrono au téléphone. Pour les slaloms, noter le meilleur de 3 ; les deux autres passages sont le repos de l''autre.",
+        "Plot touché = +1 s ajouté au chrono."
+      ]'::jsonb,
+      '[
         {
-          "order": 4,
+          "order": 1,
           "title": "Huit en 30 secondes",
           "duration_min": 6,
           "objective": "Mesurer la maîtrise du ballon en changements de direction continus, pied libre puis pied gauche.",
@@ -844,16 +1007,18 @@ begin
             }
           ]
         }
-      ]'::jsonb
+      ]'::jsonb,
+      null::text[]
     ),
     (
-      'test-jonglerie',
+      'test-jonglerie-1',
       'test',
-      'Test Jonglerie',
-      'Mensuel — 1 ballon — 20''',
+      'Alternance stricte D / G',
+      null,
       array['tous'],
       'jonglerie',
-      20,
+      'jonglerie_pieds',
+      6,
       '[
         "Ballon qui touche le sol = fin de l''essai. Pour chaque record : 2 essais, noter le meilleur.",
         "Pas de rattrapage à la main, pas de rebond au sol."
@@ -890,9 +1055,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-jonglerie-2',
+      'test',
+      'Pied gauche seul',
+      null,
+      array['tous'],
+      'jonglerie',
+      'jonglerie_pieds',
+      6,
+      '[
+        "Ballon qui touche le sol = fin de l''essai. Pour chaque record : 2 essais, noter le meilleur.",
+        "Pas de rattrapage à la main, pas de rebond au sol."
+      ]'::jsonb,
+      '[
         {
-          "order": 2,
+          "order": 1,
           "title": "Pied gauche seul",
           "duration_min": 6,
           "objective": "Mesurer le contrôle aérien du pied faible.",
@@ -922,9 +1104,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-jonglerie-3',
+      'test',
+      'Tête',
+      null,
+      array['tous'],
+      'jonglerie',
+      'jonglerie_tete',
+      4,
+      '[
+        "Ballon qui touche le sol = fin de l''essai. Pour chaque record : 2 essais, noter le meilleur.",
+        "Pas de rattrapage à la main, pas de rebond au sol."
+      ]'::jsonb,
+      '[
         {
-          "order": 3,
+          "order": 1,
           "title": "Tête",
           "duration_min": 4,
           "objective": "Mesurer le contrôle aérien de la tête.",
@@ -954,9 +1153,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-jonglerie-4',
+      'test',
+      '30 secondes libres',
+      null,
+      array['tous'],
+      'jonglerie',
+      'jonglerie_pieds',
+      4,
+      '[
+        "Ballon qui touche le sol = fin de l''essai. Pour chaque record : 2 essais, noter le meilleur.",
+        "Pas de rattrapage à la main, pas de rebond au sol."
+      ]'::jsonb,
+      '[
         {
-          "order": 4,
+          "order": 1,
           "title": "30 secondes libres",
           "duration_min": 4,
           "objective": "Mesurer la cadence de jonglerie toutes surfaces sous chrono.",
@@ -987,16 +1203,18 @@ begin
             }
           ]
         }
-      ]'::jsonb
+      ]'::jsonb,
+      null::text[]
     ),
     (
-      'test-physique',
+      'test-physique-1',
       'test',
-      'Test Physique',
-      'Mensuel — piste ou terrain mesuré — 30''',
+      'Sprint 30 m',
+      null,
       array['tous'],
       'physique',
-      30,
+      'phys_vitesse',
+      8,
       '[
         "Échauffement 10'' obligatoire avant (hors test). Ordre imposé : sprint, agilité, gainage, puis le 6 minutes en dernier.",
         "Même surface et mêmes chaussures chaque mois. Les chronos à la main sont imprécis : toujours le même protocole (téléphone au sol, départ au bip)."
@@ -1033,9 +1251,26 @@ begin
               "higher_is_better": false
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-physique-2',
+      'test',
+      '5-10-5 (agilité)',
+      null,
+      array['tous'],
+      'physique',
+      'phys_agilite',
+      7,
+      '[
+        "Échauffement 10'' obligatoire avant (hors test). Ordre imposé : sprint, agilité, gainage, puis le 6 minutes en dernier.",
+        "Même surface et mêmes chaussures chaque mois. Les chronos à la main sont imprécis : toujours le même protocole (téléphone au sol, départ au bip)."
+      ]'::jsonb,
+      '[
         {
-          "order": 2,
+          "order": 1,
           "title": "5-10-5 (agilité)",
           "duration_min": 7,
           "objective": "Mesurer la vitesse de changement de direction.",
@@ -1066,9 +1301,26 @@ begin
               "higher_is_better": false
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-physique-3',
+      'test',
+      'Gainage frontal',
+      null,
+      array['tous'],
+      'physique',
+      'phys_gainage',
+      5,
+      '[
+        "Échauffement 10'' obligatoire avant (hors test). Ordre imposé : sprint, agilité, gainage, puis le 6 minutes en dernier.",
+        "Même surface et mêmes chaussures chaque mois. Les chronos à la main sont imprécis : toujours le même protocole (téléphone au sol, départ au bip)."
+      ]'::jsonb,
+      '[
         {
-          "order": 3,
+          "order": 1,
           "title": "Gainage frontal",
           "duration_min": 5,
           "objective": "Mesurer l''endurance de la ceinture abdominale.",
@@ -1098,9 +1350,26 @@ begin
               "higher_is_better": true
             }
           ]
-        },
+        }
+      ]'::jsonb,
+      null::text[]
+    ),
+    (
+      'test-physique-4',
+      'test',
+      'Test 6 minutes',
+      null,
+      array['tous'],
+      'physique',
+      'phys_endurance',
+      10,
+      '[
+        "Échauffement 10'' obligatoire avant (hors test). Ordre imposé : sprint, agilité, gainage, puis le 6 minutes en dernier.",
+        "Même surface et mêmes chaussures chaque mois. Les chronos à la main sont imprécis : toujours le même protocole (téléphone au sol, départ au bip)."
+      ]'::jsonb,
+      '[
         {
-          "order": 4,
+          "order": 1,
           "title": "Test 6 minutes",
           "duration_min": 10,
           "objective": "Estimer la VMA seul, sans matériel de bip.",
@@ -1132,34 +1401,100 @@ begin
             }
           ]
         }
-      ]'::jsonb
+      ]'::jsonb,
+      null::text[]
     )
-  ) as v(slug, kind, title, subtitle, positions, skill, duration_min, intro, exercises)
+  ) as v(slug, kind, title, subtitle, positions, skill, family, duration_min, intro, exercises, blocks)
   on conflict (user_id, slug) where slug is not null do update
   set kind = excluded.kind,
       title = excluded.title,
       subtitle = excluded.subtitle,
       positions = excluded.positions,
       skill = excluded.skill,
+      family = excluded.family,
       duration_min = excluded.duration_min,
       intro = excluded.intro,
-      exercises = excluded.exercises
+      exercises = excluded.exercises,
+      blocks = excluded.blocks
   where (training_sheets.kind, training_sheets.title, training_sheets.subtitle, training_sheets.positions,
-         training_sheets.skill, training_sheets.duration_min, training_sheets.intro, training_sheets.exercises)
+         training_sheets.skill, training_sheets.family, training_sheets.duration_min, training_sheets.intro,
+         training_sheets.exercises, training_sheets.blocks)
     is distinct from (excluded.kind, excluded.title, excluded.subtitle, excluded.positions,
-                      excluded.skill, excluded.duration_min, excluded.intro, excluded.exercises);
+                      excluded.skill, excluded.family, excluded.duration_min, excluded.intro,
+                      excluded.exercises, excluded.blocks);
 
   get diagnostics changed_count = row_count;
-  raise notice 'Fiches pour % : sur 7, insérées : %, mises à jour : %, inchangées : %.',
+  raise notice 'Fiches et tests atomiques pour % : sur 20, insérées : %, mises à jour : %, inchangées : %.',
     uid,
-    7 - existing_count,
-    changed_count - (7 - existing_count),
-    existing_count - (changed_count - (7 - existing_count));
+    20 - existing_count,
+    changed_count - (20 - existing_count),
+    existing_count - (changed_count - (20 - existing_count));
+
+  -- ---------------------------------------------------------------------------
+  -- 3. Sessions (clé : slug) ; blocks = slugs de leurs tests, duration_min =
+  --    somme de leurs durées. Mise à jour limitée à kind, title, skill, family,
+  --    duration_min et blocks : exercises, intro, subtitle et positions de la
+  --    batterie déjà en base sont gardés tels quels.
+  -- ---------------------------------------------------------------------------
+  select count(*) into existing_count
+  from public.training_sheets s
+  where s.user_id = uid
+    and s.slug in (
+      'test-tir',
+      'test-passe',
+      'test-dribble',
+      'test-jonglerie',
+      'test-physique'
+    );
+
+  insert into public.training_sheets
+    (slug, kind, title, positions, skill, family, duration_min, blocks, is_public)
+  select v.slug, 'session', v.title, array['tous'], v.skill, null::text, v.duration_min, v.blocks, false
+  from (values
+    ('test-tir', 'Test Tir', 'tir', 28, array['test-tir-1', 'test-tir-2', 'test-tir-3']),
+    ('test-passe', 'Test Passe', 'passe', 30, array['test-passe-1', 'test-passe-2', 'test-passe-3']),
+    ('test-dribble', 'Test Dribble', 'dribble', 25, array['test-dribble-1', 'test-dribble-2', 'test-dribble-3', 'test-dribble-4']),
+    ('test-jonglerie', 'Test Jonglerie', 'jonglerie', 20, array['test-jonglerie-1', 'test-jonglerie-2', 'test-jonglerie-3', 'test-jonglerie-4']),
+    ('test-physique', 'Test Physique', 'physique', 30, array['test-physique-1', 'test-physique-2', 'test-physique-3', 'test-physique-4'])
+  ) as v(slug, title, skill, duration_min, blocks)
+  on conflict (user_id, slug) where slug is not null do update
+  set kind = excluded.kind,
+      title = excluded.title,
+      skill = excluded.skill,
+      family = excluded.family,
+      duration_min = excluded.duration_min,
+      blocks = excluded.blocks
+  where (training_sheets.kind, training_sheets.title, training_sheets.skill, training_sheets.family,
+         training_sheets.duration_min, training_sheets.blocks)
+    is distinct from (excluded.kind, excluded.title, excluded.skill, excluded.family,
+                      excluded.duration_min, excluded.blocks);
+
+  get diagnostics changed_count = row_count;
+  raise notice 'Sessions pour % : sur 5, insérées : %, mises à jour : %, inchangées : %.',
+    uid,
+    5 - existing_count,
+    changed_count - (5 - existing_count),
+    existing_count - (changed_count - (5 - existing_count));
+
+  select count(*) into results_after from public.test_results r where r.user_id = uid;
+  if results_after <> results_before then
+    raise exception 'Résultats de tests pour % : % avant, % après ; rien n’est appliqué.',
+      uid, results_before, results_after;
+  end if;
+  raise notice 'Résultats de tests pour % : %, inchangés.', uid, results_after;
 end
 $$;
 
--- Contrôle (tous utilisateurs confondus). Attendu après seed.sql, 004 et une
--- première exécution, inchangé après une seconde : training_sheets 10 (3 de
--- démonstration + 7), tests 25 (2 de démonstration + 23).
-select 'training_sheets' as table_name, count(*) as nb_lignes from public.training_sheets
-union all select 'tests', count(*) from public.tests;
+-- Contrôle (tous utilisateurs confondus). Attendu après seed.sql, 007 et une
+-- première exécution, inchangé après une seconde :
+--   training_sheets · training 5 (3 de démonstration + 2),
+--   training_sheets · test 18, training_sheets · session 5,
+--   tests 25 (2 de démonstration + 23),
+--   test_results : le nombre relevé avant l'exécution (même requête, lancée
+--   seule) ; le seed n'y touche pas.
+select 'training_sheets · ' || s.kind as controle, count(*) as nb_lignes
+from public.training_sheets s
+group by s.kind
+union all select 'tests', count(*) from public.tests
+union all select 'test_results', count(*) from public.test_results
+order by controle;

@@ -1,6 +1,6 @@
 import { useIsFocused } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { AppState, Pressable, StyleSheet, Text } from 'react-native';
+import { AppState, Platform, Pressable, StyleSheet, Text } from 'react-native';
 
 import { elapsedMs, formatElapsed, type ActiveSession } from '../lib/active-session';
 import { openActiveSession, useActiveSession } from '../lib/active-session-context';
@@ -13,7 +13,7 @@ const TICK_MS = 1000;
 /**
  * Au-dessus de la barre d'onglets (prop tabBar de app/(tabs)/_layout.tsx), sur
  * les 4 onglets : « En cours · titre · 12:34 », tap → la fiche à sa dernière
- * étape. Au-dessus, l'échec éventuel de mémorisation de la séance. Rien sinon.
+ * étape, le test, ou le test en cours d'une session. Au-dessus, l'échec éventuel de mémorisation de la séance. Rien sinon.
  */
 export function ActiveSessionBar() {
   const { session, error, dismissError } = useActiveSession();
@@ -51,6 +51,24 @@ function SessionBar({ session }: { session: ActiveSession }) {
       </Text>
       <Text style={[text.bodyStrong, text.tabular, styles.onAccent]}>{` · ${elapsed}`}</Text>
     </Pressable>
+  );
+}
+
+/**
+ * Chrono de la séance en cours, à droite de l'en-tête natif d'une fiche ou d'un
+ * test : même source que le bandeau des onglets.
+ */
+export function HeaderClock({ startedAt }: { startedAt: string }) {
+  // Recalculé chaque seconde seulement écran au premier plan et app active.
+  const elapsed = useElapsedLabel(startedAt);
+  // Libellé stable : un chrono relu chaque seconde par le lecteur d'écran serait du bruit.
+  return (
+    <Text
+      accessibilityLabel="Chrono de la séance"
+      style={[text.bodyStrong, text.tabular, Platform.OS === 'web' && styles.headerClockWeb]}
+    >
+      {elapsed}
+    </Text>
   );
 }
 
@@ -114,5 +132,9 @@ const styles = StyleSheet.create({
   },
   errorPressed: {
     backgroundColor: colors.surfacePressed,
+  },
+  // En-tête web : rien n'écarte sa droite du bord (Android et iOS le font déjà).
+  headerClockWeb: {
+    paddingEnd: spacing.lg,
   },
 });

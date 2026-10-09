@@ -7,10 +7,11 @@ import {
   elapsedMs,
   formatElapsed,
   getActiveSession,
-  setActiveSessionIndex,
+  saveActiveSession,
   startActiveSession,
   type ActiveSession,
-  type ActiveSessionSheet,
+  type ActiveSessionStart,
+  type ActiveTestRun,
 } from './active-session';
 import { hapticMedium } from './haptics';
 
@@ -26,10 +27,15 @@ type ActiveSessionContextValue = {
   session: ActiveSession | null;
   /** Dernier échec de relecture, d'étape ou d'effacement, affiché par le bandeau des onglets ; null sinon. */
   error: string | null;
-  /** Démarre la fiche au premier exercice ; renvoie l'erreur de mémorisation (rien n'a démarré), ou null. */
-  start: (sheet: ActiveSessionSheet) => Promise<string | null>;
+  /** Démarre la fiche, le test ou la session à sa première étape ; renvoie l'erreur de mémorisation (rien n'a démarré), ou null. */
+  start: (start: ActiveSessionStart) => Promise<string | null>;
   /** Étape affichée de la séance en cours ; sans effet sans séance ou si elle ne change pas. */
   setIndex: (index: number) => void;
+  /**
+   * Session de tests : test en cours et séance créée, mis à jour d'un coup (un
+   * test enregistré fait passer au suivant) ; sans effet hors session.
+   */
+  updateRun: (patch: Partial<Pick<ActiveTestRun, 'lastExerciseIndex' | 'sessionId'>>) => void;
   /** Séance enregistrée ou abandonnée : plus rien en cours, aussitôt ; l'effacement de l'appareil suit. */
   clear: () => Promise<void>;
   dismissError: () => void;
@@ -63,8 +69,8 @@ export function ActiveSessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const start = useCallback(async (sheet: ActiveSessionSheet): Promise<string | null> => {
-    const result = await enqueue(queueRef, () => startActiveSession(sheet));
+  const start = useCallback(async (input: ActiveSessionStart): Promise<string | null> => {
+    const result = await enqueue(queueRef, () => startActiveSession(input));
     if (result.error !== null) {
       return result.error;
     }
@@ -74,21 +80,38 @@ export function ActiveSessionProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
-  const setIndex = useCallback((index: number) => {
-    const current = sessionRef.current;
-    if (current === null || current.lastExerciseIndex === index) {
-      return;
-    }
-    // Mémoire d'abord : le bandeau ramène à la bonne étape même si l'écriture échoue.
-    const next: ActiveSession = { ...current, lastExerciseIndex: index };
+  /** Mémoire d'abord : le bandeau ramène à la bonne étape même si l'écriture échoue. */
+  const remember = useCallback((next: ActiveSession) => {
     sessionRef.current = next;
     setSession(next);
-    enqueue(queueRef, () => setActiveSessionIndex(current, index)).then((result) => {
+    enqueue(queueRef, () => saveActiveSession(next)).then((result) => {
       if (result.error !== null) {
         setError(result.error);
       }
     });
   }, []);
+
+  const setIndex = useCallback(
+    (index: number) => {
+      const current = sessionRef.current;
+      if (current === null || current.lastExerciseIndex === index) {
+        return;
+      }
+      remember({ ...current, lastExerciseIndex: index });
+    },
+    [remember],
+  );
+
+  const updateRun = useCallback(
+    (patch: Partial<Pick<ActiveTestRun, 'lastExerciseIndex' | 'sessionId'>>) => {
+      const current = sessionRef.current;
+      if (current === null || current.kind !== 'session') {
+        return;
+      }
+      remember({ ...current, ...patch });
+    },
+    [remember],
+  );
 
   const clear = useCallback(async () => {
     sessionRef.current = null;
@@ -101,8 +124,8 @@ export function ActiveSessionProvider({ children }: { children: ReactNode }) {
   const dismissError = useCallback(() => setError(null), []);
 
   const value = useMemo(
-    () => ({ loading, session, error, start, setIndex, clear, dismissError }),
-    [loading, session, error, start, setIndex, clear, dismissError],
+    () => ({ loading, session, error, start, setIndex, updateRun, clear, dismissError }),
+    [loading, session, error, start, setIndex, updateRun, clear, dismissError],
   );
 
   return <ActiveSessionContext value={value}>{children}</ActiveSessionContext>;
@@ -129,22 +152,42 @@ function enqueue<T>(queue: RefObject<Promise<unknown>>, operation: () => Promise
  */
 export type NavigationMode = 'push' | 'replace';
 
-/** Fiche de la séance en cours ; l'écran de fiche reprend lui-même à lastExerciseIndex. */
+/**
+ * Écran de la séance en cours : la fiche (qui reprend elle-même à
+ * lastExerciseIndex), le test, ou le test en cours de la session ; une session
+ * dont tous les tests sont passés, sa fin à enregistrer.
+ */
 export function openActiveSession(session: ActiveSession, mode: NavigationMode): void {
-  const href = { pathname: '/sheet/[id]', params: { id: session.sheetId } } as const;
-  if (mode === 'push') {
-    router.push(href);
-  } else {
-    router.replace(href);
+  navigate(activeSessionHref(session), mode);
+}
+
+/**
+ * Terminer depuis un autre écran : une fiche ou une session passe par l'écran de
+ * fin ; un test se termine sur son propre écran, où se saisissent ses mesures.
+ */
+export function finishActiveSession(session: ActiveSession, mode: NavigationMode): void {
+  navigate(session.kind === 'test' ? activeSessionHref(session) : '/session/finish', mode);
+}
+
+type ActiveSessionHref =
+  | { pathname: '/sheet/[id]'; params: { id: string } }
+  | { pathname: '/test/[slug]'; params: { slug: string } }
+  | '/session/finish';
+
+function activeSessionHref(session: ActiveSession): ActiveSessionHref {
+  switch (session.kind) {
+    case 'training':
+      return { pathname: '/sheet/[id]', params: { id: session.sheetId } };
+    case 'test':
+      return { pathname: '/test/[slug]', params: { slug: session.slug } };
+    case 'session': {
+      const slug = session.tests[session.lastExerciseIndex - 1];
+      return slug === undefined ? '/session/finish' : { pathname: '/test/[slug]', params: { slug } };
+    }
   }
 }
 
-/** Terminer depuis un autre écran : une fiche passe par l'écran de fin, un test par sa saisie des mesures. */
-export function finishActiveSession(session: ActiveSession, mode: NavigationMode): void {
-  const href =
-    session.kind === 'test'
-      ? ({ pathname: '/sheet/[id]', params: { id: session.sheetId, finish: '1' } } as const)
-      : '/session/finish';
+function navigate(href: ActiveSessionHref, mode: NavigationMode): void {
   if (mode === 'push') {
     router.push(href);
   } else {

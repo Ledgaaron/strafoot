@@ -20,7 +20,8 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - @expo/vector-icons (version du SDK, installée par `npx expo install` : le SDK 57 ne
   l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation, coche d'une
   puce choisie, ▶ de démarrage, boutons icône, avatar de l'Accueil, tuile d'un module, calendrier
-  et chevron des lignes de choix, fermeture d'une feuille) ; aucune autre lib d'icônes
+  et chevron des lignes de choix, fermeture d'une feuille, compétence de l'onglet Tests) ; aucune
+  autre lib d'icônes
 - expo-font (version du SDK) et @expo-google-fonts/barlow-condensed, installés par
   `npx expo install` (plugin expo-font ajouté dans app.json) : Barlow Condensed 600 et 700,
   seule police custom, chargée par app/_layout.tsx depuis les dossiers par graisse du paquet
@@ -28,7 +29,8 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - expo-haptics (version du SDK, installée par `npx expo install`) : importée seulement par
   lib/haptics.ts : `hapticSuccess` (ligne de mesure validée) et `hapticMedium` (tout
   enregistrement : séance libre, séance déjà faite, « Séance faite », fin de séance
-  chronométrée via `vibrateOnSave`, test, profil) ; rien sur le web, jamais d'erreur
+  chronométrée via `vibrateOnSave`, test seul ou test d'une session, profil) ; rien sur le web,
+  jamais d'erreur
 - expo-blur (version du SDK, installée par `npx expo install`) : BlurView importée seulement par
   components/bottom-sheet.tsx (voile derrière une feuille du bas) ; flou réel sur le web
   (backdrop-filter) et iOS, simple voile translucide sur Android (pas de cible de flou) ; un voile
@@ -59,23 +61,32 @@ session/new.tsx création d'une séance : derniers réglages lus à l'ouverture 
 dernières durées ; en échec, valeurs par défaut et message), pré-remplie depuis une fiche (« Séance déjà faite » :
 sheetId, module, nom, durée)
 session/[id].tsx détail/édition/suppression d'une séance
-session/finish.tsx fin d'une fiche chronométrée : durée réelle (±5 ou saisie), difficulté, commentaire, ou abandon ;
-au-delà de 3 h de chrono, « séance oubliée ? » : durée de la fiche ou du chrono
+session/finish.tsx fin d'une fiche ou d'une session de tests chronométrée : durée réelle (±5 ou saisie), difficulté,
+commentaire, ou abandon tant que rien n'est enregistré ; session : séance de module test déjà créée par son 1er test,
+mise à jour (updateSession), « N tests enregistrés sur M » ; au-delà de 3 h de chrono, « séance oubliée ? » : durée
+de la fiche (durée prévue d'une session) ou du chrono
 quiz/_layout.tsx garde d'auth + pile de la série ; quiz/run.tsx série de 5 questions puis récap
-training/_layout.tsx garde d'auth ; training/[theme].tsx fiches d'un thème (tests, spécifiques, récupération) et ▶
-sheet/_layout.tsx garde d'auth ; sheet/[id].tsx lecture d'une fiche ou d'un test, saisie des mesures, test enregistré
+training/_layout.tsx garde d'auth ; training/[theme].tsx fiches de lecture d'un thème (specifique, recuperation) et ▶,
+ouvert par le lien « Fiches d'entraînement » de l'onglet Tests
+sheet/_layout.tsx garde d'auth ; sheet/[id].tsx lecture d'une fiche (kind training seulement) écran par écran
+test/_layout.tsx garde d'auth ; test/[slug].tsx un test atomique sur un écran : protocole, schéma, « Plus de tips »,
+saisie des mesures (✓ par ligne, record et dernier), enregistrement seul ou dans une session, confirmation et records
 profile/_layout.tsx garde d'auth ; profile/edit.tsx édition du profil
 measure/_layout.tsx garde d'auth ; measure/[testId].tsx courbe, historique et suppression des résultats
-(dossier sans index à côté d'un onglet du même nom : /quiz, /training et /profile restent les onglets)
+(dossier sans index à côté d'un onglet du même nom : /quiz, /training et /profile restent les onglets ; /training
+est l'onglet Tests)
 lib/
 supabase.ts client unique
 auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth
-active-session.ts séance en cours sur l'appareil (clé strafoot.activeSession) : get / start /
-setIndex / clear sans exception ; formatElapsed et elapsedMinutes purs, testés par
-active-session.test.ts ; seul fichier avec lib/supabase.ts à importer AsyncStorage
+active-session.ts séance en cours sur l'appareil (clé strafoot.activeSession), union par kind :
+training (fiche, sheetId), test (test seul, sheetId + slug), session (sheetId ou null pour une session
+proposée, slugs des tests, durée prévue, sessionId de la séance créée au 1er test) ; get / start / save /
+clear sans exception ; formatElapsed et elapsedMinutes purs, testés par active-session.test.ts ; seul
+fichier avec lib/supabase.ts à importer AsyncStorage
 active-session-context.tsx séance en cours partagée (provider monté dans app/_layout.tsx,
-useActiveSession), navigation vers elle (reprendre, terminer), Alert « séance déjà en cours »,
-confirmation d'abandon, vibration d'enregistrement (vibrateOnSave, via haptics.ts)
+useActiveSession : start, setIndex, updateRun pour une session), navigation vers elle (reprendre :
+fiche, test, test en cours d'une session ; terminer), Alert « séance déjà en cours », confirmation
+d'abandon, vibration d'enregistrement (vibrateOnSave, via haptics.ts)
 haptics.ts hapticSuccess et hapticMedium : seul import d'expo-haptics, rien sur le web
 reduce-motion.ts « Réduire les animations » (AccessibilityInfo ; prefers-reduced-motion sur le web) :
 watchReduceMotion (démarré par app/_layout.tsx), useReduceMotion, isReduceMotionEnabled
@@ -88,16 +99,23 @@ daysBetween (« J-42 »), formatLongDay (« Vendredi 9 octobre »), formatRecent
 « hier », « mar. 6 oct. ») et formatDateLine (« Aujourd’hui · 09/10/2026 ») : seul endroit où un jour
 est calculé ; ces huit-là testés par dates.test.ts
 modules.ts liste fermée des modules de séance (MODULE_KEYS), icône Ionicons de chaque module (moduleIcon)
-training-themes.ts thèmes fermés de l'onglet Entraînement (tests, specifique, recuperation) et thème d'une fiche
+training-themes.ts thèmes fermés des fiches de lecture (specifique, recuperation) et thème d'une fiche
+test-families.ts compétences (tir, passe, dribble, jonglerie, physique ; libellé, icône Ionicons) et familles de
+tests (liste fermée FAMILY_KEYS, libellé, compétence), rang d'une famille dans une session (sessionRank)
+test-plan.ts proposeSession : session proposée de l'onglet Tests (pur, testé)
+records.ts record d'une mesure selon higher_is_better, isNewRecord (pur, testé)
 quiz-taxonomy.ts listes fermées du quiz : thèmes, postes, barème
 profile-taxonomy.ts postes du profil (ceux du quiz sans 'tous') et pieds forts
 quiz-select.ts choix des questions d'une série (pur, testé)
 measure-delta.ts évolution d'une mesure et format des valeurs (pur, testé)
-sheet-types.ts format des fiches (exercises, intro, mesures), validation partagée app / script
+sheet-types.ts format des fiches, tests et sessions (kind, exercises, intro, mesures, blocks ; test atomique =
+un exercice), validation partagée app / script
 json-types.ts contenu des autres colonnes jsonb (questions.options)
 diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
 db/ une fonction par requête, typée (sessions.ts, dont getSessionDefaults : dernier module et dernière
-durée par module ; answers.ts, questions.ts, training.ts, test-results.ts, profiles.ts) ; activity.ts :
+durée par module ; answers.ts, questions.ts, profiles.ts ; training.ts : fiches, listTests (tests atomiques
+avec dernière fois et records, deux requêtes), listSessions, getTestBySlug ; test-results.ts, dont
+listCatalogByKeys et listResultValues) ; activity.ts :
 listActivityHistory, jours actifs séances + quiz de tout l'historique en une lecture (Accueil, feuille
 du mois) ; result.ts : contrat { data, error }
 streak.ts calcul pur, testable, sans dépendance
@@ -120,7 +138,7 @@ day-cell.tsx case d'un jour (numéro, aujourd'hui encadré accent, jour choisi s
 jour à venir en secondaire ou inerte) et ActivityLegend : les mêmes dans la bande de la semaine et la grille du mois
 bottom-sheet.tsx feuille du bas : Modal transparente, voile flouté (expo-blur, seul import) et assombri (scrim),
 feuille surface aux coins xl qui glisse en motion.screen (micro-interaction f), titre et Fermer, fermeture au tap
-sur le voile ; porte la feuille du mois et le choix du module
+sur le voile ; porte la feuille du mois, le choix du module et les sessions de l'onglet Tests
 month-sheet.tsx calendrier du mois dans une BottomSheet (mois ‹ ›, grille de DayCell, légende, historique relu à
 chaque ouverture) ; mode browse (Accueil) ou pick (date d'une séance : jours à venir inertes, mois suivant bloqué)
 save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
@@ -140,13 +158,19 @@ module, tant qu'elle n'est pas modifiée à la main), difficulté, nom, commenta
 CommentField, repris par session/finish, et automaticDuration / newSessionFormValues
 active-session-bar.tsx bandeau « En cours · titre · 12:34 » au-dessus de la barre d'onglets
 (prop tabBar de (tabs)/_layout.tsx), et l'échec éventuel de mémorisation de la séance ; exporte
-useElapsedLabel, chrono repris par l'en-tête de la fiche en cours
-scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts, build-seed-sheets.ts)
+useElapsedLabel et HeaderClock, le même chrono dans l'en-tête de la fiche ou du test en cours
+start-row.tsx carte d'une fiche, d'un test ou d'une session et ▶ à sa droite (deux cibles voisines)
+exercise-content.tsx morceaux d'un exercice partagés par fiche et test : schéma ou terrain par défaut,
+intertitre, liste (numéros en orange), contenu de « Plus de tips »
+scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts ; build-seed-sheets.ts, qui découpe
+aussi tests_001.json en tests atomiques et sessions)
 supabase/
 migrations/NNN_description.sql
 seed.sql données de démonstration
 seed_questions_NNN.sql, seed_sheets_NNN.sql générés par scripts/ : ne pas modifier à la main
-content/ JSON sources des seeds (questions, fiches, tests) et PNG des schémas (diagrams/)
+content/ JSON sources des seeds (questions, fiches, tests) et PNG des schémas (diagrams/) ;
+tests_atomic_001.json et sessions_001.json générés par build-seed-sheets.ts depuis tests_001.json (mapping des
+familles en dur dans le script) : ne pas modifier à la main
 public/ fichiers servis à la racine du site web, copiés dans dist/ par l'export
 index.html HTML racine du web, gabarit SPA d'Expo (pas d'app/+html.tsx : lu seulement en sortie static)
 manifest.webmanifest nom, couleurs et icônes de l'app installée sur l'écran d'accueil
@@ -202,8 +226,11 @@ d'exception.
 - `training_sheets` : title, positions text[] (postes de `lib/quiz-taxonomy.ts`, CHECK),
   skill, duration_min, exercises jsonb, is_public ; depuis 004 : slug (clé du contenu
   versionné, unique par utilisateur), kind (`training` : fiche de lecture | `test` : test
-  mesuré, CHECK), subtitle, intro jsonb, pdf_url. Format d'exercises et d'intro :
-  `lib/sheet-types.ts` ; les mesures d'un test sont dans exercises[].measures
+  atomique | `session` : suite de tests, CHECK `training_sheets_kind_check_v2` depuis 007),
+  subtitle, intro jsonb, pdf_url ; depuis 007 : family (famille d'un test, CHECK sur
+  `FAMILY_KEYS` de `lib/test-families.ts`, null sinon), blocks text[] (slugs ordonnés des tests
+  d'une session, null sinon), index (user_id, kind). Format d'exercises, d'intro et de blocks :
+  `lib/sheet-types.ts` ; les mesures d'un test sont dans exercises[0].measures
 - `tests` : catalogue des mesures : name, protocol (« titre du test — titre du bloc »), unit ;
   depuis 004 : key (identifiant stable, unique par utilisateur, null pour les 2 tests de
   démonstration), higher_is_better (false pour les chronos)
@@ -220,6 +247,21 @@ Storage : bucket public `diagrams` (004), lecture publique, aucune policy d'écr
 de `supabase/content/diagrams/` y sont déposés à la main, sous le nom exact du champ diagram.
 
 Ne plus ré-exécuter 002 après 004 : elle recréerait `sessions_module_check`, sans `test`.
+
+Modèle des tests (007, chantier 10) :
+- **Test atomique** = `training_sheets` kind `test`, exactement un exercice (10-15 min, 1 à 3
+  mesures, saisies sur l'écran du test) et une `family`.
+- **Famille** = sous-type d'une compétence, liste fermée dans `lib/test-families.ts` (clé, libellé,
+  compétence) ; une famille sans test en base n'est pas affichée.
+- **Session** = kind `session` : skill (compétence), blocks (slugs des tests, dans l'ordre de
+  passage), duration_min = somme de ses tests. Les 5 batteries d'avant 007 sont les 5 sessions
+  prédéfinies (mêmes id et slugs, séances liées conservées) ; leurs exercises restent stockés
+  sans être lus. Une session proposée par l'app n'a pas de ligne.
+- Un résultat (`test_results`) garde test_id (ligne du catalogue `tests`, par key, inchangé) et
+  session_id (séance module `test`) ; un test fait seul a sa séance (sheet_id = le test), une
+  session une seule séance pour tous ses tests (sheet_id = la session prédéfinie, ou null).
+- Contenu : les 18 blocs de `tests_001.json` sont les 18 tests atomiques (slug
+  `<slug-batterie>-<n>`, intro = celle de la batterie, montrée en « Règles communes »).
 
 Deux streaks calculées côté app, jamais stockées : entraînement (jour avec ≥ 1 séance, tout
 module) et quiz (jour avec ≥ 1 réponse). Courante = jours consécutifs jusqu'à aujourd'hui,
@@ -259,35 +301,57 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    score ≤ 1, puis les plus anciennes) ; après réponse, affichage du score de l'option
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
    `answers`, signalement d'une réponse contestable, récap de la série.
-3. **Entraînement** (libellé d'onglet « Tests » depuis 8b ; titre d'écran inchangé) : trois
-   blocs (« Tests », « Entraînements spécifiques », « Récupération » = skill `recuperation`,
-   vide pour l'instant : « Bientôt : étirements, massages, mental »),
-   chacun avec son nombre de fiches et sa dernière fois ; tap → liste du thème (titre, durée,
-   compétence, dernière fois, ▶). Une fiche se lit écran par écran (présentation, puis un
-   exercice par écran : schéma ou terrain par défaut, titre, durée, Objectif, But, Consignes ;
-   « Plus de tips » déplie critères, points techniques, variables, surface / séquence /
-   effectif, état gardé pendant la lecture) et finit sur « Séance faite », qui crée une séance
-   `entrainement_specifique` liée. « Séance déjà faite » sur la présentation → formulaire
-   de séance pré-rempli (fiche, module, nom, durée ; date auj. modifiable). Un test se lit
-   bloc par bloc et finit sur la saisie des mesures façon Strong : dernière valeur en gris,
-   ✓ par ligne (la valeur grise devient la valeur saisie), « Enregistrer le test » actif
-   quand toutes les lignes sont validées ; séance module `test` liée, puis ses
-   `test_results` en un seul insert ; écran « Test enregistré » : « Voir ma progression »
-   (Profil, carte du test mise en vue) ou « Retour à l'entraînement ». L'historique des
-   résultats est dans le Profil.
-   **Séance en cours** (une seule) : ▶ à droite de chaque fiche / test, ou « Démarrer » sur
-   la présentation, démarre le chrono et ouvre le 1er exercice ; une autre en cours → Alert
-   « Reprendre / Terminer l'autre d'abord / Annuler ». Bandeau « En cours · titre · 12:34 »
-   sur les 4 onglets, tap → la fiche à sa dernière étape ; le même chrono dans l'en-tête de
-   la fiche en cours. Pendant la séance : « Terminer »
-   (secondaire) à chaque écran sauf le dernier, dont l'action principale termine déjà. Fiche :
-   Terminer / « Séance faite » → écran de fin (durée réelle arrondie, ±5 ou saisie de 1 à
-   600 min ; au-delà de 3 h de chrono, « séance oubliée ? » avec « Durée de la fiche »
-   présélectionnée ou « Durée du chrono » ; difficulté ; commentaire) → séance
-   `entrainement_specifique` liée, vibration, confirmation sur l'onglet ;
-   « Abandonner la séance » → rien créé. Test : Terminer → saisie des mesures, séance à la
-   durée réelle ; abandon possible sur la saisie. Date d'une séance chronométrée : jour local
-   du démarrage.
+3. **Tests** (onglet ; titre d'écran « Tests » depuis le chantier 10), de haut en bas : bouton
+   « Proposer une session » → feuille du bas : la session de `proposeSession` (lib/test-plan.ts :
+   famille la moins testée sur 28 jours, jamais testée d'abord, puis la plus anciennement testée ;
+   ses tests jamais faits ou les plus anciens, complétés par les autres familles de la compétence
+   jusqu'à 3 ; 4 tests et 60 min au plus ; vitesse et agilité d'abord, endurance en dernier), sa
+   famille et sa dernière fois, ses tests et sa durée, « Démarrer » ou « Changer de famille » ;
+   « Sessions » : une carte par session prédéfinie (titre, nombre de tests, durée, dernière fois ;
+   tap → feuille de ses tests et « Démarrer ») et ▶ ; « Tests par famille » : une section par
+   compétence (icône, libellé), puces de ses familles repliées (une dépliée par compétence,
+   mémorisée tant que l'app tourne), lignes de test (titre, durée, dernière fois, record de la
+   1re mesure) et ▶ ; en bas, lien discret « Fiches d'entraînement » → liste des fiches de
+   lecture (app/training/[theme], thème specifique ; Récupération n'y est plus accessible avant le
+   chantier 12). États vides sans bouton : le contenu vient des seeds.
+   **Écran d'un test** (app/test/[slug].tsx, maquette ecran-test.png) : titre, « Compétence ·
+   Famille · durée » en caption, carte « PROTOCOLE » (consignes numérotées en orange), schéma ou
+   terrain par défaut, « Plus de tips » (objectif, but, critères, points techniques, variables,
+   surface / séquence / effectif, règles communes), « MESURES » : une ligne par mesure (libellé et
+   unité, champ pré-rempli en gris de la dernière valeur, ✓ par ligne qui en fait la valeur saisie,
+   « Record : … · Dernier : …, il y a 3 j » ou « Jamais mesuré »), commentaire facultatif hors
+   session ; « Enregistrer » actif quand toutes les lignes sont validées. Les mesures d'un test ne
+   se saisissent que là ; une valeur par mesure (pas de « meilleur essai »). Hors session : séance
+   module `test` liée au test (durée du test, ou durée réelle si ▶ l'a démarré ; jour de
+   l'ouverture ou du démarrage), puis ses `test_results` en un seul insert ; la confirmation
+   remplace la saisie : chaque valeur, « Nouveau record · avant : … » (success, sans rebond) sur
+   chaque mesure strictement améliorée (premier résultat : rien), « Faire un autre test » (onglet)
+   ou « Voir ma progression » (Profil, carte du test mise en vue). En session : en-tête « Test
+   2 / 4 » et chrono ; le 1er test enregistré crée la séance de la session (module `test`, nom de
+   la session, liée à la session prédéfinie ou sans fiche, jour du démarrage), mémorisée dans la
+   séance en cours ; chaque test y rattache ses résultats (un envoi déjà arrivé n'est jamais
+   doublé) ; « Enregistrer » enchaîne sur le test suivant, où sa confirmation glisse ;
+   « Terminer » (secondaire) à chaque test sauf le dernier, dont l'action principale « Terminer la
+   session » enregistre puis ouvre l'écran de fin. Abandon possible tant qu'aucune séance n'est
+   créée. Fiches de lecture (app/sheet/[id].tsx) : présentation, puis un exercice par écran
+   (schéma ou terrain par défaut, titre, durée, Objectif, But, Consignes ; « Plus de tips » déplie
+   critères, points techniques, variables, surface / séquence / effectif, état gardé pendant la
+   lecture), « Séance faite » (séance `entrainement_specifique` liée) ; « Séance déjà faite » sur
+   la présentation → formulaire de séance pré-rempli (fiche, module, nom, durée ; date auj.
+   modifiable). L'historique des résultats est dans le Profil.
+   **Séance en cours** (une seule) : ▶ d'une fiche, d'un test ou d'une session, « Démarrer » sur
+   la présentation d'une fiche ou dans la feuille d'une session ; une autre en cours → Alert
+   « Reprendre / Terminer l'autre d'abord / Annuler ». Bandeau « En cours · titre · 12:34 » sur
+   les 4 onglets, tap → la fiche à sa dernière étape, le test, ou le test en cours de la session
+   (sa fin si tous sont passés) ; le même chrono dans l'en-tête de la fiche ou du test en cours.
+   Fiche : « Terminer » (secondaire) à chaque écran sauf le dernier ; Terminer / « Séance faite »
+   → écran de fin (durée réelle arrondie, ±5 ou saisie de 1 à 600 min ; au-delà de 3 h de chrono,
+   « séance oubliée ? » avec « Durée de la fiche » (« Durée prévue » d'une session) présélectionnée
+   ou « Durée du chrono » ; difficulté ; commentaire) → séance liée, vibration, confirmation sur
+   l'onglet ; « Abandonner la séance » → rien créé. Test seul : il se termine sur son écran
+   (Enregistrer, à la durée réelle) ; abandon possible avant. Session : l'écran de fin complète
+   la séance déjà créée (ou la crée si aucun test n'a été enregistré). Date d'une séance
+   chronométrée : jour local du démarrage.
 4. **Profil** : en-tête avec l'email et deux boutons icône (Modifier ; Déconnexion, avec
    confirmation) ; sections « Identité » (postes, pied fort, club, niveau, date de naissance,
    puis l'objectif avec « J-42 » si échéance, ou « Aucun objectif — en définir un »),
@@ -301,7 +365,7 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
 
 Séance en cours : chrono = horodatage (startedAt), jamais de timer d'arrière-plan. La durée
 est maintenant − startedAt, recalculée à l'affichage ; le bandeau et l'en-tête de la fiche
-en cours (même hook `useElapsedLabel`) ne la rafraîchissent chaque seconde que visibles
+ou du test en cours (même hook `useElapsedLabel`) ne la rafraîchissent chaque seconde que visibles
 (écran au premier plan, app active). Pas de notification, pas de chrono par exercice, pas de
 lib de timer.
 
@@ -461,7 +525,8 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
 - `npx tsc --noEmit` avant chaque fin de chantier, zéro erreur exigée
 - `npx tsx lib/streak.test.ts`, `npx tsx lib/quiz-select.test.ts`,
   `npx tsx lib/measure-delta.test.ts`, `npx tsx lib/dates.test.ts`,
-  `npx tsx lib/active-session.test.ts` (tests purs, sans framework)
+  `npx tsx lib/active-session.test.ts`, `npx tsx lib/records.test.ts`,
+  `npx tsx lib/test-plan.test.ts` (tests purs, sans framework)
 - Stockage de l'appareil (seulement lib/supabase.ts et lib/active-session.ts attendus) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'async-storage'`
 - Contrôle du design system (aucune ligne attendue) :
@@ -480,7 +545,8 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
 - Dessin SVG (seulement app/measure/[testId].tsx, components/pitch-placeholder.tsx, components/flame.tsx) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'react-native-svg'`
 - `npx tsx scripts/build-seed-questions.ts`, `npx tsx scripts/build-seed-sheets.ts`
-  (régénèrent les seeds depuis supabase/content/)
+  (régénèrent les seeds depuis supabase/content/ ; le second réécrit aussi tests_atomic_001.json
+  et sessions_001.json ; relancé sans changement, tout est « inchangé »)
 - `npx supabase gen types typescript --project-id <id> | Out-File -Encoding utf8 lib/types.ts`
 - Export web, comme sur Vercel : `npx expo export -p web` (dans dist/, variables lues dans .env)
 - Servir dist en local : `npx expo serve --port 8090` (sans repli SPA : une route profonde y

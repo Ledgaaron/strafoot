@@ -1,27 +1,24 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 
 import { Button } from '../../components/button';
-import { Card } from '../../components/card';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
 import { Screen } from '../../components/screen';
+import { StartRow } from '../../components/start-row';
 import { askAboutActiveSession, openActiveSession, useActiveSession } from '../../lib/active-session-context';
 import { localToday, relativeDay } from '../../lib/dates';
 import { listLastSessionDates, listSheets, type SheetRow } from '../../lib/db/training';
-import type { SheetKind } from '../../lib/sheet-types';
-import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
+import { colors, layout } from '../../lib/theme';
 import { getTrainingTheme, isTrainingThemeKey, sheetTheme, type TrainingThemeKey } from '../../lib/training-themes';
 
 /** Espace insécable : un nombre et son unité restent sur la même ligne (« 45 min »). */
 const NBSP = ' ';
 
-/** Fiche ou test prêt à afficher : une carte tappable de la liste. */
+/** Fiche prête à afficher : une carte tappable de la liste. */
 type SheetItem = {
   id: string;
-  kind: SheetKind;
   title: string;
   /** « 45 min · tir · dernière fois : auj. » : l'essentiel, ni sous-titre ni nombre de mesures. */
   details: string;
@@ -34,7 +31,7 @@ type ListState =
   | { status: 'error'; message: string }
   | { status: 'ready'; items: SheetItem[] };
 
-/** theme : segment d'URL, une clé de TRAINING_THEMES (tests, specifique, recuperation). */
+/** theme : segment d'URL, une clé de TRAINING_THEMES (specifique, recuperation). */
 type ThemeParams = { theme?: string };
 
 export default function TrainingThemeScreen() {
@@ -45,11 +42,11 @@ export default function TrainingThemeScreen() {
   if (themeKey === null) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Entraînement' }} />
+        <Stack.Screen options={{ title: 'Fiches' }} />
         <Screen>
           <EmptyState
             title="Thème introuvable"
-            message="Choisis un thème sur l’onglet Entraînement."
+            message="Ouvre les fiches depuis l’onglet Tests."
             action={{ label: 'Retour', onPress: leaveUnknownTheme }}
           />
         </Screen>
@@ -60,7 +57,7 @@ export default function TrainingThemeScreen() {
   return <ThemeSheets key={themeKey} themeKey={themeKey} />;
 }
 
-/** Thème inconnu (lien retouché à la main) : écran précédent ; sans historique, l'onglet Entraînement. */
+/** Thème inconnu (lien retouché à la main) : écran précédent ; sans historique, l'onglet Tests. */
 function leaveUnknownTheme() {
   if (router.canGoBack()) {
     router.back();
@@ -72,7 +69,6 @@ function leaveUnknownTheme() {
 /** Fiches d'un thème : lecture au tap sur la carte, séance chronométrée par le ▶ à sa droite. */
 function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
   const theme = getTrainingTheme(themeKey);
-  const { kind } = theme;
   const [listState, setListState] = useState<ListState>({ status: 'loading' });
   // Incrémenté par « Réessayer » : relance la lecture.
   const [loadCount, setLoadCount] = useState(0);
@@ -91,7 +87,7 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
       const today = localToday();
       // Pas de retour à « chargement » au focus : au retour d'une fiche, la liste
       // précédente reste affichée jusqu'à la réponse. Seul « Réessayer » y repasse.
-      Promise.all([listSheets({ kind }), listLastSessionDates()])
+      Promise.all([listSheets({ kind: 'training' }), listLastSessionDates()])
         .then(([sheets, lastDates]) => {
           if (!active) {
             return;
@@ -110,7 +106,7 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
             items: (sheets.data ?? [])
               // Entraînements spécifiques et Récupération se partagent les fiches de lecture.
               .filter((row) => sheetTheme(row) === themeKey)
-              .map((row) => toSheetItem(row, kind, themeKey, lastSessionDates, today)),
+              .map((row) => toSheetItem(row, themeKey, lastSessionDates, today)),
           });
         })
         .catch((exception: unknown) => {
@@ -125,7 +121,7 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
       return () => {
         active = false;
       };
-    }, [kind, themeKey, loadCount]),
+    }, [themeKey, loadCount]),
   );
 
   function reload() {
@@ -145,7 +141,7 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
     }
     const current = activeSession.session;
     if (current !== null) {
-      if (current.sheetId === item.id) {
+      if (current.kind === 'training' && current.sheetId === item.id) {
         openActiveSession(current, 'push');
       } else {
         askAboutActiveSession(current, 'push');
@@ -154,7 +150,7 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
     }
     startingRef.current = true;
     setStartError(null);
-    const error = await activeSession.start({ sheetId: item.id, kind: item.kind, title: item.title });
+    const error = await activeSession.start({ kind: 'training', sheetId: item.id, title: item.title });
     startingRef.current = false;
     if (error !== null) {
       setStartError(`« ${item.title} » n’a pas démarré. ${error}`);
@@ -176,14 +172,21 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
             <Button variant="secondary" label="Réessayer" onPress={reload} />
           </View>
         ) : null}
-        {/* État vide sans bouton : fiches et tests viennent du seed SQL, exécuté hors de l'app. */}
+        {/* État vide sans bouton : les fiches viennent du seed SQL, exécuté hors de l'app. */}
         {listState.status === 'ready' && listState.items.length === 0 ? (
           <EmptyState title={theme.empty.title} message={theme.empty.message} />
         ) : null}
         {listState.status === 'ready' && listState.items.length > 0 ? (
           <View style={layout.section}>
             {listState.items.map((item) => (
-              <SheetCard key={item.id} item={item} onStart={() => startSheet(item)} />
+              <StartRow
+                key={item.id}
+                title={item.title}
+                details={item.details}
+                accessibilityLabel={item.accessibilityLabel}
+                onPress={() => router.push({ pathname: '/sheet/[id]', params: { id: item.id } })}
+                onStart={() => startSheet(item)}
+              />
             ))}
           </View>
         ) : null}
@@ -193,13 +196,12 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
 }
 
 /**
- * Carte d'une fiche ou d'un test : durée, compétence, dernière séance.
+ * Carte d'une fiche : durée, compétence, dernière séance.
  * `lastSessionDates` : jour de la dernière séance liée, par id de fiche ;
  * `today` : jour local lu en même temps que les données.
  */
 function toSheetItem(
   row: SheetRow,
-  kind: SheetKind,
   themeKey: TrainingThemeKey,
   lastSessionDates: ReadonlyMap<string, string>,
   today: string,
@@ -213,58 +215,8 @@ function toSheetItem(
   ];
   return {
     id: row.id,
-    kind,
     title: row.title,
     details: details.join(' · '),
     accessibilityLabel: [row.title, ...details].join(', '),
   };
 }
-
-/**
- * Carte (lecture de la fiche) et ▶ à sa droite (démarrer la séance) : deux
- * cibles voisines, jamais l'une dans l'autre, chacune avec son état pressé.
- */
-function SheetCard({ item, onStart }: { item: SheetItem; onStart: () => void }) {
-  return (
-    <View style={styles.cardRow}>
-      <Card
-        accessibilityLabel={item.accessibilityLabel}
-        onPress={() => router.push({ pathname: '/sheet/[id]', params: { id: item.id } })}
-        style={styles.card}
-      >
-        <Text style={text.bodyStrong}>{item.title}</Text>
-        <Text style={text.meta}>{item.details}</Text>
-      </Card>
-      <Pressable
-        role="button"
-        accessibilityLabel={`Démarrer : ${item.title}`}
-        onPress={onStart}
-        style={({ pressed }) => [styles.startButton, pressed && styles.startButtonPressed]}
-      >
-        <Ionicons name="play" size={size.icon} color={colors.accent} />
-      </Pressable>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  /** Carte et ▶ côte à côte, 8 px entre les deux cibles ; ▶ prend la hauteur de la carte. */
-  cardRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  card: {
-    flex: 1,
-  },
-  startButton: {
-    width: size.touch,
-    minHeight: size.touch,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.card,
-    backgroundColor: colors.surface,
-  },
-  startButtonPressed: {
-    backgroundColor: colors.surfacePressed,
-  },
-});

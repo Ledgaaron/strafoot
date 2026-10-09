@@ -1,39 +1,88 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import { BottomSheet } from '../../components/bottom-sheet';
 import { Button } from '../../components/button';
-import { Card } from '../../components/card';
+import { Chip } from '../../components/chip';
+import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
 import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
+import { StartRow } from '../../components/start-row';
+import { askAboutActiveSession, openActiveSession, useActiveSession } from '../../lib/active-session-context';
 import { localToday, relativeDay } from '../../lib/dates';
-import { listLastSessionDates, listSheets, type SheetRow } from '../../lib/db/training';
+import { listLastSessionDates, listSessions, listTests, type TestSummary } from '../../lib/db/training';
+import { formatMeasure } from '../../lib/measure-delta';
+import { proposeSession, type PlanHistoryEntry } from '../../lib/test-plan';
+import {
+  familyCaption,
+  getSkill,
+  SKILLS,
+  TEST_FAMILIES,
+  type FamilyKey,
+  type SkillKey,
+} from '../../lib/test-families';
 import { colors, layout, size, spacing, text } from '../../lib/theme';
-import { sheetTheme, TRAINING_THEMES, type TrainingThemeKey } from '../../lib/training-themes';
+import { DEFAULT_TRAINING_THEME } from '../../lib/training-themes';
 
-/** Espace insécable : un nombre et son nom restent sur la même ligne (« 3 fiches »). */
+/** Espace insécable : un nombre et son unité restent sur la même ligne (« 45 min »). */
 const NBSP = ' ';
 
-/** Bloc d'un thème prêt à afficher : une carte tappable de l'onglet. */
-type ThemeItem = {
-  key: TrainingThemeKey;
-  label: string;
-  /** « 3 fiches · dernière fois : hier » */
+/** Session prédéfinie prête à afficher : ses tests résolus depuis ses slugs. */
+type SessionItem = {
+  id: string;
+  title: string;
+  tests: TestSummary[];
+  durationMin: number;
+  /** « 4 tests · 25 min · dernière fois : hier » */
   details: string;
-  /** Tout le contenu de la carte, lu par le lecteur d'écran. */
   accessibilityLabel: string;
 };
 
-type ThemesState =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; themes: ThemeItem[] };
+/** Ligne d'un test : titre, durée, dernière fois, record principal. */
+type TestItem = {
+  test: TestSummary;
+  details: string;
+  accessibilityLabel: string;
+};
+
+/** Une famille et ses tests, sous sa compétence ; seules les familles qui ont un test s'affichent. */
+type FamilyGroup = { family: FamilyKey; label: string; items: TestItem[] };
+
+type SkillGroup = { skill: SkillKey; families: FamilyGroup[] };
+
+type TabData = {
+  tests: TestSummary[];
+  sessions: SessionItem[];
+  skills: SkillGroup[];
+  /** Tests faits, un par jour de résultat : historique de proposeSession. */
+  history: PlanHistoryEntry[];
+  /** « Jamais testée » ou « Dernière fois : il y a 12 j », par famille. */
+  familyLastLabels: ReadonlyMap<FamilyKey, string>;
+  /** Contenu en base hors format : affiché, jamais avalé. */
+  problems: string[];
+  /** Jour local de la lecture. */
+  today: string;
+};
+
+type TabState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: TabData };
+
+/** Suite de tests à démarrer : session prédéfinie (sheetId) ou proposée (sheetId null). */
+type RunPlan = {
+  sheetId: string | null;
+  title: string;
+  tests: TestSummary[];
+  durationMin: number;
+};
+
+/** Feuille ouverte : la session proposée, ou le détail d'une session prédéfinie. open false : elle redescend. */
+type SheetState = { kind: 'proposal'; open: boolean } | { kind: 'session'; open: boolean; session: SessionItem };
 
 /**
  * Posés au retour ici par router.dismissTo : « Séance faite » d'une fiche sans
- * chrono (app/sheet/[id].tsx), fin d'une fiche chronométrée
+ * chrono (app/sheet/[id].tsx), fin d'une fiche ou d'une session chronométrée
  * (app/session/finish.tsx), « Séance déjà faite » (app/session/new.tsx ouvert
  * avec sheetId).
  */
@@ -43,11 +92,24 @@ type SavedParams = {
   savedTitle?: string;
 };
 
-export default function TrainingScreen() {
-  const [themesState, setThemesState] = useState<ThemesState>({ status: 'loading' });
+// Famille dépliée par compétence : survit au démontage de l'écran tant que l'app
+// tourne, jamais persistée (règle 12, comme le filtre du quiz). Repliées au lancement.
+let lastOpenFamilies: Partial<Record<SkillKey, FamilyKey>> = {};
+
+export default function TestsScreen() {
+  const [tabState, setTabState] = useState<TabState>({ status: 'loading' });
   // Incrémenté par « Réessayer » : relance la lecture.
   const [loadCount, setLoadCount] = useState(0);
   const { savedSession, savedTitle } = useLocalSearchParams<SavedParams>();
+  const [openFamilies, setOpenFamilies] = useState(lastOpenFamilies);
+  const [sheet, setSheet] = useState<SheetState | null>(null);
+  // Familles écartées par « Changer de famille », le temps que la feuille est ouverte.
+  const [excluded, setExcluded] = useState<FamilyKey[]>([]);
+  // Échec de mémorisation au démarrage par ▶ ou Démarrer : rien n'a démarré.
+  const [startError, setStartError] = useState<string | null>(null);
+  // Garde synchrone : deux ▶ rapprochés ne démarrent qu'une séance.
+  const startingRef = useRef(false);
+  const activeSession = useActiveSession();
 
   // loadCount en dépendance : « Réessayer » donne un nouveau callback, rejoué
   // aussitôt puisque l'onglet a le focus.
@@ -56,26 +118,28 @@ export default function TrainingScreen() {
       let active = true;
       // Relu à chaque focus, avec les données : l'app peut rester ouverte après minuit.
       const today = localToday();
-      // Pas de retour à « chargement » au focus : au retour sur l'onglet, les blocs
-      // précédents restent affichés jusqu'à la réponse. Seul « Réessayer » y repasse.
-      Promise.all([listSheets({ kind: 'training' }), listSheets({ kind: 'test' }), listLastSessionDates()])
-        .then(([sheets, tests, lastDates]) => {
+      // Pas de retour à « chargement » au focus : au retour sur l'onglet, la liste
+      // précédente reste affichée jusqu'à la réponse. Seul « Réessayer » y repasse.
+      Promise.all([listTests(), listSessions(), listLastSessionDates()])
+        .then(([tests, sessions, lastDates]) => {
           if (!active) {
             return;
           }
-          const errors = [sheets.error, tests.error, lastDates.error].filter((message) => message !== null);
-          if (errors.length > 0) {
+          const errors = [tests.error, sessions.error, lastDates.error].filter((message) => message !== null);
+          if (errors.length > 0 || !tests.data || !sessions.data || !lastDates.data) {
             // Une même panne (réseau, session expirée) remonte souvent sur les trois requêtes.
-            setThemesState({ status: 'error', message: [...new Set(errors)].join('\n') });
+            setTabState({ status: 'error', message: [...new Set(errors)].join('\n') || 'Lecture incomplète.' });
             return;
           }
           // Libellés calculés ici avec le `today` de la lecture, pas au rendu : une
           // exception (jour mal formé refusé par relativeDay) part dans le catch.
-          setThemesState({
+          setTabState({
             status: 'ready',
-            themes: toThemeItems(
-              [...(sheets.data ?? []), ...(tests.data ?? [])],
-              lastDates.data ?? new Map<string, string>(),
+            data: toTabData(
+              tests.data.items,
+              sessions.data.items,
+              lastDates.data,
+              [...tests.data.problems, ...sessions.data.problems],
               today,
             ),
           });
@@ -83,7 +147,7 @@ export default function TrainingScreen() {
         .catch((exception: unknown) => {
           // Exception inattendue : affichée, jamais avalée.
           if (active) {
-            setThemesState({
+            setTabState({
               status: 'error',
               message: exception instanceof Error ? exception.message : String(exception),
             });
@@ -96,8 +160,85 @@ export default function TrainingScreen() {
   );
 
   function reload() {
-    setThemesState({ status: 'loading' });
+    setTabState({ status: 'loading' });
     setLoadCount((count) => count + 1);
+  }
+
+  /** Puce d'une famille : la déplier, ou la replier si elle l'est déjà ; une famille dépliée par compétence. */
+  function toggleFamily(skill: SkillKey, family: FamilyKey) {
+    const next = { ...openFamilies, [skill]: openFamilies[skill] === family ? undefined : family };
+    lastOpenFamilies = next;
+    setOpenFamilies(next);
+  }
+
+  function openProposal() {
+    setStartError(null);
+    setExcluded([]);
+    setSheet({ kind: 'proposal', open: true });
+  }
+
+  function closeSheet() {
+    setSheet((current) => (current === null ? null : { ...current, open: false }));
+  }
+
+  /** ▶ d'un test : son chrono démarre et il s'ouvre ; déjà en cours, il reprend ; une autre séance : Alert. */
+  async function startTest(test: TestSummary) {
+    if (activeSession.loading || startingRef.current) {
+      return;
+    }
+    const current = activeSession.session;
+    if (current !== null) {
+      if (current.kind === 'test' && current.slug === test.slug) {
+        openActiveSession(current, 'push');
+      } else {
+        askAboutActiveSession(current, 'push');
+      }
+      return;
+    }
+    startingRef.current = true;
+    setStartError(null);
+    const error = await activeSession.start({ kind: 'test', sheetId: test.id, slug: test.slug, title: test.title });
+    startingRef.current = false;
+    if (error !== null) {
+      setStartError(`« ${test.title} » n’a pas démarré. ${error}`);
+      return;
+    }
+    router.push({ pathname: '/test/[slug]', params: { slug: test.slug } });
+  }
+
+  /** Démarrer une session : chrono lancé, premier test ouvert ; la même déjà en cours reprend ; une autre : Alert. */
+  async function startRun(plan: RunPlan) {
+    const first = plan.tests[0];
+    if (activeSession.loading || startingRef.current || first === undefined) {
+      return;
+    }
+    const current = activeSession.session;
+    if (current !== null) {
+      // Feuille retirée d'un coup : une Modal resterait par-dessus l'écran ouvert.
+      setSheet(null);
+      if (plan.sheetId !== null && current.kind === 'session' && current.sheetId === plan.sheetId) {
+        openActiveSession(current, 'push');
+      } else {
+        askAboutActiveSession(current, 'push');
+      }
+      return;
+    }
+    startingRef.current = true;
+    setStartError(null);
+    const error = await activeSession.start({
+      kind: 'session',
+      sheetId: plan.sheetId,
+      title: plan.title,
+      tests: plan.tests.map((test) => test.slug),
+      plannedMin: plan.durationMin,
+    });
+    startingRef.current = false;
+    if (error !== null) {
+      setStartError(`« ${plan.title} » n’a pas démarré. ${error}`);
+      return;
+    }
+    setSheet(null);
+    router.push({ pathname: '/test/[slug]', params: { slug: first.slug } });
   }
 
   // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
@@ -107,100 +248,336 @@ export default function TrainingScreen() {
       <SaveToast key={savedSession} message={formatSavedMessage(savedTitle)} />
     ) : null;
 
+  const data = tabState.status === 'ready' ? tabState.data : null;
+
   return (
-    <Screen title="Entraînement" toast={toast}>
-      {themesState.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
-      {themesState.status === 'error' ? (
+    <Screen title="Tests" toast={toast}>
+      {tabState.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
+      {tabState.status === 'error' ? (
         <View style={layout.section}>
-          <FieldError message={`Erreur : ${themesState.message}`} />
+          <FieldError message={`Erreur : ${tabState.message}`} />
           <Button variant="secondary" label="Réessayer" onPress={reload} />
         </View>
       ) : null}
-      {/* Pas d'état vide ici : les 3 blocs s'affichent toujours ; un thème sans
-          fiche annonce « 0 fiche », et sa liste porte l'état vide. */}
-      {themesState.status === 'ready' ? (
-        <View style={layout.section}>
-          {themesState.themes.map((item) => (
-            <ThemeCard key={item.key} item={item} />
-          ))}
-        </View>
+
+      {data !== null ? (
+        <>
+          <FieldError message={data.problems.length > 0 ? data.problems.join('\n') : null} />
+          {/* État vide sans bouton : les tests viennent du seed SQL, exécuté hors de l'app. */}
+          {data.tests.length === 0 ? (
+            <EmptyState title="Aucun test" message="Le contenu des tests n’est pas encore chargé dans la base." />
+          ) : (
+            <Button label="Proposer une session" onPress={openProposal} />
+          )}
+          {/* Hors de la feuille : un ▶ de la liste qui n'a pas démarré. */}
+          {sheet === null ? <FieldError message={startError} /> : null}
+
+          {data.sessions.length > 0 ? (
+            <View style={layout.section}>
+              <Text role="heading" style={text.overline}>
+                Sessions
+              </Text>
+              {data.sessions.map((session) => (
+                <StartRow
+                  key={session.id}
+                  title={session.title}
+                  details={session.details}
+                  accessibilityLabel={session.accessibilityLabel}
+                  onPress={() => {
+                    setStartError(null);
+                    setSheet({ kind: 'session', open: true, session });
+                  }}
+                  onStart={() => startRun(sessionPlan(session))}
+                />
+              ))}
+            </View>
+          ) : null}
+
+          {data.skills.length > 0 ? (
+            <View style={layout.section}>
+              <Text role="heading" style={text.overline}>
+                Tests par famille
+              </Text>
+              {data.skills.map((group) => (
+                <SkillSection
+                  key={group.skill}
+                  group={group}
+                  openFamily={openFamilies[group.skill] ?? null}
+                  onToggleFamily={(family) => toggleFamily(group.skill, family)}
+                  onStartTest={startTest}
+                />
+              ))}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* Lien discret vers les fiches de lecture, en attendant leur place dans le Profil. */}
+      <Button
+        variant="text"
+        label="Fiches d’entraînement"
+        onPress={() => router.push({ pathname: '/training/[theme]', params: { theme: DEFAULT_TRAINING_THEME } })}
+      />
+
+      {data !== null && sheet !== null ? (
+        <PlanSheet
+          sheet={sheet}
+          data={data}
+          excluded={excluded}
+          startError={startError}
+          onChangeFamily={(family) => {
+            const next = [...excluded, family];
+            // Toutes les familles vues : on repart de la première.
+            const remaining = proposeSession(data.tests, data.history, data.today, next);
+            setExcluded(remaining === null ? [] : next);
+          }}
+          onStart={startRun}
+          onClose={closeSheet}
+        />
       ) : null}
     </Screen>
   );
 }
 
-/**
- * Les 3 blocs, dans l'ordre de TRAINING_THEMES, même sans fiche.
- * `lastSessionDates` : jour de la dernière séance liée, par id de fiche ;
- * `today` : jour local lu en même temps que les données.
- */
-function toThemeItems(
-  rows: readonly SheetRow[],
-  lastSessionDates: ReadonlyMap<string, string>,
-  today: string,
-): ThemeItem[] {
-  return TRAINING_THEMES.map((theme) => {
-    const themeRows = rows.filter((row) => sheetTheme(row) === theme.key);
-    // Dernière séance du thème : la plus récente de ses fiches. YYYY-MM-DD se
-    // compare comme du texte, dans l'ordre chronologique.
-    let lastDate: string | null = null;
-    for (const row of themeRows) {
-      const date = lastSessionDates.get(row.id);
-      if (date !== undefined && (lastDate === null || date > lastDate)) {
-        lastDate = date;
-      }
-    }
-    const parts = [
-      formatCount(themeRows.length, theme.noun.singular, theme.noun.plural),
-      `dernière fois : ${lastDate === null ? 'jamais' : relativeDay(lastDate, today)}`,
-    ];
-    return {
-      key: theme.key,
-      label: theme.label,
-      details: parts.join(' · '),
-      accessibilityLabel: [theme.label, ...parts].join(', '),
-    };
-  });
+type PlanSheetProps = {
+  sheet: SheetState;
+  data: TabData;
+  excluded: readonly FamilyKey[];
+  startError: string | null;
+  onChangeFamily: (family: FamilyKey) => void;
+  onStart: (plan: RunPlan) => void;
+  onClose: () => void;
+};
+
+/** Feuille du bas : la session proposée (« Changer de famille ») ou une session prédéfinie, puis Démarrer. */
+function PlanSheet({ sheet, data, excluded, startError, onChangeFamily, onStart, onClose }: PlanSheetProps) {
+  if (sheet.kind === 'session') {
+    const { session } = sheet;
+    return (
+      <BottomSheet visible={sheet.open} onClose={onClose} title={session.title}>
+        <PlanTests tests={session.tests} durationMin={session.durationMin} />
+        <FieldError message={startError} />
+        <Button label="Démarrer" onPress={() => onStart(sessionPlan(session))} />
+      </BottomSheet>
+    );
+  }
+  const proposal = proposeSession(data.tests, data.history, data.today, excluded);
+  const byslug = new Map(data.tests.map((test) => [test.slug, test]));
+  const tests = proposal === null ? [] : proposal.tests.flatMap((planned) => byslug.get(planned.slug) ?? []);
+  return (
+    <BottomSheet visible={sheet.open} onClose={onClose} title="Session proposée">
+      {proposal === null ? (
+        <Text style={text.body}>Aucun test à proposer pour l’instant.</Text>
+      ) : (
+        <>
+          <View style={styles.planHeading}>
+            <Text style={text.title}>{familyCaption(proposal.family)}</Text>
+            <Text style={text.meta}>{data.familyLastLabels.get(proposal.family) ?? 'Jamais testée'}</Text>
+          </View>
+          <PlanTests tests={tests} durationMin={proposal.durationMin} />
+          <FieldError message={startError} />
+          <Button
+            label="Démarrer"
+            onPress={() =>
+              onStart({
+                sheetId: null,
+                title: `Session ${getSkill(proposal.skill).label}`,
+                tests,
+                durationMin: proposal.durationMin,
+              })
+            }
+          />
+          <Button variant="secondary" label="Changer de famille" onPress={() => onChangeFamily(proposal.family)} />
+        </>
+      )}
+    </BottomSheet>
+  );
 }
 
-/** Pluriel français, 0 et 1 au singulier : « 1 fiche », « 2 fiches ». */
+/** Tests d'une session dans l'ordre de passage, puis leur nombre et la durée totale. */
+function PlanTests({ tests, durationMin }: { tests: readonly TestSummary[]; durationMin: number }) {
+  return (
+    <View style={layout.section}>
+      {tests.map((test, index) => (
+        <View key={test.slug} style={styles.planRow}>
+          <Text style={[text.bodyStrong, text.tabular, styles.planNumber]}>{`${index + 1}`}</Text>
+          <View style={styles.planText}>
+            <Text style={text.bodyStrong}>{test.title}</Text>
+            <Text style={text.meta}>{`${familyCaption(test.family)} · ${test.durationMin}${NBSP}min`}</Text>
+          </View>
+        </View>
+      ))}
+      <Text style={[text.meta, text.tabular]}>
+        {`${formatCount(tests.length, 'test', 'tests')} · ${durationMin}${NBSP}min`}
+      </Text>
+    </View>
+  );
+}
+
+type SkillSectionProps = {
+  group: SkillGroup;
+  openFamily: FamilyKey | null;
+  onToggleFamily: (family: FamilyKey) => void;
+  onStartTest: (test: TestSummary) => void;
+};
+
+/** Une compétence : ses familles en puces, repliées ; la famille choisie déplie ses tests. */
+function SkillSection({ group, openFamily, onToggleFamily, onStartTest }: SkillSectionProps) {
+  const skill = getSkill(group.skill);
+  const open = group.families.find((family) => family.family === openFamily) ?? null;
+  return (
+    <View style={layout.section}>
+      <View style={styles.skillHeading}>
+        <Ionicons name={skill.icon} size={size.icon} color={colors.textMuted} aria-hidden />
+        <Text role="heading" style={text.title}>
+          {skill.label}
+        </Text>
+      </View>
+      <View style={layout.chipRow}>
+        {group.families.map((family) => (
+          <Chip
+            key={family.family}
+            label={family.label}
+            selected={family.family === openFamily}
+            accessibilityLabel={`${skill.label} · ${family.label} : ${formatCount(family.items.length, 'test', 'tests')}`}
+            onPress={() => onToggleFamily(family.family)}
+          />
+        ))}
+      </View>
+      {open !== null
+        ? open.items.map((item) => (
+            <StartRow
+              key={item.test.slug}
+              title={item.test.title}
+              details={item.details}
+              accessibilityLabel={item.accessibilityLabel}
+              onPress={() => router.push({ pathname: '/test/[slug]', params: { slug: item.test.slug } })}
+              onStart={() => onStartTest(item.test)}
+            />
+          ))
+        : null}
+    </View>
+  );
+}
+
+/**
+ * Tout ce que l'onglet affiche, calculé une fois par lecture.
+ * `lastSessionDates` : jour de la dernière séance liée, par id de fiche (une
+ * session prédéfinie lie sa séance) ; `today` : jour local de la lecture.
+ */
+function toTabData(
+  tests: readonly TestSummary[],
+  sessions: readonly { id: string; title: string; durationMin: number; blocks: string[] }[],
+  lastSessionDates: ReadonlyMap<string, string>,
+  problems: readonly string[],
+  today: string,
+): TabData {
+  const bySlug = new Map(tests.map((test) => [test.slug, test]));
+  const sessionProblems: string[] = [];
+  const sessionItems: SessionItem[] = [];
+  for (const session of sessions) {
+    const missing = session.blocks.filter((slug) => !bySlug.has(slug));
+    if (missing.length > 0) {
+      sessionProblems.push(`Session « ${session.title} » : tests introuvables (${missing.join(', ')}).`);
+      continue;
+    }
+    const sessionTests = session.blocks.flatMap((slug) => bySlug.get(slug) ?? []);
+    const lastDate = lastSessionDates.get(session.id);
+    const parts = [
+      formatCount(sessionTests.length, 'test', 'tests'),
+      `${session.durationMin}${NBSP}min`,
+      `dernière fois : ${lastDate === undefined ? 'jamais' : relativeDay(lastDate, today)}`,
+    ];
+    sessionItems.push({
+      id: session.id,
+      title: session.title,
+      tests: sessionTests,
+      durationMin: session.durationMin,
+      details: parts.join(' · '),
+      accessibilityLabel: [session.title, ...parts].join(', '),
+    });
+  }
+
+  const skills: SkillGroup[] = SKILLS.flatMap((skill) => {
+    const families = TEST_FAMILIES.filter((family) => family.skill === skill.key).flatMap((family): FamilyGroup[] => {
+      const items = tests.filter((test) => test.family === family.key).map((test) => toTestItem(test, today));
+      return items.length > 0 ? [{ family: family.key, label: family.label, items }] : [];
+    });
+    return families.length > 0 ? [{ skill: skill.key, families }] : [];
+  });
+
+  const familyLastLabels = new Map<FamilyKey, string>();
+  for (const family of TEST_FAMILIES) {
+    // YYYY-MM-DD se compare comme du texte, dans l'ordre chronologique.
+    const last = tests
+      .filter((test) => test.family === family.key && test.lastDate !== null)
+      .reduce<string | null>((latest, test) => (latest === null || (test.lastDate ?? '') > latest ? test.lastDate : latest), null);
+    familyLastLabels.set(family.key, last === null ? 'Jamais testée' : `Dernière fois : ${relativeDay(last, today)}`);
+  }
+
+  return {
+    tests: [...tests],
+    sessions: sessionItems,
+    skills,
+    history: tests.flatMap((test) => test.resultDates.map((date) => ({ slug: test.slug, date }))),
+    familyLastLabels,
+    problems: [...problems, ...sessionProblems],
+    today,
+  };
+}
+
+/** Ligne d'un test : « 10 min · dernière fois : hier · record : 18 pts /30 » (record de sa première mesure). */
+function toTestItem(test: TestSummary, today: string): TestItem {
+  const main = test.exercise.measures[0];
+  const record = main !== undefined ? test.records.get(main.key) : undefined;
+  const parts = [
+    `${test.durationMin}${NBSP}min`,
+    `dernière fois : ${test.lastDate === null ? 'jamais' : relativeDay(test.lastDate, today)}`,
+    ...(main !== undefined && record !== undefined ? [`record : ${formatMeasure(record, main.unit)}`] : []),
+  ];
+  return {
+    test,
+    details: parts.join(' · '),
+    accessibilityLabel: [test.title, ...parts].join(', '),
+  };
+}
+
+/** Session prédéfinie à démarrer : ses tests dans l'ordre de ses blocks. */
+function sessionPlan(session: SessionItem): RunPlan {
+  return { sheetId: session.id, title: session.title, tests: session.tests, durationMin: session.durationMin };
+}
+
+/** Pluriel français, 0 et 1 au singulier : « 1 test », « 3 tests ». */
 function formatCount(count: number, singular: string, plural: string): string {
   return `${count}${NBSP}${count >= 2 ? plural : singular}`;
 }
 
-/** « Séance enregistrée : Tir. » ; « Séance enregistrée. » sans titre. */
+/** « Séance enregistrée : Test Tir. » ; « Séance enregistrée. » sans titre. */
 function formatSavedMessage(savedTitle: string | undefined): string {
   // typeof : à l'exécution, un paramètre répété arrive sous forme de tableau.
   const title = typeof savedTitle === 'string' ? savedTitle.trim() : '';
   return title === '' ? 'Séance enregistrée.' : `Séance enregistrée : ${title}.`;
 }
 
-/** Bloc d'un thème : titre, nombre de fiches et dernière séance ; tap → la liste de ses fiches. */
-function ThemeCard({ item }: { item: ThemeItem }) {
-  return (
-    <Card
-      accessibilityLabel={item.accessibilityLabel}
-      onPress={() => router.push({ pathname: '/training/[theme]', params: { theme: item.key } })}
-      style={styles.themeCard}
-    >
-      <View style={styles.themeText}>
-        <Text style={text.title}>{item.label}</Text>
-        <Text style={text.meta}>{item.details}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={size.icon} color={colors.textMuted} aria-hidden />
-    </Card>
-  );
-}
-
 const styles = StyleSheet.create({
-  /** Titre et détails à gauche, chevron à droite, centré sur la hauteur du bloc. */
-  themeCard: {
+  skillHeading: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
+  },
+  planHeading: {
+    gap: spacing.xs,
+  },
+  planRow: {
+    flexDirection: 'row',
     gap: spacing.md,
   },
-  themeText: {
-    // Un titre ou un détail long passe à la ligne au lieu de pousser le chevron hors de la carte.
+  // Colonne des numéros, en orange comme le protocole d'un test.
+  planNumber: {
+    minWidth: spacing.md,
+    color: colors.accent,
+  },
+  planText: {
     flex: 1,
     gap: spacing.xs,
   },

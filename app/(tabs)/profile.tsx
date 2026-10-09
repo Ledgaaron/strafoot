@@ -348,7 +348,7 @@ export default function ProfileScreen() {
           // secondary : l'écran n'a pas d'action principale, et les deux sections peuvent être vides ensemble.
           <EmptyState
             title="Aucun résultat"
-            message="Fais ton premier test depuis l’onglet Entraînement."
+            message="Fais ton premier test depuis l’onglet Tests."
             action={{ label: 'Voir les tests', onPress: () => router.navigate('/training'), variant: 'secondary' }}
           />
         ) : null}

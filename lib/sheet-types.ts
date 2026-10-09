@@ -1,20 +1,28 @@
-// Format des fiches de l'onglet Entraînement : colonnes jsonb
-// training_sheets.exercises et training_sheets.intro, que supabase gen types
-// type en `Json`. C'est le format de supabase/content/sheets_NNN.json et
-// tests_NNN.json, à l'identique : il ne se simplifie pas, tout ce qu'il contient
-// s'affiche.
-// Validation partagée : getSheet (lib/db/training.ts) à la lecture en base, et
+// Format des fiches et des tests : colonnes jsonb training_sheets.exercises et
+// training_sheets.intro, que supabase gen types type en `Json`, et colonne
+// training_sheets.blocks d'une session. C'est le format de
+// supabase/content/sheets_NNN.json, tests_NNN.json et tests_atomic_NNN.json, à
+// l'identique : il ne se simplifie pas, tout ce qu'il contient s'affiche.
+// Validation partagée : lib/db/training.ts à la lecture en base, et
 // scripts/build-seed-sheets.ts avant d'écrire le seed. Aucun import à
 // l'exécution : le script la charge hors de l'app, avec npx tsx.
 
 /**
- * training : fiche de lecture, aucune saisie ; test : lecture bloc par bloc, puis
- * une valeur par mesure. Liste fermée, identique à la contrainte
- * training_sheets_kind_check (migration 004).
+ * training : fiche de lecture, aucune saisie ; test : test atomique, un seul
+ * exercice et ses mesures, saisies sur le même écran ; session : suite ordonnée
+ * de tests (blocks, slugs des tests), ses exercises d'avant 007 gardés en base
+ * sans être lus. Liste fermée, identique à la contrainte
+ * training_sheets_kind_check_v2 (migration 007).
  */
-export type SheetKind = 'training' | 'test';
+export type SheetKind = 'training' | 'test' | 'session';
 
-export const SHEET_KINDS: readonly SheetKind[] = ['training', 'test'];
+export const SHEET_KINDS: readonly SheetKind[] = ['training', 'test', 'session'];
+
+/** Format des exercices : fiche de lecture (sans mesures) ou test (mesures obligatoires). */
+export type ExerciseFormat = Exclude<SheetKind, 'session'>;
+
+/** Un test atomique porte exactement un exercice. */
+export const ATOMIC_TEST_EXERCISE_COUNT = 1;
 
 export function isSheetKind(value: string): value is SheetKind {
   return SHEET_KINDS.some((kind) => kind === value);
@@ -85,6 +93,8 @@ const SETUP_KEYS: readonly string[] = ['surface', 'sequence', 'equipment'];
 const MEASURE_KEYS: readonly string[] = ['key', 'name', 'unit', 'higher_is_better'];
 /** snake_case : « tir_precision_droit ». */
 const MEASURE_KEY_PATTERN = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
+/** kebab-case : slug d'un test dans les blocks d'une session (« test-tir-1 »). */
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Nom de fichier simple, sans dossier : « tir-exo1.png ». */
 const DIAGRAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** Erreurs affichées à l'écran au plus ; les suivantes sont résumées. */
@@ -97,21 +107,58 @@ const VALUE_LENGTH = 60;
  * Exercices lus en base (training_sheets.exercises), au format des JSON ; erreur
  * lisible (les 5 premiers problèmes) si le contenu ne le respecte pas.
  */
-export function parseExercises(value: unknown, kind: SheetKind): ParseResult<Exercise[]> {
+export function parseExercises(value: unknown, kind: ExerciseFormat): ParseResult<Exercise[]> {
   const { value: exercises, errors } = validateExercises(value, kind);
   return errors.length > 0 ? { data: null, error: summarizeErrors(errors) } : { data: exercises, error: null };
+}
+
+/** L'exercice unique d'un test atomique lu en base ; erreur lisible s'il n'y en a pas exactement un. */
+export function parseAtomicExercise(value: unknown): ParseResult<Exercise> {
+  const { value: exercises, errors } = validateAtomicExercises(value);
+  return errors.length > 0 ? { data: null, error: summarizeErrors(errors) } : { data: exercises[0], error: null };
+}
+
+/** Slugs des tests d'une session lus en base (training_sheets.blocks) ; erreur lisible si invalides. */
+export function parseBlocks(value: unknown): ParseResult<string[]> {
+  const { value: blocks, errors } = validateBlocks(value);
+  return errors.length > 0 ? { data: null, error: summarizeErrors(errors) } : { data: blocks, error: null };
+}
+
+/** Exercices d'un test atomique : ceux d'un test (validateExercises), exactement un. */
+export function validateAtomicExercises(value: unknown): Validation<Exercise[]> {
+  const result = validateExercises(value, 'test');
+  if (isArray(value) && value.length !== ATOMIC_TEST_EXERCISE_COUNT) {
+    result.errors.push(
+      `exercises : ${value.length} exercices ; un test atomique en porte exactement ${ATOMIC_TEST_EXERCISE_COUNT}.`,
+    );
+  }
+  return result;
+}
+
+/** blocks d'une session : tableau non vide de slugs kebab-case, sans doublon. */
+export function validateBlocks(value: unknown): Validation<string[]> {
+  const errors: string[] = [];
+  if (!isArray(value) || value.length === 0) {
+    errors.push(`blocks : ${valueError(value)} ; attendu un tableau non vide de slugs de tests.`);
+    return { value: [], errors };
+  }
+  const blocks: string[] = [];
+  for (const [index, item] of value.entries()) {
+    if (typeof item !== 'string' || !SLUG_PATTERN.test(item)) {
+      errors.push(`blocks, test ${index + 1} : ${describeValue(item)} invalide ; attendu un slug kebab-case (« test-tir-1 »).`);
+    } else if (blocks.includes(item)) {
+      errors.push(`blocks, test ${index + 1} : "${item}" en double ; un test n'apparaît qu'une fois dans une session.`);
+    } else {
+      blocks.push(item);
+    }
+  }
+  return { value: blocks, errors };
 }
 
 /** Lignes d'introduction lues en base (training_sheets.intro) ; erreur lisible si invalides. */
 export function parseIntro(value: unknown): ParseResult<string[]> {
   const { value: lines, errors } = validateIntro(value);
   return errors.length > 0 ? { data: null, error: summarizeErrors(errors) } : { data: lines, error: null };
-}
-
-/** Nombre de mesures d'un test lu en base ; null si ses exercices sont invalides. */
-export function countMeasures(value: unknown): number | null {
-  const { value: exercises, errors } = validateExercises(value, 'test');
-  return errors.length > 0 ? null : exercises.reduce((sum, exercise) => sum + exercise.measures.length, 0);
 }
 
 /**
@@ -125,7 +172,7 @@ export function countMeasures(value: unknown): number | null {
  * null ou nom de fichier simple ; mesures aux clés exactement key, name, unit,
  * higher_is_better, key en snake_case et unique dans la fiche.
  */
-export function validateExercises(value: unknown, kind: SheetKind): Validation<Exercise[]> {
+export function validateExercises(value: unknown, kind: ExerciseFormat): Validation<Exercise[]> {
   const errors: string[] = [];
   if (!isArray(value) || value.length === 0) {
     errors.push(`exercises : ${valueError(value)} ; attendu un tableau non vide d'exercices.`);
@@ -164,7 +211,7 @@ export function validateIntro(value: unknown): Validation<string[]> {
 function validateExercise(
   item: unknown,
   number: number,
-  kind: SheetKind,
+  kind: ExerciseFormat,
   measureKeys: Map<string, string>,
   errors: string[],
 ): Exercise | null {

@@ -48,6 +48,36 @@ export async function listTestCatalog(): Promise<DbResult<TestRow[]>> {
   return { data, error: error?.message ?? null };
 }
 
+/** Lignes du catalogue des mesures demandées, par key ; une key absente du catalogue n'a pas de ligne. */
+export async function listCatalogByKeys(keys: readonly string[]): Promise<DbResult<TestRow[]>> {
+  if (keys.length === 0) {
+    return { data: [], error: null };
+  }
+  const { data, error } = await supabase.from('tests').select('*').in('key', [...keys]);
+  return { data, error: error?.message ?? null };
+}
+
+/** Résultat d'une mesure : valeur, jour, séance d'origine. */
+export type ResultValue = Pick<TestResultRow, 'test_id' | 'value' | 'date' | 'session_id'>;
+
+/**
+ * Tous les résultats des lignes du catalogue demandées, du plus récent au plus
+ * ancien (jour, puis saisie) : dernier résultat et record d'une mesure. Dans la
+ * limite du max rows du projet (1000 par défaut).
+ */
+export async function listResultValues(testIds: readonly string[]): Promise<DbResult<ResultValue[]>> {
+  if (testIds.length === 0) {
+    return { data: [], error: null };
+  }
+  const { data, error } = await supabase
+    .from('test_results')
+    .select('test_id, value, date, session_id')
+    .in('test_id', [...testIds])
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false });
+  return { data, error: error?.message ?? null };
+}
+
 /** Une ligne du catalogue par id ; data null sans erreur si elle n'existe pas (ou plus). */
 export async function getTest(id: string): Promise<DbResult<TestRow>> {
   const { data, error } = await supabase.from('tests').select('*').eq('id', id).maybeSingle();

@@ -3,7 +3,8 @@ import { Easing, Platform, StyleSheet } from 'react-native';
 
 // Design system : seule source de style de l'app, avec components/ (Screen, Card,
 // Chip, Button, IconButton, Stat, Flame, EmptyState, FieldError, SaveToast,
-// PitchPlaceholder, DayCell, BottomSheet, MonthSheet, ModuleIcon). Référence :
+// PitchPlaceholder, DayCell, BottomSheet, MonthSheet, ModuleIcon, StartRow,
+// exercise-content). Référence :
 // design/Strafoot_Direction_Artistique.html
 // (Palette, Typographie, Composants, Mouvement, Tokens) et design/maquettes/.
 // Un écran n'écrit aucune couleur, taille ni espacement en dur : il combine ces

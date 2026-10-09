@@ -1,7 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { isSheetKind, type SheetKind } from './sheet-types';
-
 // Séance en cours : une seule à la fois, mémorisée sur l'appareil sous une clé
 // fixe pour survivre à la fermeture de l'app. Le chrono n'est ni stocké ni
 // compté : c'est maintenant − startedAt, recalculé à l'affichage. Aucun timer
@@ -12,9 +10,10 @@ import { isSheetKind, type SheetKind } from './sheet-types';
 const STORAGE_KEY = 'strafoot.activeSession';
 
 /**
- * Étapes d'une fiche (app/sheet/[id].tsx) : 0 présentation ; 1 à n un exercice
- * (un bloc pour un test) ; n + 1 saisie des mesures d'un test. Une séance
- * démarre au premier exercice.
+ * Étapes d'une fiche (app/sheet/[id].tsx) : 0 présentation ; 1 à n un exercice.
+ * Une séance démarre au premier exercice. Session de tests : 1 à n le test en
+ * cours (app/test/[slug].tsx), n + 1 tous passés, fin à enregistrer
+ * (app/session/finish.tsx). Test seul : toujours 1, un seul écran.
  */
 export const FIRST_EXERCISE_INDEX = 1;
 
@@ -25,19 +24,40 @@ const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
 const SECONDS_PER_HOUR = 3600;
 
-export type ActiveSession = {
-  sheetId: string;
-  kind: SheetKind;
-  /** Titre de la fiche, repris par le bandeau et par le nom de la séance enregistrée. */
+type ActiveSessionBase = {
+  /** Titre de la fiche, du test ou de la session, repris par le bandeau et par le nom de la séance enregistrée. */
   title: string;
   /** Instant du démarrage, ISO 8601 (toISOString). */
   startedAt: string;
-  /** Dernière étape affichée de la fiche : le bandeau y ramène. */
+  /** Dernière étape affichée (voir FIRST_EXERCISE_INDEX) : le bandeau y ramène. */
   lastExerciseIndex: number;
 };
 
-/** Fiche ou test à démarrer. */
-export type ActiveSessionSheet = Pick<ActiveSession, 'sheetId' | 'kind' | 'title'>;
+/** Fiche de lecture démarrée (app/sheet/[id].tsx). */
+export type ActiveSheetSession = ActiveSessionBase & { kind: 'training'; sheetId: string };
+
+/** Test atomique démarré seul par ▶ (app/test/[slug].tsx). */
+export type ActiveTestSession = ActiveSessionBase & { kind: 'test'; sheetId: string; slug: string };
+
+/** Session de tests : prédéfinie (sheetId de la session) ou proposée par l'app (sheetId null). */
+export type ActiveTestRun = ActiveSessionBase & {
+  kind: 'session';
+  sheetId: string | null;
+  /** Slugs des tests, dans l'ordre de passage ; lastExerciseIndex désigne le test en cours. */
+  tests: string[];
+  /** Durée prévue (somme des tests), proposée à la fin pour une séance oubliée. */
+  plannedMin: number;
+  /** Séance créée au premier test enregistré, à laquelle les suivants se rattachent ; null avant. */
+  sessionId: string | null;
+};
+
+export type ActiveSession = ActiveSheetSession | ActiveTestSession | ActiveTestRun;
+
+/** Fiche, test ou session à démarrer. */
+export type ActiveSessionStart =
+  | Pick<ActiveSheetSession, 'kind' | 'sheetId' | 'title'>
+  | Pick<ActiveTestSession, 'kind' | 'sheetId' | 'slug' | 'title'>
+  | Pick<ActiveTestRun, 'kind' | 'sheetId' | 'title' | 'tests' | 'plannedMin'>;
 
 /** Lecture ou écriture sur l'appareil : la donnée, ou une erreur lisible (jamais d'exception). */
 export type StoredResult<T> = { data: T; error: null } | { data: null; error: string };
@@ -68,26 +88,36 @@ export async function getActiveSession(): Promise<StoredResult<ActiveSession | n
   };
 }
 
-/** Démarre maintenant la séance d'une fiche ou d'un test, au premier exercice ; remplace toute séance mémorisée. */
+/** Démarre maintenant la séance d'une fiche, d'un test ou d'une session, à sa première étape ; remplace toute séance mémorisée. */
 export async function startActiveSession(
-  sheet: ActiveSessionSheet,
+  start: ActiveSessionStart,
   now: Date = new Date(),
 ): Promise<StoredResult<ActiveSession>> {
-  return writeActiveSession({
-    sheetId: sheet.sheetId,
-    kind: sheet.kind,
-    title: sheet.title,
+  const base: ActiveSessionBase = {
+    title: start.title,
     startedAt: now.toISOString(),
     lastExerciseIndex: FIRST_EXERCISE_INDEX,
-  });
+  };
+  switch (start.kind) {
+    case 'training':
+      return writeActiveSession({ ...base, kind: 'training', sheetId: start.sheetId });
+    case 'test':
+      return writeActiveSession({ ...base, kind: 'test', sheetId: start.sheetId, slug: start.slug });
+    case 'session':
+      return writeActiveSession({
+        ...base,
+        kind: 'session',
+        sheetId: start.sheetId,
+        tests: [...start.tests],
+        plannedMin: start.plannedMin,
+        sessionId: null,
+      });
+  }
 }
 
-/** Mémorise l'étape affichée de la séance en cours ; renvoie la séance mise à jour. */
-export async function setActiveSessionIndex(
-  session: ActiveSession,
-  index: number,
-): Promise<StoredResult<ActiveSession>> {
-  return writeActiveSession({ ...session, lastExerciseIndex: index });
+/** Mémorise la séance en cours telle quelle (étape affichée, séance créée) ; la renvoie. */
+export async function saveActiveSession(session: ActiveSession): Promise<StoredResult<ActiveSession>> {
+  return writeActiveSession(session);
 }
 
 /** Plus de séance en cours : terminée (enregistrée) ou abandonnée. */
@@ -129,7 +159,11 @@ async function writeActiveSession(session: ActiveSession): Promise<StoredResult<
   }
 }
 
-/** Valeur stockée relue ; null si elle ne suit pas le format d'ActiveSession. */
+/**
+ * Valeur stockée relue ; null si elle ne suit pas le format d'ActiveSession.
+ * Une fiche démarrée avant 007 se relit telle quelle ; un test d'avant (batterie,
+ * sans slug) ne se relit plus : effacé et signalé par getActiveSession.
+ */
 function parseActiveSession(raw: string): ActiveSession | null {
   let value: unknown;
   try {
@@ -140,12 +174,8 @@ function parseActiveSession(raw: string): ActiveSession | null {
   if (!isRecord(value)) {
     return null;
   }
-  const { sheetId, kind, title, startedAt, lastExerciseIndex } = value;
+  const { kind, sheetId, title, startedAt, lastExerciseIndex } = value;
   if (
-    typeof sheetId !== 'string' ||
-    sheetId === '' ||
-    typeof kind !== 'string' ||
-    !isSheetKind(kind) ||
     typeof title !== 'string' ||
     typeof startedAt !== 'string' ||
     !Number.isFinite(Date.parse(startedAt)) ||
@@ -155,7 +185,33 @@ function parseActiveSession(raw: string): ActiveSession | null {
   ) {
     return null;
   }
-  return { sheetId, kind, title, startedAt, lastExerciseIndex };
+  const base: ActiveSessionBase = { title, startedAt, lastExerciseIndex };
+  if (kind === 'training' && isId(sheetId)) {
+    return { ...base, kind, sheetId };
+  }
+  if (kind === 'test' && isId(sheetId) && isId(value.slug)) {
+    return { ...base, kind, sheetId, slug: value.slug };
+  }
+  if (kind === 'session') {
+    const { tests, plannedMin, sessionId } = value;
+    if (
+      (sheetId === null || isId(sheetId)) &&
+      Array.isArray(tests) &&
+      tests.length > 0 &&
+      tests.every(isId) &&
+      typeof plannedMin === 'number' &&
+      Number.isFinite(plannedMin) &&
+      (sessionId === null || isId(sessionId))
+    ) {
+      return { ...base, kind, sheetId, tests: tests.filter(isId), plannedMin, sessionId };
+    }
+  }
+  return null;
+}
+
+/** Identifiant ou slug : chaîne non vide. */
+function isId(value: unknown): value is string {
+  return typeof value === 'string' && value !== '';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

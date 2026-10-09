@@ -22,7 +22,7 @@ import { colors } from '../../lib/theme';
  * (app/sheet/[id].tsx) ; tous facultatifs, absents pour une séance libre.
  */
 type NewSessionParams = {
-  /** Fiche d'origine : la séance lui est liée et l'écran revient sur l'onglet Entraînement. */
+  /** Fiche d'origine : la séance lui est liée et l'écran revient sur l'onglet Tests. */
   sheetId?: string;
   module?: string;
   name?: string;
@@ -95,7 +95,7 @@ export default function NewSessionScreen() {
     hapticMedium();
     const savedTitle = data.name ?? result.name;
     if (sheetId !== null) {
-      // Séance d'une fiche : retour à l'onglet Entraînement, qui confirme l'enregistrement.
+      // Séance d'une fiche : retour à l'onglet Tests, qui confirme l'enregistrement.
       router.dismissTo({ pathname: '/training', params: { savedSession: data.id, savedTitle } });
     } else {
       router.dismissTo({ pathname: '/', params: { day: data.date, session: data.id, savedTitle } });

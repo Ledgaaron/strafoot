@@ -42,25 +42,25 @@
 
 ---
 
-## Chantier 10 — Entraînement = tests `[ ]`
+## Chantier 10 — Entraînement = tests `[~]`
 ### Modèle
-- [ ] **Test** = un exercice atomique (10-15 min), protocole en 3 lignes, 1 à 3 mesures, saisie sur l'écran du test.
-- [ ] **Famille** = un sous-type d'une compétence (ex. Tir · dans la surface, Tir · de loin, Passe · longue).
-- [ ] **Session test** = 3-4 tests d'une même famille, 45-60 min, enregistrée comme une seule séance.
-- [ ] Les deux modes coexistent : sessions prédéfinies (les 5 batteries actuelles) et sessions composées par l'app.
-- [ ] Les 18 blocs des 5 batteries actuelles deviennent 18 tests atomiques.
+- [x] **Test** = un exercice atomique (10-15 min), protocole en 3 lignes, 1 à 3 mesures, saisie sur l'écran du test.
+- [x] **Famille** = un sous-type d'une compétence (ex. Tir · dans la surface, Tir · de loin, Passe · longue).
+- [x] **Session test** = 3-4 tests d'une même famille, 45-60 min, enregistrée comme une seule séance. (Famille à moins de 3 tests : complétée par sa compétence.)
+- [x] Les deux modes coexistent : sessions prédéfinies (les 5 batteries actuelles) et sessions composées par l'app.
+- [x] Les 18 blocs des 5 batteries actuelles deviennent 18 tests atomiques.
 ### Composition d'une session (à valider)
-- [ ] Le joueur choisit une famille, ou « Proposer » : l'app choisit la famille la moins couverte récemment.
-- [ ] Dans la famille : priorité aux tests jamais faits ou faits il y a le plus longtemps. Pas de préférences « j'aime / j'aime pas ».
+- [~] Le joueur choisit une famille, ou « Proposer » : l'app choisit la famille la moins couverte récemment. (Fait : « Proposer » et « Changer de famille » ; reste : composer une session d'une famille choisie.)
+- [x] Dans la famille : priorité aux tests jamais faits ou faits il y a le plus longtemps. Pas de préférences « j'aime / j'aime pas ».
 - [ ] Pied gauche présent dans chaque famille.
-- [ ] Ordre fixe dans une session (tests de vitesse en premier) pour garder les résultats comparables.
+- [x] Ordre fixe dans une session (tests de vitesse en premier) pour garder les résultats comparables.
 ### Palette
-- [ ] Principe : les familles d'une compétence couvrent l'essentiel de sa palette (≈ 80 %). Taxonomie proposée par Claude, validée par moi.
-- [ ] Pas d'indicateur de couverture affiché : la palette utile dépend du poste, du rôle et du système de chaque joueur.
+- [x] Principe : les familles d'une compétence couvrent l'essentiel de sa palette (≈ 80 %). Taxonomie proposée par Claude, validée par moi.
+- [x] Pas d'indicateur de couverture affiché : la palette utile dépend du poste, du rôle et du système de chaque joueur.
 ### Écrans
-- [ ] Onglet = tests uniquement (fiches spécifiques et récupération déplacées dans le Profil).
-- [ ] Écran d'un test : protocole court, « Plus de tips », schéma (chantier Schémas), champs de mesure sur le même écran.
-- [ ] Après enregistrement : « Faire un autre test » et « Voir ma progression ».
+- [~] Onglet = tests uniquement (fiches spécifiques et récupération déplacées dans le Profil). (Fait : onglet Tests ; les fiches restent derrière un lien discret jusqu'au chantier 12.)
+- [x] Écran d'un test : protocole court, « Plus de tips », schéma (chantier Schémas), champs de mesure sur le même écran.
+- [x] Après enregistrement : « Faire un autre test » et « Voir ma progression ».
 ### Contenu
 - [ ] ~60-80 tests à terme ; d'abord Tir et Passe, puis Dribble, Physique, Jonglerie.
 

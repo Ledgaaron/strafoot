@@ -1,0 +1,63 @@
+{
+  "_format": {
+    "fichier": "généré par scripts/build-seed-sheets.ts depuis tests_001.json : ne pas modifier à la main, modifier tests_001.json puis relancer npx tsx scripts/build-seed-sheets.ts",
+    "session": "suite ordonnée de tests atomiques, une par batterie de tests_001.json (même slug, même titre : la ligne de la batterie en base devient la session)",
+    "blocks": "slugs des tests de tests_atomic_001.json, dans l'ordre des blocs de la batterie",
+    "duration_min": "absente : le seed la calcule, somme des durées des tests de blocks"
+  },
+  "sessions": [
+    {
+      "slug": "test-tir",
+      "title": "Test Tir",
+      "skill": "tir",
+      "blocks": [
+        "test-tir-1",
+        "test-tir-2",
+        "test-tir-3"
+      ]
+    },
+    {
+      "slug": "test-passe",
+      "title": "Test Passe",
+      "skill": "passe",
+      "blocks": [
+        "test-passe-1",
+        "test-passe-2",
+        "test-passe-3"
+      ]
+    },
+    {
+      "slug": "test-dribble",
+      "title": "Test Dribble",
+      "skill": "dribble",
+      "blocks": [
+        "test-dribble-1",
+        "test-dribble-2",
+        "test-dribble-3",
+        "test-dribble-4"
+      ]
+    },
+    {
+      "slug": "test-jonglerie",
+      "title": "Test Jonglerie",
+      "skill": "jonglerie",
+      "blocks": [
+        "test-jonglerie-1",
+        "test-jonglerie-2",
+        "test-jonglerie-3",
+        "test-jonglerie-4"
+      ]
+    },
+    {
+      "slug": "test-physique",
+      "title": "Test Physique",
+      "skill": "physique",
+      "blocks": [
+        "test-physique-1",
+        "test-physique-2",
+        "test-physique-3",
+        "test-physique-4"
+      ]
+    }
+  ]
+}

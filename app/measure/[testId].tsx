@@ -252,7 +252,7 @@ function MeasureDetail({ test, results, onDeleted }: MeasureDetailProps) {
       {results.length === 0 ? (
         <EmptyState
           title="Aucun résultat"
-          message="Refais ce test depuis l’onglet Entraînement."
+          message="Refais ce test depuis l’onglet Tests."
           action={{ label: 'Voir les tests', onPress: () => router.dismissTo('/training') }}
         />
       ) : null}
