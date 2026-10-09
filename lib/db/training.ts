@@ -1,4 +1,4 @@
-import { recordsByKey } from '../records';
+import { latestByKey, recordsByKey, type MeasureLatest } from '../records';
 import {
   parseAtomicExercise,
   parseBlocks,
@@ -34,14 +34,16 @@ export type AtomicTest = {
   exercise: Exercise;
 };
 
-/** Test de l'onglet Tests : sa dernière fois et le record de chaque mesure. */
+/** Test de l'onglet Tests et des statistiques du Profil : sa dernière fois, record et dernier résultat de chaque mesure. */
 export type TestSummary = AtomicTest & {
   /** Jour (YYYY-MM-DD) du dernier résultat d'une de ses mesures ; null si jamais fait. */
   lastDate: string | null;
-  /** Jours distincts où il a été fait, du plus récent au plus ancien (historique de proposeSession). */
+  /** Jours distincts où il a été fait, du plus récent au plus ancien (historique de proposeSession, régularité). */
   resultDates: string[];
   /** Record de chaque mesure (key → meilleure valeur) ; une mesure jamais saisie est absente. */
   records: ReadonlyMap<string, number>;
+  /** Dernier résultat de chaque mesure (key) et la valeur du précédent : tendance ; une mesure jamais saisie est absente. */
+  latest: ReadonlyMap<string, MeasureLatest>;
 };
 
 /** Session prédéfinie : suite ordonnée de tests, par slug. */
@@ -71,6 +73,23 @@ export async function listSheets({ kind }: { kind: SheetKind }): Promise<DbResul
     .eq('kind', kind)
     .order('title', { ascending: true });
   return { data, error: error?.message ?? null };
+}
+
+/** Nombre de fiches d'un kind (carte Fiches du Profil : fiches de lecture). */
+export async function countSheets({ kind }: { kind: SheetKind }): Promise<DbResult<number>> {
+  // GET + limit(1) plutôt que head: true : en HEAD, une erreur arrive sans message.
+  const { count, error } = await supabase
+    .from('training_sheets')
+    .select('id', { count: 'exact' })
+    .eq('kind', kind)
+    .limit(1);
+  if (error) {
+    return { data: null, error: error.message };
+  }
+  if (count === null) {
+    return { data: null, error: 'Supabase n’a pas renvoyé le nombre de fiches.' };
+  }
+  return { data: count, error: null };
 }
 
 /**
@@ -104,11 +123,12 @@ export async function getSheet(id: string): Promise<DbResult<Sheet>> {
 }
 
 /**
- * Tests atomiques de l'onglet Tests, par slug (ordre du contenu : batterie puis
- * bloc), avec leur dernière fois et le record de chaque mesure : deux requêtes,
- * les tests puis tous les résultats avec la key de leur mesure. Un test hors
- * format est écarté et dit dans problems. Résultats lus dans la limite du max
- * rows du projet (1000 par défaut).
+ * Tests atomiques de l'onglet Tests et des statistiques du Profil, par slug
+ * (ordre du contenu : batterie puis bloc), avec leur dernière fois, le record et
+ * le dernier résultat de chaque mesure : deux requêtes, les tests puis tous les
+ * résultats avec la key de leur mesure. Un test hors format est écarté et dit
+ * dans problems. Résultats lus dans la limite du max rows du projet (1000 par
+ * défaut).
  */
 export async function listTests(): Promise<DbResult<Listing<TestSummary>>> {
   const [sheets, results] = await Promise.all([
@@ -151,6 +171,7 @@ export async function listTests(): Promise<DbResult<Listing<TestSummary>>> {
       lastDate: resultDates[0] ?? null,
       resultDates,
       records: recordsByKey(own, higherIsBetter),
+      latest: latestByKey(own),
     });
   }
   return { data: { items, problems: withSeedHint(problems) }, error: null };

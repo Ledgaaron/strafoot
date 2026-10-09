@@ -217,16 +217,20 @@ export function askAboutActiveSession(session: ActiveSession, mode: NavigationMo
   ]);
 }
 
-/** Confirmation avant d'abandonner la séance en cours (Alert natif, confirmation du navigateur sur le web). */
-export function confirmAbandon(onConfirm: () => void): void {
+/**
+ * Confirmation avant d'abandonner la séance en cours (Alert natif, confirmation
+ * du navigateur sur le web) ; subject reprend le libellé du bouton : « la
+ * séance » (fiche, test seul) ou « la session » (session de tests).
+ */
+export function confirmAbandon(onConfirm: () => void, subject: 'la séance' | 'la session' = 'la séance'): void {
   const message = 'Le chrono s’arrête et rien n’est enregistré.';
   if (Platform.OS === 'web') {
-    if (window.confirm(`Abandonner la séance ? ${message}`)) {
+    if (window.confirm(`Abandonner ${subject} ? ${message}`)) {
       onConfirm();
     }
     return;
   }
-  Alert.alert('Abandonner la séance', message, [
+  Alert.alert(`Abandonner ${subject}`, message, [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Abandonner', style: 'destructive', onPress: onConfirm },
   ]);

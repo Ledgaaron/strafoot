@@ -1,6 +1,7 @@
 // Tests de relativeDay, daysBetween, startOfWeek, formatWeekRange et des libellés
-// de l'Accueil et du formulaire (formatLongDay, formatRecentDay, formatDateLine,
-// formatWeekOf) de lib/dates.ts, sans framework : npx tsx lib/dates.test.ts
+// de l'Accueil, du formulaire et du Profil (formatLongDay, formatRecentDay,
+// formatDateLine, formatWeekOf, formatShortMonth) de lib/dates.ts, sans
+// framework : npx tsx lib/dates.test.ts
 // TypeScript 6 n'inclut plus @types/node d'office : référence explicite pour node:assert.
 /// <reference types="node" />
 import assert from 'node:assert/strict';
@@ -10,6 +11,7 @@ import {
   formatDateLine,
   formatLongDay,
   formatRecentDay,
+  formatShortMonth,
   formatWeekOf,
   formatWeekRange,
   relativeDay,
@@ -122,6 +124,10 @@ const valueCases: ValueCase<string | number>[] = [
   // Carte de la semaine, hors semaine courante.
   { name: 'formatWeekOf : semaine du 12 oct.', run: () => formatWeekOf('2026-10-12', TODAY), expected: 'Semaine du 12 oct.' },
   { name: 'formatWeekOf : autre année', run: () => formatWeekOf('2025-12-29', TODAY), expected: 'Semaine du 29 déc. 2025' },
+  // Extrémités du graphe de régularité du Profil : mois court capitalisé, sans année.
+  { name: 'formatShortMonth : juillet', run: () => formatShortMonth('2026-07-20'), expected: 'Juil.' },
+  { name: 'formatShortMonth : mai, sans point', run: () => formatShortMonth('2026-05-04'), expected: 'Mai' },
+  { name: 'formatShortMonth : décembre d’une autre année', run: () => formatShortMonth('2025-12-29'), expected: 'Déc.' },
 ];
 
 let failures = 0;

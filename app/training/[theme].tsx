@@ -1,6 +1,6 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 
 import { Button } from '../../components/button';
 import { EmptyState } from '../../components/empty-state';
@@ -10,8 +10,8 @@ import { StartRow } from '../../components/start-row';
 import { askAboutActiveSession, openActiveSession, useActiveSession } from '../../lib/active-session-context';
 import { localToday, relativeDay } from '../../lib/dates';
 import { listLastSessionDates, listSheets, type SheetRow } from '../../lib/db/training';
-import { colors, layout } from '../../lib/theme';
-import { getTrainingTheme, isTrainingThemeKey, sheetTheme, type TrainingThemeKey } from '../../lib/training-themes';
+import { colors, layout, text } from '../../lib/theme';
+import { isTrainingThemeKey, sheetTheme, TRAINING_THEMES, type TrainingThemeKey } from '../../lib/training-themes';
 
 /** Espace insécable : un nombre et son unité restent sur la même ligne (« 45 min »). */
 const NBSP = ' ';
@@ -26,12 +26,18 @@ type SheetItem = {
   accessibilityLabel: string;
 };
 
+/** Un thème de la liste fermée, sa clé typée. */
+type ThemeEntry = (typeof TRAINING_THEMES)[number];
+
+/** Un thème et ses fiches ; sans fiche, son état vide. */
+type ThemeSection = { theme: ThemeEntry; items: SheetItem[] };
+
 type ListState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; items: SheetItem[] };
+  | { status: 'ready'; sections: ThemeSection[] };
 
-/** theme : segment d'URL, une clé de TRAINING_THEMES (specifique, recuperation). */
+/** theme : segment d'URL, une clé de TRAINING_THEMES (specifique, recuperation) : la section affichée en premier. */
 type ThemeParams = { theme?: string };
 
 export default function TrainingThemeScreen() {
@@ -46,7 +52,7 @@ export default function TrainingThemeScreen() {
         <Screen>
           <EmptyState
             title="Thème introuvable"
-            message="Ouvre les fiches depuis l’onglet Tests."
+            message="Ouvre les fiches depuis la carte Fiches du Profil."
             action={{ label: 'Retour', onPress: leaveUnknownTheme }}
           />
         </Screen>
@@ -57,18 +63,22 @@ export default function TrainingThemeScreen() {
   return <ThemeSheets key={themeKey} themeKey={themeKey} />;
 }
 
-/** Thème inconnu (lien retouché à la main) : écran précédent ; sans historique, l'onglet Tests. */
+/** Thème inconnu (lien retouché à la main) : écran précédent ; sans historique, l'onglet Profil. */
 function leaveUnknownTheme() {
   if (router.canGoBack()) {
     router.back();
   } else {
-    router.replace('/training');
+    router.replace('/profile');
   }
 }
 
-/** Fiches d'un thème : lecture au tap sur la carte, séance chronométrée par le ▶ à sa droite. */
+/**
+ * Fiches de lecture, ouvertes par la carte Fiches du Profil : une section par
+ * thème, celle de themeKey d'abord (Entraînements spécifiques, puis
+ * Récupération, vide en attendant son contenu). Lecture au tap sur la carte,
+ * séance chronométrée par le ▶ à sa droite.
+ */
 function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
-  const theme = getTrainingTheme(themeKey);
   const [listState, setListState] = useState<ListState>({ status: 'loading' });
   // Incrémenté par « Réessayer » : relance la lecture.
   const [loadCount, setLoadCount] = useState(0);
@@ -98,15 +108,19 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
             setListState({ status: 'error', message: [...new Set(errors)].join('\n') });
             return;
           }
+          const rows = sheets.data ?? [];
           const lastSessionDates = lastDates.data ?? new Map<string, string>();
           // Libellés calculés ici avec le `today` de la lecture, pas au rendu : une
           // exception (jour mal formé refusé par relativeDay) part dans le catch.
           setListState({
             status: 'ready',
-            items: (sheets.data ?? [])
-              // Entraînements spécifiques et Récupération se partagent les fiches de lecture.
-              .filter((row) => sheetTheme(row) === themeKey)
-              .map((row) => toSheetItem(row, themeKey, lastSessionDates, today)),
+            sections: orderedThemes(themeKey).map((theme) => ({
+              theme,
+              items: rows
+                // Entraînements spécifiques et Récupération se partagent les fiches de lecture.
+                .filter((row) => sheetTheme(row) === theme.key)
+                .map((row) => toSheetItem(row, theme.key, lastSessionDates, today)),
+            })),
           });
         })
         .catch((exception: unknown) => {
@@ -161,8 +175,8 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
 
   return (
     <>
-      {/* En-tête natif : le nom du thème, flèche retour vers l'onglet. */}
-      <Stack.Screen options={{ title: theme.label }} />
+      {/* En-tête natif : « Fiches », comme la carte du Profil ; flèche retour vers lui. */}
+      <Stack.Screen options={{ title: 'Fiches' }} />
       <Screen>
         <FieldError message={startError} />
         {listState.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
@@ -172,27 +186,38 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
             <Button variant="secondary" label="Réessayer" onPress={reload} />
           </View>
         ) : null}
-        {/* État vide sans bouton : les fiches viennent du seed SQL, exécuté hors de l'app. */}
-        {listState.status === 'ready' && listState.items.length === 0 ? (
-          <EmptyState title={theme.empty.title} message={theme.empty.message} />
-        ) : null}
-        {listState.status === 'ready' && listState.items.length > 0 ? (
-          <View style={layout.section}>
-            {listState.items.map((item) => (
-              <StartRow
-                key={item.id}
-                title={item.title}
-                details={item.details}
-                accessibilityLabel={item.accessibilityLabel}
-                onPress={() => router.push({ pathname: '/sheet/[id]', params: { id: item.id } })}
-                onStart={() => startSheet(item)}
-              />
-            ))}
-          </View>
-        ) : null}
+        {listState.status === 'ready'
+          ? listState.sections.map(({ theme, items }) => (
+              <View key={theme.key} style={layout.section}>
+                <Text role="heading" style={text.title}>
+                  {theme.label}
+                </Text>
+                {/* État vide sans bouton : les fiches viennent du seed SQL, exécuté hors de l'app. */}
+                {items.length === 0 ? <EmptyState title={theme.empty.title} message={theme.empty.message} /> : null}
+                {items.map((item) => (
+                  <StartRow
+                    key={item.id}
+                    title={item.title}
+                    details={item.details}
+                    accessibilityLabel={item.accessibilityLabel}
+                    onPress={() => router.push({ pathname: '/sheet/[id]', params: { id: item.id } })}
+                    onStart={() => startSheet(item)}
+                  />
+                ))}
+              </View>
+            ))
+          : null}
       </Screen>
     </>
   );
+}
+
+/** Thèmes de TRAINING_THEMES, celui demandé d'abord, les autres dans leur ordre. */
+function orderedThemes(first: TrainingThemeKey): ThemeEntry[] {
+  return [
+    ...TRAINING_THEMES.filter((theme) => theme.key === first),
+    ...TRAINING_THEMES.filter((theme) => theme.key !== first),
+  ];
 }
 
 /**

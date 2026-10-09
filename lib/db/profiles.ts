@@ -10,6 +10,11 @@ export type ProfileRow = Tables<'profiles'>;
  * user_id : il vient du JWT (défaut auth.uid() en base et trigger set_user_id).
  */
 export type ProfilePatch = {
+  /**
+   * Nom affiché dans l'en-tête du Profil, d'où les initiales de l'avatar ; 40
+   * caractères au plus (limite de l'écran d'édition).
+   */
+  display_name?: string | null;
   main_position?: ProfilePositionKey | null;
   secondary_position?: ProfilePositionKey | null;
   strong_foot?: StrongFootKey | null;
@@ -17,9 +22,15 @@ export type ProfilePatch = {
   club_level?: string | null;
   /** Jour YYYY-MM-DD. */
   birth_date?: string | null;
-  /** Objectif, 140 caractères au plus (limite de l'écran d'édition). */
+  /**
+   * Objectif, 140 caractères au plus. N'est plus modifié par l'app depuis le
+   * chantier 12 (objectifs : chantier 14) : la valeur en base est conservée.
+   */
   goal?: string | null;
-  /** Échéance de l'objectif, jour YYYY-MM-DD. */
+  /**
+   * Échéance de l'objectif, jour YYYY-MM-DD. N'est plus modifiée par l'app
+   * depuis le chantier 12 (objectifs : chantier 14), comme goal.
+   */
   goal_deadline?: string | null;
 };
 

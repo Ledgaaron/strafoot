@@ -1,6 +1,7 @@
-// Proposition d'une session de tests : la famille la moins testée récemment, ses
-// tests les moins récents (complétés par la compétence s'ils sont trop peu), dans
-// un ordre de passage fixe. Calcul pur, sans dépendance native : testé par
+// Session de tests : proposée (la famille la moins testée récemment) ou composée
+// pour une famille choisie ; ses tests les moins récents, complétés s'ils sont trop
+// peu par les autres familles de la compétence, jamais par une famille écartée,
+// dans un ordre de passage fixe. Calcul pur, sans dépendance native : testé par
 // lib/test-plan.test.ts (npx tsx lib/test-plan.test.ts).
 
 import { shiftDay } from './dates';
@@ -12,7 +13,7 @@ export type PlanTest = { slug: string; family: FamilyKey; durationMin: number };
 export type PlanHistoryEntry = { slug: string; date: string };
 
 export type SessionProposal = {
-  /** Famille choisie (la moins testée récemment). */
+  /** Famille de la session : la moins testée récemment (proposeSession), ou celle choisie (composeSession). */
   family: FamilyKey;
   skill: SkillKey;
   /** Tests retenus, dans l'ordre de passage de la session. */
@@ -43,12 +44,9 @@ type FamilySummary = { family: FamilyKey; recentCount: number; lastDate: string 
  *   excluded ; la moins testée sur RECENT_DAYS jours (couples (slug, date)
  *   distincts), puis jamais testée d'abord, puis la plus anciennement testée,
  *   puis l'ordre de TEST_FAMILIES.
- * - Tests : ceux de la famille, jamais faits d'abord puis les plus anciens,
- *   jusqu'à MAX_SESSION_TESTS et MAX_SESSION_MIN (un test trop long est sauté) ;
- *   en deçà de MIN_SESSION_TESTS, complétés jusqu'à ce nombre par les autres
- *   familles de la même compétence, même priorité.
- * - Ordre de passage : sessionRank (vitesse, agilité, les autres, endurance),
- *   puis ordre d'entrée.
+ * - Tests et ordre de passage : ceux de composeSession pour cette famille. La
+ *   complétion ne prend aucun test d'une famille de excluded : « Changer de
+ *   famille » ne reprend pas les tests de la famille écartée.
  * Un historique dont le slug n'est pas dans tests est ignoré ; une date après
  * now compte comme récente.
  */
@@ -58,30 +56,73 @@ export function proposeSession(
   now: string,
   excluded: readonly FamilyKey[] = [],
 ): SessionProposal | null {
+  const ranked = rankTests(tests, history, now);
+  const chosen = summarizeFamilies(ranked, excluded).sort(compareFamilies)[0];
+  if (chosen === undefined) {
+    return null;
+  }
+  // Famille candidate : un de ses tests tient seul en MAX_SESSION_MIN, la composition n'est pas null.
+  return composeRanked(ranked, chosen.family, excluded);
+}
+
+/**
+ * Session de la famille choisie pour le jour local now (YYYY-MM-DD), ou null si
+ * aucun de ses tests n'est retenu (famille absente de tests, ou chacun de ses
+ * tests dépasse MAX_SESSION_MIN). family est prise même si elle figure dans
+ * excluded, qui ne vaut que pour la complétion.
+ * - Tests : ceux de la famille, jamais faits d'abord puis les plus anciens, puis
+ *   l'ordre d'entrée, jusqu'à MAX_SESSION_TESTS et MAX_SESSION_MIN (un test trop
+ *   long est sauté) ; en deçà de MIN_SESSION_TESTS, complétés jusqu'à ce nombre
+ *   par les autres familles de la même compétence hors excluded, même priorité.
+ * - Ordre de passage : sessionRank (vitesse, agilité, les autres, endurance),
+ *   puis ordre d'entrée.
+ * Un historique dont le slug n'est pas dans tests est ignoré.
+ */
+export function composeSession(
+  tests: readonly PlanTest[],
+  history: readonly PlanHistoryEntry[],
+  now: string,
+  family: FamilyKey,
+  excluded: readonly FamilyKey[] = [],
+): SessionProposal | null {
+  return composeRanked(rankTests(tests, history, now), family, excluded);
+}
+
+/** Chaque test avec sa place d'entrée et son historique. */
+function rankTests(tests: readonly PlanTest[], history: readonly PlanHistoryEntry[], now: string): RankedTest[] {
   const stats = collectStats(tests, history, now);
-  const ranked: RankedTest[] = tests.map((test, index) => ({
+  return tests.map((test, index) => ({
     test,
     index,
     // Toujours présent : collectStats crée une entrée par slug de tests.
     stats: stats.get(test.slug) ?? { lastDate: null, recentDays: new Set<string>() },
   }));
+}
 
-  const chosen = summarizeFamilies(ranked, excluded).sort(compareFamilies)[0];
-  if (chosen === undefined) {
-    return null;
-  }
-  const skill = getFamily(chosen.family).skill;
+/** Composition commune à proposeSession et composeSession, la famille une fois connue (règles : composeSession). */
+function composeRanked(
+  ranked: readonly RankedTest[],
+  family: FamilyKey,
+  excluded: readonly FamilyKey[],
+): SessionProposal | null {
+  const skill = getFamily(family).skill;
 
   const selected: RankedTest[] = [];
   takeByPriority(
-    ranked.filter((candidate) => candidate.test.family === chosen.family),
+    ranked.filter((candidate) => candidate.test.family === family),
     selected,
     MAX_SESSION_TESTS,
   );
+  if (selected.length === 0) {
+    return null;
+  }
   if (selected.length < MIN_SESSION_TESTS) {
     takeByPriority(
       ranked.filter(
-        (candidate) => candidate.test.family !== chosen.family && getFamily(candidate.test.family).skill === skill,
+        (candidate) =>
+          candidate.test.family !== family &&
+          !excluded.includes(candidate.test.family) &&
+          getFamily(candidate.test.family).skill === skill,
       ),
       selected,
       MIN_SESSION_TESTS,
@@ -91,7 +132,7 @@ export function proposeSession(
   // Ordre fixe, indépendant de l'historique : résultats comparables d'une session à l'autre.
   selected.sort((a, b) => sessionRank(a.test.family) - sessionRank(b.test.family) || a.index - b.index);
   return {
-    family: chosen.family,
+    family,
     skill,
     tests: selected.map((candidate) => candidate.test),
     durationMin: totalDuration(selected),

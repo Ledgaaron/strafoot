@@ -1,7 +1,8 @@
-// Thèmes des fiches de lecture (kind training) : liste fermée, ouverte depuis
-// le lien « Fiches d'entraînement » de l'onglet Tests, puis la liste de ses
-// fiches (app/training/[theme].tsx). Une fiche appartient à un seul thème, déduit
-// de skill. Les tests ont leur propre onglet (lib/test-families.ts).
+// Thèmes des fiches de lecture (kind training) : liste fermée, une section par
+// thème dans la liste des fiches (app/training/[theme].tsx, ouverte par la carte
+// Fiches du Profil ; le thème de l'URL passe en premier). Une fiche appartient à
+// un seul thème, déduit de skill. Les tests ont leur propre onglet
+// (lib/test-families.ts).
 
 /** skill des fiches de récupération (étirements, massages, mental). */
 export const RECOVERY_SKILL = 'recuperation';
@@ -10,7 +11,7 @@ export type TrainingTheme = {
   /** Segment d'URL : /training/specifique. */
   key: string;
   label: string;
-  /** État vide de la liste : ce qui manque et pourquoi (aucun bouton : le contenu vient des seeds). */
+  /** État vide de sa section : ce qui manque et pourquoi (aucun bouton : le contenu vient des seeds). */
   empty: { title: string; message: string };
 };
 
@@ -29,7 +30,7 @@ export const TRAINING_THEMES = [
 
 export type TrainingThemeKey = (typeof TRAINING_THEMES)[number]['key'];
 
-/** Thème ouvert par le lien « Fiches d'entraînement » de l'onglet Tests. */
+/** Thème placé en premier quand la carte Fiches du Profil ouvre la liste. */
 export const DEFAULT_TRAINING_THEME: TrainingThemeKey = 'specifique';
 
 export function isTrainingThemeKey(value: string): value is TrainingThemeKey {

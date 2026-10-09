@@ -23,39 +23,31 @@ const TITLE = 'Modifier le profil';
 const NO_PROFILE_MESSAGE = 'Supabase n’a renvoyé ni le profil ni d’erreur.';
 const MISSING_MAIN_POSITION_MESSAGE = 'Choisis ton poste principal.';
 const INVALID_BIRTH_DATE_MESSAGE = 'Date de naissance invalide : attendu JJ/MM/AAAA, jour passé (ex. 12/04/1998).';
-const MISSING_GOAL_MESSAGE = 'Écris l’objectif de cette échéance.';
-const INVALID_GOAL_DEADLINE_MESSAGE = 'Échéance invalide : attendu JJ/MM/AAAA, jour à venir (ex. 30/06/2027).';
+/** Nom affiché : texte libre court (« Karim Mansouri »), d'où les initiales de l'avatar du Profil. */
+const DISPLAY_NAME_MAX_LENGTH = 40;
 /** Niveau : texte libre court (« D2 district »). */
 const CLUB_LEVEL_MAX_LENGTH = 40;
-/** Longueur de « 12/04/1998 » : date de naissance et échéance. */
+/** Longueur de « 12/04/1998 » : date de naissance. */
 const NUMERIC_DAY_MAX_LENGTH = 10;
-/** Objectif : une phrase, affichée en entier sur le Profil. */
-const GOAL_MAX_LENGTH = 140;
 
 /**
- * État initial du formulaire ; null : aucune puce choisie. Date de naissance et
- * échéance en JJ/MM/AAAA, '' si absentes.
+ * État initial du formulaire ; null : aucune puce choisie. Date de naissance en
+ * JJ/MM/AAAA, '' si absente.
  */
 type ProfileFormValues = {
+  displayName: string;
   mainPosition: ProfilePositionKey | null;
   secondaryPosition: ProfilePositionKey | null;
   strongFoot: StrongFootKey | null;
   club: string;
   clubLevel: string;
   birthDate: string;
-  goal: string;
-  goalDeadline: string;
 };
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | {
-      status: 'ready';
-      initialValues: ProfileFormValues;
-      /** Échéance déjà enregistrée (YYYY-MM-DD) : acceptée telle quelle, même passée. */
-      savedGoalDeadline: string | null;
-    };
+  | { status: 'ready'; initialValues: ProfileFormValues };
 
 /** Jour lu dans une saisie JJ/MM/AAAA ; day null : champ vide. */
 type DayInput = { valid: true; day: string | null } | { valid: false };
@@ -110,7 +102,7 @@ export default function EditProfileScreen() {
     );
   }
 
-  return <ProfileForm initialValues={state.initialValues} savedGoalDeadline={state.savedGoalDeadline} />;
+  return <ProfileForm initialValues={state.initialValues} />;
 }
 
 /** Profil de l'utilisateur, traduit en valeurs du formulaire. formatNumericDay peut lever : l'appelant l'affiche. */
@@ -119,36 +111,30 @@ async function loadInitialValues(): Promise<LoadState> {
   if (error !== null) {
     return { status: 'error', message: error };
   }
-  return {
-    status: 'ready',
-    initialValues: profileFormValuesFromRow(data),
-    savedGoalDeadline: data?.goal_deadline ?? null,
-  };
+  return { status: 'ready', initialValues: profileFormValuesFromRow(data) };
 }
 
 /** Pas encore de profil : tous les champs vides. Une valeur hors liste ne présélectionne aucune puce. */
 function profileFormValuesFromRow(row: ProfileRow | null): ProfileFormValues {
   if (row === null) {
     return {
+      displayName: '',
       mainPosition: null,
       secondaryPosition: null,
       strongFoot: null,
       club: '',
       clubLevel: '',
       birthDate: '',
-      goal: '',
-      goalDeadline: '',
     };
   }
   return {
+    displayName: row.display_name ?? '',
     mainPosition: keyOrNull(row.main_position, isProfilePositionKey),
     secondaryPosition: keyOrNull(row.secondary_position, isProfilePositionKey),
     strongFoot: keyOrNull(row.strong_foot, isStrongFootKey),
     club: row.club ?? '',
     clubLevel: row.club_level ?? '',
     birthDate: row.birth_date !== null ? formatNumericDay(row.birth_date) : '',
-    goal: row.goal ?? '',
-    goalDeadline: row.goal_deadline ? formatNumericDay(row.goal_deadline) : '',
   };
 }
 
@@ -166,26 +152,12 @@ function readBirthDate(text: string, today: string): DayInput {
   return day !== null && day <= today ? { valid: true, day } : { valid: false };
 }
 
-/**
- * Champ vide (espaces compris) : day null. Valide : un jour après today, ou
- * l'échéance déjà enregistrée, même passée : une ancienne échéance ne bloque
- * jamais la modification d'un autre champ.
- */
-function readGoalDeadline(text: string, today: string, saved: string | null): DayInput {
-  if (text.trim() === '') {
-    return { valid: true, day: null };
-  }
-  const day = parseNumericDay(text);
-  return day !== null && (day > today || day === saved) ? { valid: true, day } : { valid: false };
-}
-
 type ProfileFormProps = {
   initialValues: ProfileFormValues;
-  /** Échéance déjà enregistrée (YYYY-MM-DD) ; null sans échéance. */
-  savedGoalDeadline: string | null;
 };
 
-function ProfileForm({ initialValues, savedGoalDeadline }: ProfileFormProps) {
+function ProfileForm({ initialValues }: ProfileFormProps) {
+  const [displayName, setDisplayName] = useState(initialValues.displayName);
   const [mainPosition, setMainPosition] = useState<ProfilePositionKey | null>(initialValues.mainPosition);
   const [secondaryPosition, setSecondaryPosition] = useState<ProfilePositionKey | null>(
     initialValues.secondaryPosition,
@@ -194,14 +166,10 @@ function ProfileForm({ initialValues, savedGoalDeadline }: ProfileFormProps) {
   const [club, setClub] = useState(initialValues.club);
   const [clubLevel, setClubLevel] = useState(initialValues.clubLevel);
   const [birthDate, setBirthDate] = useState(initialValues.birthDate);
-  const [goal, setGoal] = useState(initialValues.goal);
-  const [goalDeadline, setGoalDeadline] = useState(initialValues.goalDeadline);
   const [saving, setSaving] = useState(false);
   // Erreurs de validation, chacune sous son champ, effacées dès que le champ change.
   const [mainPositionError, setMainPositionError] = useState<string | null>(null);
   const [birthDateError, setBirthDateError] = useState<string | null>(null);
-  const [goalError, setGoalError] = useState<string | null>(null);
-  const [goalDeadlineError, setGoalDeadlineError] = useState<string | null>(null);
   // Refus de Supabase, au-dessus d'Enregistrer.
   const [saveError, setSaveError] = useState<string | null>(null);
   // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
@@ -214,12 +182,6 @@ function ProfileForm({ initialValues, savedGoalDeadline }: ProfileFormProps) {
   }
   if (birthDateError !== null) {
     invalidFields.push('date de naissance');
-  }
-  if (goalError !== null) {
-    invalidFields.push('objectif');
-  }
-  if (goalDeadlineError !== null) {
-    invalidFields.push('échéance');
   }
   const footerError = invalidFields.length > 0 ? `À corriger : ${invalidFields.join(', ')}.` : saveError;
 
@@ -244,16 +206,6 @@ function ProfileForm({ initialValues, savedGoalDeadline }: ProfileFormProps) {
     setBirthDateError(null);
   }
 
-  function changeGoal(value: string) {
-    setGoal(value);
-    setGoalError(null);
-  }
-
-  function changeGoalDeadline(value: string) {
-    setGoalDeadline(value);
-    setGoalDeadlineError(null);
-  }
-
   async function handleSubmit() {
     if (pendingRef.current) {
       return;
@@ -261,32 +213,27 @@ function ProfileForm({ initialValues, savedGoalDeadline }: ProfileFormProps) {
     // Validation avant tout envoi : tous les problèmes d'un coup, chacun sous son champ.
     const today = localToday();
     const birth = readBirthDate(birthDate, today);
-    const deadline = readGoalDeadline(goalDeadline, today, savedGoalDeadline);
-    const trimmedGoal = goal.trim();
-    // Une échéance saisie, même illisible, demande son objectif.
-    const goalMissing = goalDeadline.trim() !== '' && trimmedGoal === '';
     setMainPositionError(mainPosition === null ? MISSING_MAIN_POSITION_MESSAGE : null);
     setBirthDateError(birth.valid ? null : INVALID_BIRTH_DATE_MESSAGE);
-    setGoalError(goalMissing ? MISSING_GOAL_MESSAGE : null);
-    setGoalDeadlineError(deadline.valid ? null : INVALID_GOAL_DEADLINE_MESSAGE);
     // Le refus précédent de Supabase ne vaut plus : nouvel essai ou champs à corriger.
     setSaveError(null);
-    if (mainPosition === null || !birth.valid || goalMissing || !deadline.valid) {
+    if (mainPosition === null || !birth.valid) {
       return;
     }
 
     pendingRef.current = true;
     setSaving(true);
-    // Jamais de user_id : la base le tire du JWT.
+    // Jamais de user_id : la base le tire du JWT. Ni goal ni goal_deadline : une
+    // clé absente n'est pas modifiée, l'objectif déjà en base est donc conservé
+    // (objectifs : chantier 14).
     const { data, error } = await upsertMyProfile({
+      display_name: displayName.trim() || null,
       main_position: mainPosition,
       secondary_position: secondaryPosition,
       strong_foot: strongFoot,
       club: club.trim() || null,
       club_level: clubLevel.trim() || null,
       birth_date: birth.day,
-      goal: trimmedGoal || null,
-      goal_deadline: deadline.day,
     });
     if (error !== null || data === null) {
       // Saisie conservée, envoi de nouveau possible.
@@ -313,6 +260,26 @@ function ProfileForm({ initialValues, savedGoalDeadline }: ProfileFormProps) {
           </>
         }
       >
+        <View style={layout.section}>
+          <View>
+            <Text style={text.overline}>Nom affiché</Text>
+            <Text style={text.meta}>Facultatif · initiales de l’avatar du Profil.</Text>
+          </View>
+          <TextInput
+            {...inputProps}
+            style={input.field}
+            value={displayName}
+            onChangeText={setDisplayName}
+            maxLength={DISPLAY_NAME_MAX_LENGTH}
+            placeholder="ex. Karim Mansouri"
+            accessibilityLabel="Nom affiché"
+            autoCapitalize="words"
+            autoComplete="name"
+            // Un nom propre : le correcteur proposerait de le « corriger ».
+            autoCorrect={false}
+          />
+        </View>
+
         <View style={layout.section}>
           <Text style={text.overline}>Poste principal</Text>
           <View style={layout.chipRow}>
@@ -404,42 +371,6 @@ function ProfileForm({ initialValues, savedGoalDeadline }: ProfileFormProps) {
             accessibilityLabel="Date de naissance"
           />
           <FieldError message={birthDateError} />
-        </View>
-
-        <View style={layout.section}>
-          <View>
-            <Text style={text.overline}>Objectif</Text>
-            <Text style={text.meta}>{`Facultatif · ${goal.length}/${GOAL_MAX_LENGTH}`}</Text>
-          </View>
-          <TextInput
-            {...inputProps}
-            style={[input.field, input.multiline, goalError !== null && input.invalid]}
-            value={goal}
-            onChangeText={changeGoal}
-            maxLength={GOAL_MAX_LENGTH}
-            multiline
-            placeholder="ex. Être titulaire en équipe première d’ici juin"
-            accessibilityLabel="Objectif"
-          />
-          <FieldError message={goalError} />
-        </View>
-
-        <View style={layout.section}>
-          <View>
-            <Text style={text.overline}>Échéance</Text>
-            <Text style={text.meta}>Facultative · JJ/MM/AAAA, jour à venir.</Text>
-          </View>
-          {/* Clavier par défaut, comme la date de naissance. */}
-          <TextInput
-            {...inputProps}
-            style={[input.field, goalDeadlineError !== null && input.invalid]}
-            value={goalDeadline}
-            onChangeText={changeGoalDeadline}
-            maxLength={NUMERIC_DAY_MAX_LENGTH}
-            placeholder="JJ/MM/AAAA"
-            accessibilityLabel="Échéance de l’objectif"
-          />
-          <FieldError message={goalDeadlineError} />
         </View>
       </Screen>
     </>

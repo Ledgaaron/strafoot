@@ -1,56 +1,74 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type LayoutChangeEvent,
-  type ScrollView,
-} from 'react-native';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View, type ScrollView } from 'react-native';
 
+import { BottomSheet } from '../../components/bottom-sheet';
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
+import { Chip } from '../../components/chip';
+import { DurationValue } from '../../components/duration-value';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
-import { IconButton } from '../../components/icon-button';
+import { IconButton, type IconName } from '../../components/icon-button';
 import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
 import { useAuth } from '../../lib/auth-context';
-import { daysBetween, formatNumericDay, formatShortDay, localToday, relativeDay, shiftDay } from '../../lib/dates';
-import { getMyProfile, type ProfileRow } from '../../lib/db/profiles';
-import { countByModule, type ModuleVolume } from '../../lib/db/sessions';
+import { formatShortDay, formatShortMonth, localToday, relativeDay } from '../../lib/dates';
+import { getQuizStats, listAnswerDays } from '../../lib/db/answers';
+import { getMyProfile } from '../../lib/db/profiles';
+import { listSessions } from '../../lib/db/sessions';
+import { countSheets, listTests } from '../../lib/db/training';
 import {
-  listAllLatestWithPrevious,
-  listTestCatalog,
-  type LatestWithPrevious,
-  type TestRow,
-} from '../../lib/db/test-results';
-import { listSheets, type SheetRow } from '../../lib/db/training';
-import { describeDelta, formatDecimal, formatMeasure, type Delta } from '../../lib/measure-delta';
-import { moduleLabel } from '../../lib/modules';
-import { positionLabel, strongFootLabel } from '../../lib/profile-taxonomy';
-import { parseExercises } from '../../lib/sheet-types';
+  buildRegularityWeeks,
+  countActiveWeeks,
+  describeTrend,
+  formatMinutes,
+  initialsOf,
+  joinCaption,
+  monthVolume,
+  REGULARITY_WEEK_COUNT,
+  regularityStart,
+  summarizeSkills,
+  type RegularityMetric,
+  type SkillSummary,
+  type TrendPart,
+  type WeekVolume,
+} from '../../lib/profile-stats';
+import { positionLabel } from '../../lib/profile-taxonomy';
+import { MAX_OPTION_SCORE } from '../../lib/quiz-taxonomy';
+import { computeStreaks } from '../../lib/streak';
+import { getSkill, type SkillKey } from '../../lib/test-families';
 import { colors, fontSize, layout, radius, size, spacing, text } from '../../lib/theme';
+import { DEFAULT_TRAINING_THEME } from '../../lib/training-themes';
 
 const PLACEHOLDER = '—';
-const NOT_SET = 'non renseigné';
-const NEVER_MEASURED = 'jamais mesurée';
+/** Espace insécable : un nombre ne se sépare jamais de son mot en fin de ligne (« 3 tests »). */
+const NBSP = ' ';
 const SIGN_OUT_QUESTION = 'Se déconnecter de cet appareil ?';
-/** Email de l'en-tête réduit pour tenir sur une ligne, jamais sous la taille du corps : 20 × 0,8 = 16 px. */
+/** Email affiché à la place du nom, réduit pour tenir sur une ligne, jamais sous la taille du corps : 20 × 0,8 = 16 px. */
 const EMAIL_MIN_FONT_SCALE = fontSize.body / fontSize.title;
-/** Fenêtre de la colonne « 30 jours » : aujourd'hui et les 29 jours précédents. */
-const RECENT_DAY_COUNT = 30;
-/** Colonne « Module » du tableau des volumes : ses libellés sont plus longs que « 12 séances ». */
-const MODULE_COLUMN_FLEX = 1.4;
+// Toutes les réponses depuis le début : la streak du quiz n'a pas de limite de durée.
+const HISTORY_START = '2000-01-01';
+/** Barre d'une semaine vide : un trait gris qui garde le rythme des 12 semaines. */
+const EMPTY_BAR_HEIGHT = spacing.xs;
+/** Barre d'une semaine active : jamais plus basse, même très loin de la plus haute. */
+const MIN_BAR_HEIGHT = spacing.sm;
+
+/** Puces du graphe de régularité, dans l'ordre affiché. */
+const METRICS: readonly { key: RegularityMetric; label: string }[] = [
+  { key: 'minutes', label: 'Minutes' },
+  { key: 'sessions', label: 'Séances' },
+  { key: 'tests', label: 'Tests' },
+];
+
+// Grandeur choisie pour les barres : survit au démontage de l'écran tant que l'app
+// tourne, jamais persistée (comme le filtre du quiz). Minutes au lancement.
+let lastMetric: RegularityMetric = 'minutes';
 
 /** Posés par router.dismissTo à l'arrivée sur l'onglet. */
 type ProfileParams = {
-  /** « Voir ma progression » d'un test : fiche dont la carte est mise en évidence et amenée à l'écran. */
+  /** « Voir ma progression » d'un test : la carte Tests est mise en évidence et amenée à l'écran. */
   focusTest?: string;
   /** Séance qui a produit les résultats : nonce, une mise en évidence par test passé. */
   focusSession?: string;
@@ -60,73 +78,42 @@ type ProfileParams = {
 
 type LoadingState = { status: 'loading' };
 type ErrorState = { status: 'error'; message: string };
+/** Section de l'écran : chargement, erreur affichée, ou données. */
+type Loadable<T> = LoadingState | ErrorState | { status: 'ready'; data: T };
 
-type IdentityField = { label: string; value: string };
+/** En-tête : nom affiché (null : l'email le remplace) et « poste · club · niveau » (null : rien de renseigné). */
+type HeaderData = { displayName: string | null; caption: string | null };
 
-/** Objectif du profil prêt à afficher. */
-type GoalView = {
-  text: string;
-  /** « J-42 » avant l'échéance, « J+3 » après ; null sans échéance. */
-  countdown: string | null;
-  /** « Objectif : …, échéance le 18/11/2026 ». */
-  accessibilityLabel: string;
-};
-
-type IdentityState =
-  | LoadingState
-  | ErrorState
-  | { status: 'ready'; fields: IdentityField[]; goal: GoalView | null };
-
-/** Dernier résultat d'une mesure, prêt à afficher. */
-type LatestLine = {
-  /** « 12,5 » : la valeur seule, l'unité s'affiche à côté en secondaire. */
-  value: string;
-  /** Unité du catalogue ; '' pour une mesure sans unité. */
-  unit: string;
-  /** « auj. », « il y a 3 j », « 30 sept. ». */
-  date: string;
-  /** Évolution depuis l'avant-dernier résultat ; direction none pour un premier résultat. */
-  delta: Delta;
-};
-
-/** Mesure du catalogue prête à afficher : une ligne tappable. */
-type MeasureLine = {
-  testId: string;
-  name: string;
-  /** null : mesure jamais prise. */
-  latest: LatestLine | null;
-  accessibilityLabel: string;
-};
-
-/** Mesures d'un test (fiche kind = test), dans l'ordre de ses blocs. */
-type MeasureGroup = {
-  sheetId: string;
-  title: string;
-  lines: MeasureLine[];
-  /** Exercices illisibles ou mesures absentes du catalogue : affiché, jamais avalé. */
-  problem: string | null;
-};
-
-type MeasuresState =
-  | LoadingState
-  | ErrorState
-  | { status: 'ready'; groups: MeasureGroup[]; hasResults: boolean };
-
-/** Cellule du tableau des volumes : « 3 séances » sur « 2 h 15 ». */
-type VolumeCell = { sessions: string; duration: string };
-
-type VolumeLine = {
-  key: string;
+/** Ligne d'une compétence dans la carte Tests. */
+type SkillRow = {
+  skill: SkillKey;
   label: string;
-  /** null : aucune séance sur les 30 derniers jours. */
-  recent: VolumeCell | null;
-  total: VolumeCell;
+  icon: IconName;
+  /** « 3 tests faits · dernière fois : hier » */
+  details: string;
+  /** « 2 mesures en progrès · 1 en recul », en parties colorées. */
+  trend: TrendPart[];
+  accessibilityLabel: string;
 };
 
-type VolumesState =
-  | LoadingState
-  | ErrorState
-  | { status: 'ready'; modules: VolumeLine[]; total: VolumeLine | null };
+/** Séances des 12 semaines et tests : cartes Régularité, Tests et Volume. */
+type TrainingData = {
+  weeks: WeekVolume[];
+  activeWeeks: number;
+  /** Mois aux extrémités de l'axe : « Juil. », « Oct. ». */
+  firstMonth: string;
+  lastMonth: string;
+  skills: SkillRow[];
+  /** Tests hors format en base : affichés dans la carte Tests, jamais avalés. */
+  problems: string[];
+  /** Du 1er du mois à aujourd'hui. */
+  month: { minutes: number; sessions: number };
+};
+
+type QuizData = { total: number; last7DaysAvg: number | null; streak: number };
+
+/** Feuille Réglages ; open false : elle redescend. null : retirée d'un coup (avant d'ouvrir l'édition). */
+type SettingsSheet = { open: boolean };
 
 export default function ProfileScreen() {
   const { session, signOut } = useAuth();
@@ -136,49 +123,56 @@ export default function ProfileScreen() {
   const focusNonce = typeof focusSession === 'string' ? focusSession : null;
   const savedNonce = typeof saved === 'string' && saved !== '' ? saved : null;
   const email = session?.user.email ?? null;
-  const [identity, setIdentity] = useState<IdentityState>({ status: 'loading' });
-  const [measures, setMeasures] = useState<MeasuresState>({ status: 'loading' });
-  const [volumes, setVolumes] = useState<VolumesState>({ status: 'loading' });
+  const [header, setHeader] = useState<Loadable<HeaderData>>({ status: 'loading' });
+  const [training, setTraining] = useState<Loadable<TrainingData>>({ status: 'loading' });
+  const [quiz, setQuiz] = useState<Loadable<QuizData>>({ status: 'loading' });
+  const [sheetCount, setSheetCount] = useState<Loadable<number>>({ status: 'loading' });
   // Incrémenté par « Réessayer » : relance les lectures du focus.
   const [reloadCount, setReloadCount] = useState(0);
+  const [metric, setMetric] = useState<RegularityMetric>(lastMetric);
+  const [settings, setSettings] = useState<SettingsSheet | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
-  // Carte du test qu'on vient de passer (« Voir ma progression »), le temps de la visite.
-  const [highlightedTest, setHighlightedTest] = useState<string | null>(null);
+  // Carte Tests mise en évidence au retour de « Voir ma progression », le temps de la visite.
+  const [testsHighlighted, setTestsHighlighted] = useState(false);
+  // Incrémenté à chaque arrivée par « Voir ma progression » : relance la mise en vue.
+  const [focusRequest, setFocusRequest] = useState(0);
+  // Carte Tests encore à amener à l'écran ; false une fois fait, ou l'onglet quitté.
+  const pendingFocusRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
-  // Fiche dont la carte reste à amener à l'écran ; null une fois fait, ou l'onglet quitté.
-  const pendingFocusRef = useRef<string | null>(null);
-  // Relevés onLayout : y de la section Évaluations dans le contenu défilant, y de
-  // chaque carte de test dans la section.
-  const evaluationsYRef = useRef<number | null>(null);
-  const cardYsRef = useRef(new Map<string, number>());
+  // Contenu de l'écran (ancêtre de la carte Tests, par rapport auquel elle se mesure)
+  // et sa position dans le contenu défilant : fixe, c'est son seul enfant.
+  const contentRef = useRef<View>(null);
+  const contentYRef = useRef(0);
+  const testsCardRef = useRef<View>(null);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       const isActive = () => active;
       // Relu à chaque focus, avec les données : l'app peut rester ouverte après minuit.
-      const today = localToday();
-      // Trois sections indépendantes : la panne de l'une n'empêche pas les autres de
+      const day = localToday();
+      // Sections indépendantes : la panne de l'une n'empêche pas les autres de
       // s'afficher. Pas de retour à « chargement » : au retour sur l'onglet (après
       // l'édition du profil, un test, une suppression), les données précédentes
       // restent affichées jusqu'à la réponse. Seul « Réessayer » repasse sa section
       // à « chargement ».
-      settle(loadIdentity(today), isActive, setIdentity);
-      settle(loadMeasures(today), isActive, setMeasures);
-      settle(loadVolumes(today), isActive, setVolumes);
+      settle(loadHeader(), isActive, setHeader);
+      settle(loadTraining(day), isActive, setTraining);
+      settle(loadQuiz(day), isActive, setQuiz);
+      settle(loadSheetCount(), isActive, setSheetCount);
       return () => {
         active = false;
       };
     }, [reloadCount]),
   );
 
-  // Quitter l'onglet efface la mise en évidence et annule un défilement encore en attente.
+  // Quitter l'onglet efface la mise en évidence et annule une mise en vue encore en attente.
   useFocusEffect(
     useCallback(
       () => () => {
-        setHighlightedTest(null);
-        pendingFocusRef.current = null;
+        setTestsHighlighted(false);
+        pendingFocusRef.current = false;
       },
       [],
     ),
@@ -191,15 +185,63 @@ export default function ProfileScreen() {
     if (focusTestId === null) {
       return;
     }
-    setHighlightedTest(focusTestId);
-    pendingFocusRef.current = focusTestId;
-    scheduleFocusScroll();
+    setTestsHighlighted(true);
+    pendingFocusRef.current = true;
+    setFocusRequest((count) => count + 1);
   }, [focusTestId, focusNonce]);
 
-  /** « Réessayer » d'une section en erreur : elle repasse à « chargement », puis les trois sections se relisent. */
+  // Mise en vue de la carte Tests, une fois l'en-tête et les cartes du dessus
+  // chargés (leur hauteur la déplace). Position mesurée au moment du défilement,
+  // par rapport au contenu : sur le web, onLayout ne signale pas un simple
+  // déplacement ; en natif, measureLayout veut un ancêtre.
+  const headerSettled = header.status !== 'loading';
+  const trainingSettled = training.status !== 'loading';
+  useEffect(() => {
+    if (!pendingFocusRef.current || !headerSettled || !trainingSettled) {
+      return;
+    }
+    // Une image plus tard : la mise en page de ce rendu est faite.
+    const frame = requestAnimationFrame(() => {
+      const content = contentRef.current;
+      const card = testsCardRef.current;
+      if (!pendingFocusRef.current || content === null || card === null) {
+        return;
+      }
+      pendingFocusRef.current = false;
+      // Haut de la carte à 16 px sous le haut de l'écran.
+      card.measureLayout(content, (_left, top) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, contentYRef.current + top - spacing.lg), animated: false });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [focusRequest, headerSettled, trainingSettled]);
+
+  /** « Réessayer » d'une section en erreur : elle repasse à « chargement », puis toutes les sections se relisent. */
   function retry(setSection: (state: LoadingState) => void) {
     setSection({ status: 'loading' });
     setReloadCount((count) => count + 1);
+  }
+
+  function changeMetric(next: RegularityMetric) {
+    lastMetric = next;
+    setMetric(next);
+  }
+
+  function openSettings() {
+    setSignOutError(null);
+    setSettings({ open: true });
+  }
+
+  function closeSettings() {
+    setSettings((current) => (current === null ? null : { open: false }));
+  }
+
+  function editProfile() {
+    // Feuille retirée d'un coup : une Modal resterait par-dessus l'écran d'édition.
+    setSettings(null);
+    router.push('/profile/edit');
   }
 
   function confirmSignOut() {
@@ -230,173 +272,58 @@ export default function ProfileScreen() {
     }
   }
 
-  function recordEvaluationsLayout(event: LayoutChangeEvent) {
-    evaluationsYRef.current = event.nativeEvent.layout.y;
-    scheduleFocusScroll();
-  }
-
-  function recordCardLayout(sheetId: string, event: LayoutChangeEvent) {
-    cardYsRef.current.set(sheetId, event.nativeEvent.layout.y);
-    scheduleFocusScroll();
-  }
-
-  /**
-   * Défilement vers la carte en attente, une image plus tard : les autres
-   * onLayout du même passage de mise en page sont alors relevés.
-   */
-  function scheduleFocusScroll() {
-    if (pendingFocusRef.current !== null) {
-      requestAnimationFrame(scrollToPendingCard);
-    }
-  }
-
-  /**
-   * Amène la carte en attente à 16 px sous le haut de l'écran, une seule fois,
-   * dès que la section et la carte affichée sont mesurées. Attend aussi la fin
-   * du chargement de l'Identité : au-dessus, sa hauteur décalerait la carte.
-   */
-  function scrollToPendingCard() {
-    const sheetId = pendingFocusRef.current;
-    const sectionY = evaluationsYRef.current;
-    const cardY = sheetId !== null ? cardYsRef.current.get(sheetId) : undefined;
-    if (
-      sheetId === null ||
-      sectionY === null ||
-      cardY === undefined ||
-      identity.status === 'loading' ||
-      !isTestCardShown(measures, sheetId)
-    ) {
-      return;
-    }
-    pendingFocusRef.current = null;
-    scrollRef.current?.scrollTo({ y: sectionY + cardY - spacing.lg, animated: false });
-  }
-
   return (
     <Screen
-      title="Profil"
       scrollRef={scrollRef}
       // Retour de l'édition : saved change à chaque enregistrement et rejoue la confirmation.
       toast={savedNonce !== null ? <SaveToast key={savedNonce} message="Profil enregistré." /> : null}
     >
-      <View style={styles.headerBlock}>
-        <View style={styles.header}>
-          <Text
-            style={[text.title, styles.email]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={EMAIL_MIN_FONT_SCALE}
-            // L'adresse entière pour le lecteur d'écran, même tronquée à l'affichage.
-            accessibilityLabel={`Email : ${email ?? NOT_SET}`}
-          >
-            {email ?? PLACEHOLDER}
-          </Text>
-          <View style={layout.buttonRow}>
-            {/* L'écran d'édition relit le profil lui-même : proposé même si l'Identité est en erreur. */}
-            <IconButton
-              icon="create-outline"
-              accessibilityLabel="Modifier le profil"
-              onPress={() => router.push('/profile/edit')}
-            />
-            <IconButton
-              icon="log-out-outline"
-              accessibilityLabel="Se déconnecter"
-              onPress={confirmSignOut}
-              loading={signingOut}
-            />
+      <View
+        ref={contentRef}
+        onLayout={(event) => {
+          contentYRef.current = event.nativeEvent.layout.y;
+        }}
+        style={styles.content}
+      >
+        <ProfileHeader email={email} header={header} onRetry={() => retry(setHeader)} onOpenSettings={openSettings} />
+
+        {/* Cartes à 12 px les unes des autres (DA), plus serrées que les blocs de l'écran. */}
+        <View style={styles.cards}>
+          <RegularityCard
+            state={training}
+            metric={metric}
+            onChangeMetric={changeMetric}
+            onRetry={() => retry(setTraining)}
+          />
+          {/* Card ne prend pas de ref : la vue qui l'enveloppe se mesure pour la mise en vue. */}
+          <View ref={testsCardRef}>
+            <TestsCard state={training} highlighted={testsHighlighted} onRetry={() => retry(setTraining)} />
           </View>
+          <View style={styles.cardRow}>
+            <QuizCard state={quiz} onRetry={() => retry(setQuiz)} />
+            <SheetsCard state={sheetCount} onRetry={() => retry(setSheetCount)} />
+          </View>
+          <VolumeCard state={training} onRetry={() => retry(setTraining)} />
         </View>
-        <FieldError message={signOutError} />
       </View>
 
-      {/* Fin du chargement : l'Identité grandit et la section Évaluations descend.
-          Sur le web, onLayout ne signale que les changements de taille, pas ce
-          déplacement : ce relevé-ci relance alors le défilement en attente. */}
-      <View style={layout.section} onLayout={scheduleFocusScroll}>
-        <Text role="heading" style={text.title}>
-          Identité
-        </Text>
-        {identity.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-        {identity.status === 'error' ? (
-          <>
-            <FieldError message={`Erreur : ${identity.message}`} />
-            <Button variant="secondary" label="Réessayer" onPress={() => retry(setIdentity)} />
-          </>
-        ) : null}
-        {identity.status === 'ready' ? (
-          <Card>
-            {identity.fields.map((field) => (
-              <IdentityRow key={field.label} label={field.label} value={field.value} />
-            ))}
-            <GoalBlock goal={identity.goal} />
-          </Card>
-        ) : null}
-      </View>
-
-      <View style={layout.section} onLayout={recordEvaluationsLayout}>
-        <Text role="heading" style={text.title}>
-          Évaluations
-        </Text>
-        {measures.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-        {measures.status === 'error' ? (
-          <>
-            <FieldError message={`Erreur : ${measures.message}`} />
-            <Button variant="secondary" label="Réessayer" onPress={() => retry(setMeasures)} />
-          </>
-        ) : null}
-        {measures.status === 'ready' && !measures.hasResults ? (
-          // secondary : l'écran n'a pas d'action principale, et les deux sections peuvent être vides ensemble.
-          <EmptyState
-            title="Aucun résultat"
-            message="Fais ton premier test depuis l’onglet Tests."
-            action={{ label: 'Voir les tests', onPress: () => router.navigate('/training'), variant: 'secondary' }}
-          />
-        ) : null}
-        {measures.status === 'ready'
-          ? measures.groups
-              .filter((group) => isGroupShown(group, measures.hasResults))
-              .map((group) => (
-                <MeasureGroupCard
-                  key={group.sheetId}
-                  group={group}
-                  showLines={measures.hasResults}
-                  highlighted={group.sheetId === highlightedTest}
-                  onLayout={(event) => recordCardLayout(group.sheetId, event)}
-                />
-              ))
-          : null}
-      </View>
-
-      <View style={layout.section}>
-        <Text role="heading" style={text.title}>
-          Volumes
-        </Text>
-        {volumes.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-        {volumes.status === 'error' ? (
-          <>
-            <FieldError message={`Erreur : ${volumes.message}`} />
-            <Button variant="secondary" label="Réessayer" onPress={() => retry(setVolumes)} />
-          </>
-        ) : null}
-        {volumes.status === 'ready' && volumes.total === null ? (
-          <EmptyState
-            title="Aucune séance"
-            message="Enregistre ta première séance depuis l’Accueil."
-            action={{ label: 'Nouvelle séance', onPress: () => router.push('/session/new'), variant: 'secondary' }}
-          />
-        ) : null}
-        {volumes.status === 'ready' && volumes.total !== null ? (
-          <VolumeTable modules={volumes.modules} total={volumes.total} />
-        ) : null}
-      </View>
+      {settings !== null ? (
+        <BottomSheet visible={settings.open} onClose={closeSettings} title="Réglages">
+          {email !== null ? <Text style={text.meta}>{`Connecté : ${email}`}</Text> : null}
+          {/* L'écran d'édition relit le profil lui-même : proposé même si l'en-tête est en erreur. */}
+          <Button variant="secondary" label="Modifier le profil" onPress={editProfile} />
+          <FieldError message={signOutError} />
+          <Button variant="danger" label="Déconnexion" loading={signingOut} onPress={confirmSignOut} />
+        </BottomSheet>
+      ) : null}
     </Screen>
   );
 }
 
 /**
  * Pose l'état chargé tant que l'écran est actif. Une exception inattendue (jour
- * mal formé refusé par formatNumericDay, par exemple) devient une erreur
- * affichée, jamais avalée.
+ * mal formé refusé par relativeDay, par exemple) devient une erreur affichée,
+ * jamais avalée.
  */
 function settle<S>(
   load: Promise<S>,
@@ -417,364 +344,450 @@ function settle<S>(
     });
 }
 
-async function loadIdentity(today: string): Promise<IdentityState> {
+/** Messages distincts de plusieurs lectures : une même panne (réseau, session expirée) remonte souvent sur toutes. */
+function joinErrors(errors: readonly (string | null)[]): string | null {
+  const messages = [...new Set(errors.filter((message): message is string => message !== null))];
+  return messages.length > 0 ? messages.join('\n') : null;
+}
+
+async function loadHeader(): Promise<Loadable<HeaderData>> {
   const { data, error } = await getMyProfile();
   if (error !== null) {
     return { status: 'error', message: error };
   }
-  return { status: 'ready', fields: toIdentityFields(data), goal: toGoalView(data, today) };
-}
-
-/** Champs affichés du profil ; « non renseigné » pour un champ vide ou un profil absent. */
-function toIdentityFields(profile: ProfileRow | null): IdentityField[] {
-  const fields: { label: string; value: string | null }[] = [
-    { label: 'Poste principal', value: profile?.main_position ? positionLabel(profile.main_position) : null },
-    {
-      label: 'Poste secondaire',
-      value: profile?.secondary_position ? positionLabel(profile.secondary_position) : null,
-    },
-    { label: 'Pied fort', value: profile?.strong_foot ? strongFootLabel(profile.strong_foot) : null },
-    { label: 'Club', value: profile?.club?.trim() || null },
-    { label: 'Niveau', value: profile?.club_level?.trim() || null },
-    { label: 'Date de naissance', value: profile?.birth_date ? formatNumericDay(profile.birth_date) : null },
-  ];
-  return fields.map(({ label, value }) => ({ label, value: value ?? NOT_SET }));
-}
-
-/**
- * Objectif et compte à rebours en jours calendaires depuis today ; null sans
- * objectif, même avec une échéance (l'écran d'édition refuse une échéance seule).
- */
-function toGoalView(profile: ProfileRow | null, today: string): GoalView | null {
-  const goal = profile?.goal?.trim() ?? '';
-  if (goal === '') {
-    return null;
-  }
-  const deadline = profile?.goal_deadline ?? null;
-  if (deadline === null) {
-    return { text: goal, countdown: null, accessibilityLabel: `Objectif : ${goal}` };
-  }
-  const days = daysBetween(today, deadline);
-  return {
-    text: goal,
-    // Échéance dépassée : jours écoulés depuis (« J+3 »).
-    countdown: days >= 0 ? `J-${days}` : `J+${-days}`,
-    accessibilityLabel: `Objectif : ${goal}, échéance le ${formatNumericDay(deadline)}`,
-  };
-}
-
-async function loadMeasures(today: string): Promise<MeasuresState> {
-  const [sheets, catalog, latest] = await Promise.all([
-    listSheets({ kind: 'test' }),
-    listTestCatalog(),
-    listAllLatestWithPrevious(),
-  ]);
-  const errors = [sheets.error, catalog.error, latest.error].filter((message) => message !== null);
-  if (errors.length > 0) {
-    // Une même panne (réseau, session expirée) remonte souvent sur les trois requêtes.
-    return { status: 'error', message: [...new Set(errors)].join('\n') };
-  }
-  const groups = buildMeasureGroups(sheets.data ?? [], catalog.data ?? [], latest.data ?? new Map(), today);
   return {
     status: 'ready',
-    groups,
-    hasResults: groups.some((group) => group.lines.some((line) => line.latest !== null)),
-  };
-}
-
-/** Sans aucun résultat, seuls les problèmes restent affichés : 23 lignes « — » n'apprennent rien. */
-function isGroupShown(group: MeasureGroup, hasResults: boolean): boolean {
-  return hasResults || group.problem !== null;
-}
-
-/** Carte du test à l'écran ; une carte retirée garde son dernier relevé onLayout, périmé. */
-function isTestCardShown(measures: MeasuresState, sheetId: string): boolean {
-  return (
-    measures.status === 'ready' &&
-    measures.groups.some((group) => group.sheetId === sheetId && isGroupShown(group, measures.hasResults))
-  );
-}
-
-/**
- * Un groupe par test (fiche kind = test, par titre, comme l'onglet
- * Entraînement), ses mesures dans l'ordre des blocs. La fiche porte les mesures
- * par key ; la ligne du catalogue tests donne l'id, le nom, l'unité et
- * higher_is_better. Les 2 tests de démonstration (key null, sans fiche) ne
- * sont pas affichés.
- */
-function buildMeasureGroups(
-  sheets: readonly SheetRow[],
-  catalog: readonly TestRow[],
-  latest: ReadonlyMap<string, LatestWithPrevious>,
-  today: string,
-): MeasureGroup[] {
-  const byKey = new Map<string, TestRow>();
-  for (const row of catalog) {
-    if (row.key !== null) {
-      byKey.set(row.key, row);
-    }
-  }
-  return sheets.map((sheet) => {
-    const exercises = parseExercises(sheet.exercises, 'test');
-    if (exercises.error !== null) {
-      return { sheetId: sheet.id, title: sheet.title, lines: [], problem: `Mesures illisibles en base.\n${exercises.error}` };
-    }
-    const lines: MeasureLine[] = [];
-    const missing: string[] = [];
-    for (const measure of exercises.data.flatMap((block) => block.measures)) {
-      const test = byKey.get(measure.key);
-      if (!test) {
-        missing.push(measure.key);
-        continue;
-      }
-      lines.push(toMeasureLine(test, latest.get(test.id), today));
-    }
-    return {
-      sheetId: sheet.id,
-      title: sheet.title,
-      lines,
-      problem:
-        missing.length > 0
-          ? `Mesures absentes du catalogue tests : ${missing.join(', ')}. Exécuter supabase/seed_sheets_001.sql.`
-          : null,
-    };
-  });
-}
-
-/**
- * Ligne d'une mesure : dernière valeur, unité, date relative à today et
- * évolution (vide pour un premier résultat). Le libellé d'accessibilité dit
- * tout d'un trait, date en absolu (formatShortDay) comme les autres libellés
- * d'accessibilité.
- */
-function toMeasureLine(test: TestRow, result: LatestWithPrevious | undefined, today: string): MeasureLine {
-  if (result === undefined) {
-    return { testId: test.id, name: test.name, latest: null, accessibilityLabel: `${test.name} : ${NEVER_MEASURED}` };
-  }
-  const delta = describeDelta(result.value, result.previousValue, test.unit, test.higher_is_better);
-  const spoken = [formatMeasure(result.value, test.unit), formatShortDay(result.date)];
-  return {
-    testId: test.id,
-    name: test.name,
-    latest: {
-      value: formatDecimal(result.value),
-      unit: test.unit.trim(),
-      date: relativeDay(result.date, today),
-      delta,
+    data: {
+      displayName: data?.display_name?.trim() || null,
+      caption: joinCaption([
+        data?.main_position ? positionLabel(data.main_position) : null,
+        data?.club,
+        data?.club_level,
+      ]),
     },
-    accessibilityLabel: `${test.name} : ${(delta.direction === 'none' ? spoken : [...spoken, delta.text]).join(', ')}`,
   };
 }
 
-async function loadVolumes(today: string): Promise<VolumesState> {
-  const [recent, total] = await Promise.all([
-    countByModule({ from: shiftDay(today, -(RECENT_DAY_COUNT - 1)), to: today }),
-    // Sans borne, comme le « Total » de l'Accueil.
-    countByModule(),
-  ]);
-  const errors = [recent.error, total.error].filter((message) => message !== null);
-  if (errors.length > 0) {
-    return { status: 'error', message: [...new Set(errors)].join('\n') };
+/**
+ * Séances des 12 semaines (régularité, volume du mois : la fenêtre couvre tout
+ * le mois en cours) et tests avec leurs résultats (barres Tests, carte Tests).
+ */
+async function loadTraining(today: string): Promise<Loadable<TrainingData>> {
+  const [sessions, tests] = await Promise.all([listSessions({ from: regularityStart(today), to: today }), listTests()]);
+  const error = joinErrors([sessions.error, tests.error]);
+  if (error !== null) {
+    return { status: 'error', message: error };
   }
-  const recentVolumes = recent.data ?? [];
-  const totalVolumes = total.data ?? [];
-  if (totalVolumes.length === 0) {
-    return { status: 'ready', modules: [], total: null };
-  }
-  const recentByModule = new Map(recentVolumes.map((volume) => [volume.module, volume]));
-  const recentSum = sumVolumes(recentVolumes);
+  const sessionRows = sessions.data ?? [];
+  const testItems = tests.data?.items ?? [];
+  // Un jour par test passé : couples (test, jour) distincts.
+  const weeks = buildRegularityWeeks(
+    today,
+    sessionRows,
+    testItems.flatMap((test) => test.resultDates),
+  );
   return {
     status: 'ready',
-    // Un module de la colonne « 30 jours » a forcément des séances au total : les
-    // lignes suivent les modules du total, dans l'ordre de MODULES.
-    modules: totalVolumes.map((volume) => {
-      const recentVolume = recentByModule.get(volume.module);
-      return {
-        key: volume.module,
-        label: moduleLabel(volume.module),
-        recent: recentVolume ? toVolumeCell(recentVolume) : null,
-        total: toVolumeCell(volume),
-      };
-    }),
-    total: {
-      key: 'total',
-      label: 'Total',
-      recent: recentSum.count > 0 ? toVolumeCell(recentSum) : null,
-      total: toVolumeCell(sumVolumes(totalVolumes)),
+    data: {
+      weeks,
+      activeWeeks: countActiveWeeks(weeks),
+      firstMonth: formatShortMonth(weeks[0].monday),
+      lastMonth: formatShortMonth(today),
+      skills: summarizeSkills(testItems).map((summary) => toSkillRow(summary, today)),
+      problems: tests.data?.problems ?? [],
+      month: monthVolume(today, sessionRows),
     },
   };
 }
 
-function sumVolumes(volumes: readonly ModuleVolume[]): { count: number; minutes: number } {
-  return volumes.reduce(
-    (sum, volume) => ({ count: sum.count + volume.count, minutes: sum.minutes + volume.minutes }),
-    { count: 0, minutes: 0 },
-  );
-}
-
-function toVolumeCell({ count, minutes }: { count: number; minutes: number }): VolumeCell {
-  return { sessions: `${count} séance${count >= 2 ? 's' : ''}`, duration: formatMinutes(minutes) };
-}
-
-/** « 45 min » ; en heures à partir de 60 min : « 1 h », « 2 h 05 ». */
-function formatMinutes(minutes: number): string {
-  if (minutes < 60) {
-    return `${minutes} min`;
+async function loadQuiz(today: string): Promise<Loadable<QuizData>> {
+  const [stats, answerDays] = await Promise.all([getQuizStats(), listAnswerDays({ from: HISTORY_START, to: today })]);
+  const error = joinErrors([stats.error, answerDays.error]);
+  if (error !== null) {
+    return { status: 'error', message: error };
   }
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours} h` : `${hours} h ${String(rest).padStart(2, '0')}`;
-}
-
-/** Ligne de la carte Identité : libellé à gauche, valeur à droite. */
-function IdentityRow({ label, value }: IdentityField) {
-  return (
-    <View style={styles.identityRow}>
-      <Text style={text.meta}>{label}</Text>
-      <Text style={[text.body, styles.identityValue]}>{value}</Text>
-    </View>
-  );
-}
-
-/** Bas de la carte Identité : l'objectif et son compte à rebours, ou le lien pour en définir un. */
-function GoalBlock({ goal }: { goal: GoalView | null }) {
-  if (goal === null) {
-    return (
-      <View style={styles.goalBlock}>
-        <Text style={text.overline}>Objectif</Text>
-        <Pressable
-          role="button"
-          onPress={() => router.push('/profile/edit')}
-          style={({ pressed }) => [styles.goalLink, pressed && styles.pressed]}
-        >
-          <Text style={[text.body, styles.goalLinkLabel]}>Aucun objectif — en définir un</Text>
-          <Ionicons name="chevron-forward" size={size.icon} color={colors.textMuted} aria-hidden />
-        </Pressable>
-      </View>
-    );
+  if (!stats.data) {
+    return { status: 'error', message: 'Supabase n’a renvoyé ni les statistiques ni d’erreur.' };
   }
-  return (
-    // Lu d'un trait, l'échéance en date plutôt qu'en « J-42 ».
-    <View accessible accessibilityLabel={goal.accessibilityLabel} style={styles.goalBlock}>
-      <Text style={text.overline}>Objectif</Text>
-      <Text style={text.title}>{goal.text}</Text>
-      {goal.countdown !== null ? <Text style={text.meta}>{goal.countdown}</Text> : null}
-    </View>
-  );
+  return {
+    status: 'ready',
+    data: {
+      total: stats.data.total,
+      last7DaysAvg: stats.data.last7DaysAvg,
+      streak: computeStreaks(new Set(answerDays.data ?? []), today).current,
+    },
+  };
 }
 
-type MeasureGroupCardProps = {
-  group: MeasureGroup;
-  showLines: boolean;
-  /** Test qu'on vient de passer (« Voir ma progression ») : bordure accent. */
-  highlighted: boolean;
-  /** Position de la carte dans la section, pour l'amener à l'écran. */
-  onLayout: (event: LayoutChangeEvent) => void;
+async function loadSheetCount(): Promise<Loadable<number>> {
+  const { data, error } = await countSheets({ kind: 'training' });
+  if (error !== null || data === null) {
+    return { status: 'error', message: error ?? 'Supabase n’a pas renvoyé le nombre de fiches.' };
+  }
+  return { status: 'ready', data };
+}
+
+/** Ligne d'une compétence ; la date en relatif à l'écran, en absolu pour le lecteur d'écran. */
+function toSkillRow(summary: SkillSummary, today: string): SkillRow {
+  const skill = getSkill(summary.skill);
+  const done = formatCount(summary.testsDone, 'test fait', 'tests faits');
+  const trend = describeTrend(summary.trend);
+  return {
+    skill: summary.skill,
+    label: skill.label,
+    icon: skill.icon,
+    details: `${done} · dernière fois : ${relativeDay(summary.lastDate, today)}`,
+    trend,
+    accessibilityLabel: [
+      skill.label,
+      done,
+      `dernière fois le ${formatShortDay(summary.lastDate)}`,
+      ...trend.map((part) => part.text),
+    ].join(', '),
+  };
+}
+
+/** Pluriel français, 0 et 1 au singulier : « 1 test fait », « 3 tests faits ». */
+function formatCount(count: number, singular: string, plural: string): string {
+  return `${count}${NBSP}${count >= 2 ? plural : singular}`;
+}
+
+/** « 2,3 » (le barème « /3 » est posé à côté) ; « — » sans réponse sur 7 jours. Virgule écrite à la main (Intl). */
+function formatAverage(average: number | null): string {
+  return average === null ? PLACEHOLDER : average.toFixed(1).replace('.', ',');
+}
+
+/** Valeur d'une semaine pour le lecteur d'écran : « 1 h 30 », « 3 ». */
+function formatMetricValue(metric: RegularityMetric, value: number): string {
+  return metric === 'minutes' ? formatMinutes(value) : String(value);
+}
+
+type ProfileHeaderProps = {
+  email: string | null;
+  header: Loadable<HeaderData>;
+  onRetry: () => void;
+  onOpenSettings: () => void;
 };
 
-function MeasureGroupCard({ group, showLines, highlighted, onLayout }: MeasureGroupCardProps) {
+/**
+ * En-tête, seul titre de l'écran : avatar (initiales du nom affiché, sinon
+ * l'icône personne), le nom ou à défaut l'email, « poste · club · niveau », et
+ * l'engrenage des Réglages.
+ */
+function ProfileHeader({ email, header, onRetry, onOpenSettings }: ProfileHeaderProps) {
+  const data = header.status === 'ready' ? header.data : null;
+  const initials = initialsOf(data?.displayName ?? null);
   return (
-    // Card ne prend pas onLayout : la vue qui l'enveloppe relève sa position.
-    <View onLayout={onLayout}>
-      <Card highlighted={highlighted}>
-        <Text style={text.bodyStrong}>{group.title}</Text>
-        <FieldError message={group.problem} />
-        {showLines ? group.lines.map((line) => <MeasureRow key={line.testId} line={line} />) : null}
-      </Card>
+    <View style={layout.section}>
+      <View style={styles.header}>
+        {/* Décoratif : le nom, juste à côté, est lu. */}
+        <View aria-hidden style={styles.avatar}>
+          {initials !== null ? (
+            <Text style={text.title}>{initials}</Text>
+          ) : (
+            <Ionicons name="person" size={size.icon} color={colors.textMuted} />
+          )}
+        </View>
+        <View style={styles.headerText}>
+          {data === null ? (
+            // Tant que le profil n'est pas lu : ni l'email ni le nom, pour ne pas changer de nom sous les yeux.
+            <Text role="heading" style={text.title}>
+              {PLACEHOLDER}
+            </Text>
+          ) : data.displayName !== null ? (
+            <Text role="heading" style={text.title} numberOfLines={2}>
+              {data.displayName}
+            </Text>
+          ) : (
+            <Text
+              role="heading"
+              style={text.title}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={EMAIL_MIN_FONT_SCALE}
+            >
+              {email ?? PLACEHOLDER}
+            </Text>
+          )}
+          {data?.caption ? <Text style={text.meta}>{data.caption}</Text> : null}
+        </View>
+        <IconButton icon="settings" subtle accessibilityLabel="Réglages" onPress={onOpenSettings} />
+      </View>
+      {header.status === 'error' ? <SectionError message={header.message} onRetry={onRetry} /> : null}
     </View>
   );
 }
 
-/** Mesure : nom et date à gauche, dernière valeur et évolution alignées à droite ; ouvre la courbe. */
-function MeasureRow({ line }: { line: MeasureLine }) {
-  const { latest } = line;
+/** Erreur d'une section et son « Réessayer » ; jamais dans une carte tappable (deux cibles l'une dans l'autre). */
+function SectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <Pressable
-      role="button"
-      accessibilityLabel={line.accessibilityLabel}
-      onPress={() => router.push({ pathname: '/measure/[testId]', params: { testId: line.testId } })}
-      style={({ pressed }) => [styles.measureRow, pressed && styles.pressed]}
-    >
-      <View style={styles.measureName}>
-        <Text style={text.body}>{line.name}</Text>
-        <Text style={text.meta}>{latest !== null ? latest.date : NEVER_MEASURED}</Text>
-      </View>
-      <View style={styles.measureValue}>
-        {latest !== null ? (
-          <>
-            <Text style={[text.title, text.tabular]}>
-              {latest.value}
-              {latest.unit !== '' ? <Text style={text.unit}>{` ${latest.unit}`}</Text> : null}
-            </Text>
-            <DeltaText delta={latest.delta} />
-          </>
-        ) : (
-          <Text style={[text.title, text.tabular]}>{PLACEHOLDER}</Text>
-        )}
-      </View>
-    </Pressable>
+    <>
+      <FieldError message={`Erreur : ${message}`} />
+      <Button variant="secondary" label="Réessayer" onPress={onRetry} />
+    </>
   );
 }
 
-/** Évolution colorée, le sens restant écrit (« ↑ mieux ») ; rien pour un premier résultat. */
-function DeltaText({ delta }: { delta: Delta }) {
-  if (delta.direction === 'none') {
-    return null;
-  }
-  return <Text style={[text.meta, DELTA_STYLES[delta.direction]]}>{delta.text}</Text>;
-}
+type RegularityCardProps = {
+  state: Loadable<TrainingData>;
+  metric: RegularityMetric;
+  onChangeMetric: (metric: RegularityMetric) => void;
+  onRetry: () => void;
+};
 
-function VolumeTable({ modules, total }: { modules: readonly VolumeLine[]; total: VolumeLine }) {
+/**
+ * Régularité : semaines actives (au moins une séance) sur les 12 dernières en
+ * chiffre dominant, puis une barre par semaine (la courante à droite) de la
+ * grandeur choisie en puces, et les mois aux extrémités. Ni objectif ni repère
+ * (chantier 14).
+ */
+function RegularityCard({ state, metric, onChangeMetric, onRetry }: RegularityCardProps) {
   return (
-    <Card>
-      {/* Un seul enfant : l'écart entre enfants de la carte ne s'ajoute pas aux séparateurs. */}
-      <View>
-        <View style={styles.tableRow}>
-          <Text style={[text.meta, styles.moduleColumn]}>Module</Text>
-          <View style={styles.valueColumn}>
-            <Text style={text.meta}>30 jours</Text>
-          </View>
-          <View style={styles.valueColumn}>
-            <Text style={text.meta}>Total</Text>
-          </View>
-        </View>
-        {modules.map((line) => (
-          <VolumeRow key={line.key} line={line} />
-        ))}
-        <VolumeRow line={total} strong />
+    <Card style={styles.card}>
+      <View style={styles.cardHeading}>
+        <Text role="heading" style={text.overline}>
+          Régularité
+        </Text>
+        <Text style={text.meta}>{`${REGULARITY_WEEK_COUNT}${NBSP}semaines`}</Text>
       </View>
+      {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+      {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+      {state.status === 'ready' ? (
+        <>
+          <View
+            accessible
+            accessibilityLabel={`${formatCount(state.data.activeWeeks, 'semaine active', 'semaines actives')} sur ${REGULARITY_WEEK_COUNT}`}
+            style={styles.numberRow}
+          >
+            <Text style={text.number}>
+              {state.data.activeWeeks}
+              <Text style={text.denominator}>{`/${REGULARITY_WEEK_COUNT}`}</Text>
+            </Text>
+            <Text style={text.meta}>{state.data.activeWeeks >= 2 ? 'semaines actives' : 'semaine active'}</Text>
+          </View>
+          <View style={layout.chipRow}>
+            {METRICS.map((entry) => (
+              <Chip
+                key={entry.key}
+                label={entry.label}
+                accessibilityLabel={`Barres : ${entry.label}`}
+                selected={entry.key === metric}
+                onPress={() => onChangeMetric(entry.key)}
+              />
+            ))}
+          </View>
+          <WeekBars weeks={state.data.weeks} metric={metric} />
+          <View style={styles.axis}>
+            <Text style={text.meta}>{state.data.firstMonth}</Text>
+            <Text style={text.meta}>{state.data.lastMonth}</Text>
+          </View>
+        </>
+      ) : null}
     </Card>
   );
 }
 
-function VolumeRow({ line, strong = false }: { line: VolumeLine; strong?: boolean }) {
+/**
+ * Une barre par semaine, de la plus ancienne à la courante, haute en proportion
+ * de la plus haute ; une semaine à 0 garde un trait gris. Le libellé
+ * d'accessibilité donne les valeurs : le sens ne repose pas sur le dessin seul.
+ */
+function WeekBars({ weeks, metric }: { weeks: readonly WeekVolume[]; metric: RegularityMetric }) {
+  const values = weeks.map((week) => week[metric]);
+  const max = Math.max(0, ...values);
+  const label = METRICS.find((entry) => entry.key === metric)?.label ?? '';
+  const summary = `${label} par semaine, de la plus ancienne à la semaine en cours : ${values
+    .map((value) => formatMetricValue(metric, value))
+    .join(', ')}.`;
   return (
-    <View style={[styles.tableRow, styles.tableLine]}>
-      <Text style={[strong ? text.bodyStrong : text.body, styles.moduleColumn]}>{line.label}</Text>
-      <VolumeCellView cell={line.recent} strong={strong} />
-      <VolumeCellView cell={line.total} strong={strong} />
+    <View accessible role="img" accessibilityLabel={summary} style={styles.bars}>
+      {weeks.map((week, index) => {
+        const value = values[index];
+        return (
+          <View
+            key={week.monday}
+            style={[
+              styles.bar,
+              value > 0
+                ? { height: Math.max(MIN_BAR_HEIGHT, (size.barChart * value) / max) }
+                : styles.emptyBar,
+            ]}
+          />
+        );
+      })}
     </View>
   );
 }
 
-/** Séances puis durée, l'une sous l'autre ; « — » sans séance. */
-function VolumeCellView({ cell, strong }: { cell: VolumeCell | null; strong: boolean }) {
-  const valueStyle = [text.meta, text.tabular, styles.right, strong && styles.strong];
+type TestsCardProps = {
+  state: Loadable<TrainingData>;
+  /** Retour de « Voir ma progression » : bordure et teinte accent. */
+  highlighted: boolean;
+  onRetry: () => void;
+};
+
+/**
+ * Tests, mise en avant (étiquette orange) : une ligne par compétence qui a au
+ * moins un résultat, vers ses statistiques (familles, tests, mesures). Pas de
+ * note (chantier 11).
+ */
+function TestsCard({ state, highlighted, onRetry }: TestsCardProps) {
   return (
-    <View style={styles.valueColumn}>
-      {cell === null ? (
-        <Text style={valueStyle}>{PLACEHOLDER}</Text>
-      ) : (
+    <Card highlighted={highlighted} style={styles.card}>
+      <Text role="heading" style={[text.overline, styles.testsLabel]}>
+        Tests
+      </Text>
+      {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+      {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+      {state.status === 'ready' ? (
         <>
-          <Text style={valueStyle}>{cell.sessions}</Text>
-          <Text style={valueStyle}>{cell.duration}</Text>
+          <FieldError message={state.data.problems.length > 0 ? state.data.problems.join('\n') : null} />
+          {state.data.skills.length === 0 ? (
+            // secondary : la carte n'est pas l'action principale de l'écran, qui n'en a pas.
+            <EmptyState
+              title="Aucun test fait"
+              message="Passe ton premier test depuis l’onglet Tests : tes records et tes progrès s’afficheront ici."
+              action={{ label: 'Voir les tests', onPress: () => router.navigate('/training'), variant: 'secondary' }}
+            />
+          ) : (
+            state.data.skills.map((row) => <SkillLine key={row.skill} row={row} />)
+          )}
         </>
-      )}
-    </View>
+      ) : null}
+    </Card>
   );
 }
 
-const DELTA_STYLES = StyleSheet.create({
+/** Compétence : icône, libellé, tests faits et dernière fois, tendance colorée ; ouvre ses statistiques. */
+function SkillLine({ row }: { row: SkillRow }) {
+  return (
+    <Pressable
+      role="button"
+      accessibilityLabel={row.accessibilityLabel}
+      onPress={() => router.push({ pathname: '/stats/[skill]', params: { skill: row.skill } })}
+      style={({ pressed }) => [styles.skillLine, pressed && styles.pressed]}
+    >
+      <Ionicons name={row.icon} size={size.icon} color={colors.textMuted} aria-hidden />
+      <View style={styles.skillText}>
+        <Text style={text.bodyStrong}>{row.label}</Text>
+        <Text style={text.meta}>{row.details}</Text>
+        <Text style={text.meta}>
+          {row.trend.map((part, index) => (
+            <Fragment key={part.text}>
+              {index > 0 ? ' · ' : null}
+              <Text style={TREND_STYLES[part.direction]}>{part.text}</Text>
+            </Fragment>
+          ))}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={size.icon} color={colors.textMuted} aria-hidden />
+    </Pressable>
+  );
+}
+
+/** Quiz (étiquette violette) : réponses en chiffre dominant, streak et moyenne sur 7 jours ; ouvre l'onglet Quiz. */
+function QuizCard({ state, onRetry }: { state: Loadable<QuizData>; onRetry: () => void }) {
+  const label = (
+    <Text role="heading" style={[text.overline, styles.quizLabel]}>
+      Quiz
+    </Text>
+  );
+  if (state.status !== 'ready') {
+    // Pas tappable tant qu'elle n'a rien à ouvrir : « Réessayer » ne se loge pas dans une carte tappable.
+    return (
+      <Card style={[styles.card, styles.halfCard]}>
+        {label}
+        {state.status === 'loading' ? <ActivityIndicator color={colors.quiz} /> : null}
+        {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+      </Card>
+    );
+  }
+  const { total, last7DaysAvg, streak } = state.data;
+  const answered = total >= 2 ? 'questions répondues' : 'question répondue';
+  const streakText = `Série : ${formatCount(streak, 'jour', 'jours')}`;
+  const averageText = `Moyenne 7${NBSP}j : ${formatAverage(last7DaysAvg)}${last7DaysAvg !== null ? `/${MAX_OPTION_SCORE}` : ''}`;
+  return (
+    <Card
+      onPress={() => router.navigate('/quiz')}
+      accessibilityLabel={`Quiz : ${total} ${answered}, ${streakText}, ${averageText}`}
+      style={[styles.card, styles.halfCard]}
+    >
+      {label}
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5} style={text.number}>
+        {total}
+      </Text>
+      <Text style={text.meta}>{answered}</Text>
+      <Text style={text.meta}>{streakText}</Text>
+      <Text style={text.meta}>{averageText}</Text>
+    </Card>
+  );
+}
+
+/** Fiches : nombre de fiches de lecture ; ouvre leur liste (entraînements spécifiques, puis récupération). */
+function SheetsCard({ state, onRetry }: { state: Loadable<number>; onRetry: () => void }) {
+  const label = (
+    <Text role="heading" style={text.overline}>
+      Fiches
+    </Text>
+  );
+  if (state.status !== 'ready') {
+    return (
+      <Card style={[styles.card, styles.halfCard]}>
+        {label}
+        {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+        {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+      </Card>
+    );
+  }
+  const caption = state.data >= 2 ? 'fiches de lecture' : 'fiche de lecture';
+  return (
+    <Card
+      onPress={() => router.push({ pathname: '/training/[theme]', params: { theme: DEFAULT_TRAINING_THEME } })}
+      accessibilityLabel={`Fiches : ${state.data} ${caption}`}
+      style={[styles.card, styles.halfCard]}
+    >
+      {label}
+      <Text numberOfLines={1} style={text.number}>
+        {state.data}
+      </Text>
+      <Text style={text.meta}>{caption}</Text>
+    </Card>
+  );
+}
+
+/** Volume : durée du mois en chiffre dominant et nombre de séances ; ouvre le détail par module. */
+function VolumeCard({ state, onRetry }: { state: Loadable<TrainingData>; onRetry: () => void }) {
+  const label = (
+    <Text role="heading" style={text.overline}>
+      Volume
+    </Text>
+  );
+  if (state.status !== 'ready') {
+    return (
+      <Card style={styles.card}>
+        {label}
+        {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
+        {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+      </Card>
+    );
+  }
+  const { minutes, sessions } = state.data.month;
+  const caption = `ce mois · ${formatCount(sessions, 'séance', 'séances')}`;
+  return (
+    <Card
+      onPress={() => router.push('/stats/volume')}
+      accessibilityLabel={`Volume : ${formatMinutes(minutes)} ${caption}`}
+      style={styles.card}
+    >
+      {label}
+      <DurationValue minutes={minutes} />
+      <Text style={text.meta}>{caption}</Text>
+    </Card>
+  );
+}
+
+/** Tendance : vert en progrès, rouge en recul, secondaire sinon ; le texte dit toujours le sens. */
+const TREND_STYLES = StyleSheet.create({
   better: {
     color: colors.success,
   },
@@ -787,83 +800,95 @@ const DELTA_STYLES = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  /** En-tête et son erreur de déconnexion, serrés. */
-  headerBlock: {
-    gap: spacing.sm,
+  /** Tout le contenu, seul enfant du défilement : même écart entre blocs que Screen. */
+  content: {
+    gap: spacing.xl,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
   },
-  email: {
-    flex: 1,
+  /** Rond de 56 px, surface2, comme celui de l'Accueil en plus grand (maquette). */
+  avatar: {
+    width: size.avatar,
+    height: size.avatar,
+    borderRadius: size.avatar / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface2,
   },
-  identityRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
+  headerText: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  cards: {
     gap: spacing.md,
   },
-  identityValue: {
-    flexShrink: 1,
-    textAlign: 'right',
-  },
-  /** Séparé des lignes d'identité par un trait. */
-  goalBlock: {
-    gap: spacing.xs,
-    paddingTop: spacing.sm,
-    borderTopWidth: size.border,
-    borderTopColor: colors.border,
-  },
-  goalLink: {
-    minHeight: size.touch,
-    borderRadius: radius.button,
+  cardRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
   },
-  goalLinkLabel: {
+  card: {
+    gap: spacing.md,
+  },
+  /** Carte de la grille à deux colonnes : la moitié de la rangée, même hauteur que sa voisine. */
+  halfCard: {
     flex: 1,
   },
-  measureRow: {
+  cardHeading: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  testsLabel: {
+    color: colors.accent,
+  },
+  quizLabel: {
+    color: colors.quiz,
+  },
+  /** Chiffre et son libellé sur une même ligne de base (DA, carte Régularité). */
+  numberRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.sm,
+  },
+  bars: {
+    height: size.barChart,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.xs,
+  },
+  bar: {
+    flex: 1,
+    borderTopLeftRadius: radius.bar,
+    borderTopRightRadius: radius.bar,
+    borderBottomLeftRadius: radius.bar / 2,
+    borderBottomRightRadius: radius.bar / 2,
+    backgroundColor: colors.accent,
+  },
+  emptyBar: {
+    height: EMPTY_BAR_HEIGHT,
+    backgroundColor: colors.pitchLine,
+  },
+  axis: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  skillLine: {
     minHeight: size.touch,
     paddingVertical: spacing.sm,
     borderRadius: radius.button,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  skillText: {
+    flex: 1,
+    gap: spacing.xs,
   },
   pressed: {
     backgroundColor: colors.surfacePressed,
-  },
-  measureName: {
-    flex: 1,
-  },
-  measureValue: {
-    alignItems: 'flex-end',
-  },
-  tableRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  tableLine: {
-    borderTopWidth: size.border,
-    borderTopColor: colors.border,
-  },
-  moduleColumn: {
-    flex: MODULE_COLUMN_FLEX,
-  },
-  valueColumn: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  right: {
-    textAlign: 'right',
-  },
-  strong: {
-    fontWeight: '600',
   },
 });

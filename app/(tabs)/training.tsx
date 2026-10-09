@@ -15,7 +15,7 @@ import { askAboutActiveSession, openActiveSession, useActiveSession } from '../.
 import { localToday, relativeDay } from '../../lib/dates';
 import { listLastSessionDates, listSessions, listTests, type TestSummary } from '../../lib/db/training';
 import { formatMeasure } from '../../lib/measure-delta';
-import { proposeSession, type PlanHistoryEntry } from '../../lib/test-plan';
+import { composeSession, MAX_SESSION_MIN, proposeSession, type PlanHistoryEntry } from '../../lib/test-plan';
 import {
   familyCaption,
   getSkill,
@@ -25,7 +25,6 @@ import {
   type SkillKey,
 } from '../../lib/test-families';
 import { colors, layout, size, spacing, text } from '../../lib/theme';
-import { DEFAULT_TRAINING_THEME } from '../../lib/training-themes';
 
 /** Espace insécable : un nombre et son unité restent sur la même ligne (« 45 min »). */
 const NBSP = ' ';
@@ -57,7 +56,7 @@ type TabData = {
   tests: TestSummary[];
   sessions: SessionItem[];
   skills: SkillGroup[];
-  /** Tests faits, un par jour de résultat : historique de proposeSession. */
+  /** Tests faits, un par jour de résultat : historique de proposeSession et composeSession. */
   history: PlanHistoryEntry[];
   /** « Jamais testée » ou « Dernière fois : il y a 12 j », par famille. */
   familyLastLabels: ReadonlyMap<FamilyKey, string>;
@@ -77,8 +76,21 @@ type RunPlan = {
   durationMin: number;
 };
 
-/** Feuille ouverte : la session proposée, ou le détail d'une session prédéfinie. open false : elle redescend. */
-type SheetState = { kind: 'proposal'; open: boolean } | { kind: 'session'; open: boolean; session: SessionItem };
+/**
+ * Feuille ouverte, une seule pour trois vues : la session proposée, le choix
+ * d'une famille, ou le détail d'une session prédéfinie. open false : elle redescend.
+ */
+type SheetState =
+  | { kind: 'proposal'; open: boolean }
+  | { kind: 'families'; open: boolean }
+  | { kind: 'session'; open: boolean; session: SessionItem };
+
+/**
+ * Session de la vue proposition. chosen : famille choisie (« Choisir une
+ * famille »), null pour la proposition automatique. excluded : familles écartées
+ * par « Changer de famille », jamais reprises, pas même pour compléter la session.
+ */
+type PlanChoice = { chosen: FamilyKey | null; excluded: FamilyKey[] };
 
 /**
  * Posés au retour ici par router.dismissTo : « Séance faite » d'une fiche sans
@@ -103,8 +115,8 @@ export default function TestsScreen() {
   const { savedSession, savedTitle } = useLocalSearchParams<SavedParams>();
   const [openFamilies, setOpenFamilies] = useState(lastOpenFamilies);
   const [sheet, setSheet] = useState<SheetState | null>(null);
-  // Familles écartées par « Changer de famille », le temps que la feuille est ouverte.
-  const [excluded, setExcluded] = useState<FamilyKey[]>([]);
+  // Famille choisie et familles écartées de la vue proposition, le temps que la feuille est ouverte.
+  const [choice, setChoice] = useState<PlanChoice>({ chosen: null, excluded: [] });
   // Échec de mémorisation au démarrage par ▶ ou Démarrer : rien n'a démarré.
   const [startError, setStartError] = useState<string | null>(null);
   // Garde synchrone : deux ▶ rapprochés ne démarrent qu'une séance.
@@ -171,9 +183,10 @@ export default function TestsScreen() {
     setOpenFamilies(next);
   }
 
+  /** « Proposer une session » : toujours la proposition automatique, aucune famille écartée. */
   function openProposal() {
     setStartError(null);
-    setExcluded([]);
+    setChoice({ chosen: null, excluded: [] });
     setSheet({ kind: 'proposal', open: true });
   }
 
@@ -269,8 +282,8 @@ export default function TestsScreen() {
           ) : (
             <Button label="Proposer une session" onPress={openProposal} />
           )}
-          {/* Hors de la feuille : un ▶ de la liste qui n'a pas démarré. */}
-          {sheet === null ? <FieldError message={startError} /> : null}
+          {/* Hors de la feuille, absente ou refermée : un ▶ de la liste qui n'a pas démarré. */}
+          {sheet === null || !sheet.open ? <FieldError message={startError} /> : null}
 
           {data.sessions.length > 0 ? (
             <View style={layout.section}>
@@ -312,24 +325,23 @@ export default function TestsScreen() {
         </>
       ) : null}
 
-      {/* Lien discret vers les fiches de lecture, en attendant leur place dans le Profil. */}
-      <Button
-        variant="text"
-        label="Fiches d’entraînement"
-        onPress={() => router.push({ pathname: '/training/[theme]', params: { theme: DEFAULT_TRAINING_THEME } })}
-      />
-
       {data !== null && sheet !== null ? (
         <PlanSheet
           sheet={sheet}
           data={data}
-          excluded={excluded}
+          choice={choice}
           startError={startError}
           onChangeFamily={(family) => {
-            const next = [...excluded, family];
+            // Proposition automatique : la famille montrée rejoint les écartées ; famille choisie : seule écartée.
+            const next = choice.chosen === null ? [...choice.excluded, family] : [family];
             // Toutes les familles vues : on repart de la première.
             const remaining = proposeSession(data.tests, data.history, data.today, next);
-            setExcluded(remaining === null ? [] : next);
+            setChoice({ chosen: null, excluded: remaining === null ? [] : next });
+          }}
+          onShowFamilies={() => setSheet({ kind: 'families', open: true })}
+          onPickFamily={(family) => {
+            setChoice({ chosen: family, excluded: [] });
+            setSheet({ kind: 'proposal', open: true });
           }}
           onStart={startRun}
           onClose={closeSheet}
@@ -342,55 +354,183 @@ export default function TestsScreen() {
 type PlanSheetProps = {
   sheet: SheetState;
   data: TabData;
-  excluded: readonly FamilyKey[];
+  choice: PlanChoice;
   startError: string | null;
+  /** « Changer de famille » : family, la famille montrée (proposée ou choisie), est écartée. */
   onChangeFamily: (family: FamilyKey) => void;
+  /** « Choisir une famille » : la feuille passe à la vue familles. */
+  onShowFamilies: () => void;
+  /** Puce d'une famille : sa session, de retour sur la vue proposition. */
+  onPickFamily: (family: FamilyKey) => void;
   onStart: (plan: RunPlan) => void;
   onClose: () => void;
 };
 
-/** Feuille du bas : la session proposée (« Changer de famille ») ou une session prédéfinie, puis Démarrer. */
-function PlanSheet({ sheet, data, excluded, startError, onChangeFamily, onStart, onClose }: PlanSheetProps) {
-  if (sheet.kind === 'session') {
-    const { session } = sheet;
+/**
+ * Feuille du bas, une seule pour trois vues : la session proposée, le choix d'une
+ * famille, le détail d'une session prédéfinie. Le BottomSheet reste à la même
+ * place de l'arbre : changer de vue remplace son titre et son contenu, sans le
+ * démonter ni rejouer le glissement.
+ */
+function PlanSheet({
+  sheet,
+  data,
+  choice,
+  startError,
+  onChangeFamily,
+  onShowFamilies,
+  onPickFamily,
+  onStart,
+  onClose,
+}: PlanSheetProps) {
+  return (
+    <BottomSheet visible={sheet.open} onClose={onClose} title={sheetTitle(sheet)}>
+      {sheet.kind === 'proposal' ? (
+        <ProposalContent
+          data={data}
+          choice={choice}
+          startError={startError}
+          onStart={onStart}
+          onChangeFamily={onChangeFamily}
+          onShowFamilies={onShowFamilies}
+        />
+      ) : null}
+      {sheet.kind === 'families' ? (
+        <FamilyPicker skills={data.skills} chosen={choice.chosen} onPick={onPickFamily} />
+      ) : null}
+      {sheet.kind === 'session' ? (
+        <SessionContent session={sheet.session} startError={startError} onStart={onStart} />
+      ) : null}
+    </BottomSheet>
+  );
+}
+
+/** Titre de la feuille selon sa vue. */
+function sheetTitle(sheet: SheetState): string {
+  switch (sheet.kind) {
+    case 'proposal':
+      return 'Session proposée';
+    case 'families':
+      return 'Choisir une famille';
+    case 'session':
+      return sheet.session.title;
+  }
+}
+
+type ProposalContentProps = {
+  data: TabData;
+  choice: PlanChoice;
+  startError: string | null;
+  onStart: (plan: RunPlan) => void;
+  onChangeFamily: (family: FamilyKey) => void;
+  onShowFamilies: () => void;
+};
+
+/**
+ * Vue proposition : la session de la famille choisie, sinon la session proposée,
+ * sans les familles écartées ; Démarrer, puis « Changer de famille » et
+ * « Choisir une famille ».
+ */
+function ProposalContent({ data, choice, startError, onStart, onChangeFamily, onShowFamilies }: ProposalContentProps) {
+  const { chosen, excluded } = choice;
+  const proposal =
+    chosen !== null
+      ? composeSession(data.tests, data.history, data.today, chosen, excluded)
+      : proposeSession(data.tests, data.history, data.today, excluded);
+
+  if (proposal === null && chosen !== null) {
+    // La vue familles ne montre que des familles qui ont un test : chacun des siens dépasse MAX_SESSION_MIN.
     return (
-      <BottomSheet visible={sheet.open} onClose={onClose} title={session.title}>
-        <PlanTests tests={session.tests} durationMin={session.durationMin} />
-        <FieldError message={startError} />
-        <Button label="Démarrer" onPress={() => onStart(sessionPlan(session))} />
-      </BottomSheet>
+      <>
+        <Text style={text.body}>{`Aucun test de cette famille ne tient en ${MAX_SESSION_MIN}${NBSP}min.`}</Text>
+        <Button variant="secondary" label="Changer de famille" onPress={() => onChangeFamily(chosen)} />
+        <Button variant="secondary" label="Choisir une famille" onPress={onShowFamilies} />
+      </>
     );
   }
-  const proposal = proposeSession(data.tests, data.history, data.today, excluded);
-  const byslug = new Map(data.tests.map((test) => [test.slug, test]));
-  const tests = proposal === null ? [] : proposal.tests.flatMap((planned) => byslug.get(planned.slug) ?? []);
-  return (
-    <BottomSheet visible={sheet.open} onClose={onClose} title="Session proposée">
-      {proposal === null ? (
+  if (proposal === null) {
+    return (
+      <>
         <Text style={text.body}>Aucun test à proposer pour l’instant.</Text>
-      ) : (
-        <>
-          <View style={styles.planHeading}>
-            <Text style={text.title}>{familyCaption(proposal.family)}</Text>
-            <Text style={text.meta}>{data.familyLastLabels.get(proposal.family) ?? 'Jamais testée'}</Text>
+        {data.skills.length > 0 ? (
+          <Button variant="secondary" label="Choisir une famille" onPress={onShowFamilies} />
+        ) : null}
+      </>
+    );
+  }
+
+  const bySlug = new Map(data.tests.map((test) => [test.slug, test]));
+  const tests = proposal.tests.flatMap((planned) => bySlug.get(planned.slug) ?? []);
+  return (
+    <>
+      <View style={styles.planHeading}>
+        <Text style={text.title}>{familyCaption(proposal.family)}</Text>
+        <Text style={text.meta}>{data.familyLastLabels.get(proposal.family) ?? 'Jamais testée'}</Text>
+      </View>
+      <PlanTests tests={tests} durationMin={proposal.durationMin} />
+      <FieldError message={startError} />
+      <Button
+        label="Démarrer"
+        onPress={() =>
+          onStart({
+            sheetId: null,
+            title: `Session ${getSkill(proposal.skill).label}`,
+            tests,
+            durationMin: proposal.durationMin,
+          })
+        }
+      />
+      <Button variant="secondary" label="Changer de famille" onPress={() => onChangeFamily(proposal.family)} />
+      <Button variant="secondary" label="Choisir une famille" onPress={onShowFamilies} />
+    </>
+  );
+}
+
+type FamilyPickerProps = {
+  skills: readonly SkillGroup[];
+  /** Famille choisie, cochée ; null pour la proposition automatique. */
+  chosen: FamilyKey | null;
+  onPick: (family: FamilyKey) => void;
+};
+
+/** Vue familles : sous chaque compétence, ses familles qui ont un test, en puces. */
+function FamilyPicker({ skills, chosen, onPick }: FamilyPickerProps) {
+  return (
+    <>
+      {skills.map((group) => (
+        <View key={group.skill} style={layout.section}>
+          <SkillHeading skill={group.skill} />
+          <View style={layout.chipRow}>
+            {group.families.map((family) => (
+              <Chip
+                key={family.family}
+                label={family.label}
+                selected={family.family === chosen}
+                accessibilityLabel={familyCaption(family.family)}
+                onPress={() => onPick(family.family)}
+              />
+            ))}
           </View>
-          <PlanTests tests={tests} durationMin={proposal.durationMin} />
-          <FieldError message={startError} />
-          <Button
-            label="Démarrer"
-            onPress={() =>
-              onStart({
-                sheetId: null,
-                title: `Session ${getSkill(proposal.skill).label}`,
-                tests,
-                durationMin: proposal.durationMin,
-              })
-            }
-          />
-          <Button variant="secondary" label="Changer de famille" onPress={() => onChangeFamily(proposal.family)} />
-        </>
-      )}
-    </BottomSheet>
+        </View>
+      ))}
+    </>
+  );
+}
+
+type SessionContentProps = {
+  session: SessionItem;
+  startError: string | null;
+  onStart: (plan: RunPlan) => void;
+};
+
+/** Vue session prédéfinie : ses tests dans l'ordre de ses blocks, puis Démarrer. */
+function SessionContent({ session, startError, onStart }: SessionContentProps) {
+  return (
+    <>
+      <PlanTests tests={session.tests} durationMin={session.durationMin} />
+      <FieldError message={startError} />
+      <Button label="Démarrer" onPress={() => onStart(sessionPlan(session))} />
+    </>
   );
 }
 
@@ -427,12 +567,7 @@ function SkillSection({ group, openFamily, onToggleFamily, onStartTest }: SkillS
   const open = group.families.find((family) => family.family === openFamily) ?? null;
   return (
     <View style={layout.section}>
-      <View style={styles.skillHeading}>
-        <Ionicons name={skill.icon} size={size.icon} color={colors.textMuted} aria-hidden />
-        <Text role="heading" style={text.title}>
-          {skill.label}
-        </Text>
-      </View>
+      <SkillHeading skill={group.skill} />
       <View style={layout.chipRow}>
         {group.families.map((family) => (
           <Chip
@@ -456,6 +591,22 @@ function SkillSection({ group, openFamily, onToggleFamily, onStartTest }: SkillS
             />
           ))
         : null}
+    </View>
+  );
+}
+
+/**
+ * En-tête d'une compétence, icône puis libellé : le même dans la liste des
+ * tests et dans le choix d'une famille (règle 8).
+ */
+function SkillHeading({ skill }: { skill: SkillKey }) {
+  const { icon, label } = getSkill(skill);
+  return (
+    <View style={styles.skillHeading}>
+      <Ionicons name={icon} size={size.icon} color={colors.textMuted} aria-hidden />
+      <Text role="heading" style={text.title}>
+        {label}
+      </Text>
     </View>
   );
 }

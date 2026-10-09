@@ -12,8 +12,9 @@ export default function TrainingLayout() {
   }
 
   // /training reste l'onglet app/(tabs)/training.tsx : cette pile ne porte que
-  // /training/[theme] (/training/tests, /training/specifique, /training/recuperation).
-  // En-tête natif par défaut (le layout racine masque le sien) : titre posé par
-  // l'écran du thème, flèche retour fournie par la pile parente, vers l'onglet.
+  // /training/[theme] (/training/specifique, /training/recuperation : la liste des
+  // fiches, ouverte par la carte Fiches du Profil). En-tête natif par défaut (le
+  // layout racine masque le sien) : titre posé par l'écran, flèche retour fournie
+  // par la pile parente, vers l'onglet d'où la liste a été ouverte.
   return <Stack />;
 }

@@ -6,8 +6,8 @@
 // sur 003 (answers.quiz_run_id, answers.flagged), sur 004
 // (training_sheets.slug, kind, subtitle, intro, pdf_url ; tests.key,
 // higher_is_better ; test_results.session_id), sur 005 (profiles.strong_foot,
-// club_level), sur 006 (profiles.goal, goal_deadline) et sur 007
-// (training_sheets.family, blocks).
+// club_level), sur 006 (profiles.goal, goal_deadline), sur 007
+// (training_sheets.family, blocks) et sur 008 (profiles.display_name).
 // Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
 // colonnes jsonb : lib/json-types.ts et lib/sheet-types.ts).
 
@@ -72,6 +72,7 @@ export type Database = {
           club: string | null
           club_level: string | null
           created_at: string
+          display_name: string | null
           goal: string | null
           goal_deadline: string | null
           id: string
@@ -85,6 +86,7 @@ export type Database = {
           club?: string | null
           club_level?: string | null
           created_at?: string
+          display_name?: string | null
           goal?: string | null
           goal_deadline?: string | null
           id?: string
@@ -98,6 +100,7 @@ export type Database = {
           club?: string | null
           club_level?: string | null
           created_at?: string
+          display_name?: string | null
           goal?: string | null
           goal_deadline?: string | null
           id?: string

@@ -50,7 +50,7 @@
 - [x] Les deux modes coexistent : sessions prédéfinies (les 5 batteries actuelles) et sessions composées par l'app.
 - [x] Les 18 blocs des 5 batteries actuelles deviennent 18 tests atomiques.
 ### Composition d'une session (à valider)
-- [~] Le joueur choisit une famille, ou « Proposer » : l'app choisit la famille la moins couverte récemment. (Fait : « Proposer » et « Changer de famille » ; reste : composer une session d'une famille choisie.)
+- [x] Le joueur choisit une famille, ou « Proposer » : l'app choisit la famille la moins couverte récemment. (« Proposer » et « Changer de famille » au chantier 10 ; « Choisir une famille » et « Changer de famille » sans reprendre la famille écartée au chantier 12.)
 - [x] Dans la famille : priorité aux tests jamais faits ou faits il y a le plus longtemps. Pas de préférences « j'aime / j'aime pas ».
 - [ ] Pied gauche présent dans chaque famille.
 - [x] Ordre fixe dans une session (tests de vitesse en premier) pour garder les résultats comparables.
@@ -58,11 +58,12 @@
 - [x] Principe : les familles d'une compétence couvrent l'essentiel de sa palette (≈ 80 %). Taxonomie proposée par Claude, validée par moi.
 - [x] Pas d'indicateur de couverture affiché : la palette utile dépend du poste, du rôle et du système de chaque joueur.
 ### Écrans
-- [~] Onglet = tests uniquement (fiches spécifiques et récupération déplacées dans le Profil). (Fait : onglet Tests ; les fiches restent derrière un lien discret jusqu'au chantier 12.)
+- [x] Onglet = tests uniquement (fiches spécifiques et récupération déplacées dans le Profil). (Lien retiré au chantier 12 : les fiches s'ouvrent par la carte Fiches du Profil.)
 - [x] Écran d'un test : protocole court, « Plus de tips », schéma (chantier Schémas), champs de mesure sur le même écran.
 - [x] Après enregistrement : « Faire un autre test » et « Voir ma progression ».
 ### Contenu
 - [ ] ~60-80 tests à terme ; d'abord Tir et Passe, puis Dribble, Physique, Jonglerie.
+- [x] Source de vérité du contenu : tests_atomic_NNN.json et sessions_NNN.json (tests_001.json archivé).
 
 ---
 
@@ -77,13 +78,13 @@
 
 ---
 
-## Chantier 12 — Profil + dashboard (façon Hevy) `[ ]`
-- [ ] En-tête court : nom, poste principal, club, niveau ; Modifier et Réglages (déconnexion) en haut à droite.
-- [ ] Objectif retiré de l'écran (donnée conservée) en attendant le chantier Objectifs.
-- [ ] Graphe de régularité en haut, par semaine, puces Minutes · Séances · Tests.
-- [ ] Dashboard en grille : **Tests** (mis en avant), Quiz (évolution de l'Elo), Fiches (entraînements spécifiques, récupération), Volume, Calendrier.
-- [ ] Tests : une carte par compétence (note /99 + tendance) → familles → tests → courbes par mesure.
-- [ ] Volume : durée totale, nombre de séances et de tests, répartition par module, statistiques associées.
+## Chantier 12 — Profil + dashboard (façon Hevy) `[~]`
+- [x] En-tête court : nom, poste principal, club, niveau ; Modifier et Réglages (déconnexion) en haut à droite. (Engrenage → feuille Réglages : « Modifier le profil », « Déconnexion » ; nom affiché en base, migration 008.)
+- [x] Objectif retiré de l'écran (donnée conservée) en attendant le chantier Objectifs.
+- [x] Graphe de régularité en haut, par semaine, puces Minutes · Séances · Tests.
+- [~] Dashboard en grille : **Tests** (mis en avant), Quiz (évolution de l'Elo), Fiches (entraînements spécifiques, récupération), Volume, Calendrier. (Fait : Tests, Quiz sans Elo — chantier 13 —, Fiches, Volume ; reste : Calendrier.)
+- [~] Tests : une carte par compétence (note /99 + tendance) → familles → tests → courbes par mesure. (Fait : une ligne par compétence avec sa tendance → familles → tests → mesures → courbes ; reste : note /99, chantier 11.)
+- [x] Volume : durée totale, nombre de séances et de tests, répartition par module, statistiques associées.
 
 ---
 

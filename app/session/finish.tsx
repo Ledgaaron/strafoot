@@ -238,12 +238,15 @@ function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }
     if (pendingRef.current) {
       return;
     }
-    confirmAbandon(() => {
-      pendingRef.current = true;
-      void clear();
-      // Sans params : une confirmation d'enregistrement restée sur l'onglet disparaît.
-      router.dismissTo('/training');
-    });
+    confirmAbandon(
+      () => {
+        pendingRef.current = true;
+        void clear();
+        // Sans params : une confirmation d'enregistrement restée sur l'onglet disparaît.
+        router.dismissTo('/training');
+      },
+      run !== null ? 'la session' : 'la séance',
+    );
   }
 
   return (
@@ -255,9 +258,14 @@ function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }
             {/* Le champ en erreur peut être hors de l'écran : le pied, toujours visible, le dit. */}
             <FieldError message={invalidSubmit ? INVALID_DURATION_MESSAGE : error} />
             <Button label="Enregistrer" onPress={save} loading={saving} disabled={durationLoading} />
-            {/* Session dont un test est enregistré : sa séance existe, rien à abandonner. */}
+            {/* Abandon tant que rien n'est enregistré : fiche, ou session dont aucun test n'est enregistré. */}
             {existingSessionId === null ? (
-              <Button variant="danger" label="Abandonner la séance" onPress={abandon} disabled={saving} />
+              <Button
+                variant="danger"
+                label={run !== null ? 'Abandonner la session' : 'Abandonner la séance'}
+                onPress={abandon}
+                disabled={saving}
+              />
             ) : null}
           </>
         }

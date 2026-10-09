@@ -3,7 +3,7 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 
-import { bestValue, isNewRecord, recordsByKey } from './records';
+import { bestValue, isNewRecord, latestByKey, recordsByKey } from './records';
 
 let total = 0;
 let failures = 0;
@@ -96,6 +96,32 @@ check('recordsByKey : listes vides, valeurs non finies écartées', () => {
     senses,
   );
   assert.deepEqual(records, new Map([['jongles_pieds', 40]]));
+});
+
+check('latestByKey : dernier et avant-dernier de chaque mesure, du plus récent au plus ancien', () => {
+  const latest = latestByKey([
+    { key: 'sprint_10m', value: 1.85, date: '2026-10-08' },
+    { key: 'frappes_cadrees', value: 8, date: '2026-10-08' },
+    { key: 'sprint_10m', value: 1.92, date: '2026-10-01' },
+    { key: 'sprint_10m', value: 1.99, date: '2026-09-20' },
+  ]);
+  assert.deepEqual(
+    latest,
+    new Map([
+      ['sprint_10m', { value: 1.85, date: '2026-10-08', previousValue: 1.92 }],
+      ['frappes_cadrees', { value: 8, date: '2026-10-08', previousValue: null }],
+    ]),
+  );
+});
+
+check('latestByKey : liste vide, et un 0 précédent reste posé', () => {
+  assert.equal(latestByKey([]).size, 0);
+  const latest = latestByKey([
+    { key: 'jongles_tete', value: 3, date: '2026-10-08' },
+    { key: 'jongles_tete', value: 0, date: '2026-10-07' },
+    { key: 'jongles_tete', value: 9, date: '2026-10-06' },
+  ]);
+  assert.deepEqual(latest.get('jongles_tete'), { value: 3, date: '2026-10-08', previousValue: 0 });
 });
 
 check('isNewRecord : chrono strictement plus petit', () => {

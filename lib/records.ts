@@ -1,7 +1,17 @@
 // Records des mesures : meilleure valeur selon higher_is_better (le plus grand
-// score, le plus petit chrono) et nouveau record à l'enregistrement d'un test.
-// Calcul pur, sans dépendance : testé par lib/records.test.ts
+// score, le plus petit chrono), nouveau record à l'enregistrement d'un test, et
+// dernier résultat de chaque mesure avec la valeur du précédent (tendances du
+// Profil). Calcul pur, sans dépendance : testé par lib/records.test.ts
 // (npx tsx lib/records.test.ts).
+
+/** Dernier résultat d'une mesure et la valeur de celui d'avant. */
+export type MeasureLatest = {
+  value: number;
+  /** Jour local (YYYY-MM-DD) du dernier résultat. */
+  date: string;
+  /** Valeur de l'avant-dernier résultat ; null si la mesure n'en a qu'un. */
+  previousValue: number | null;
+};
 
 /** Meilleure valeur selon le sens (max si higherIsBetter, min sinon) ; null sans valeur. */
 export function bestValue(values: readonly number[], higherIsBetter: boolean): number | null {
@@ -37,6 +47,28 @@ export function recordsByKey(
     }
   }
   return records;
+}
+
+/**
+ * Dernier résultat de chaque mesure (key → résultat) avec la valeur de
+ * l'avant-dernier, à partir de résultats déjà triés du plus récent au plus ancien
+ * (jour, puis saisie) : le premier vu d'une key est son dernier, le deuxième son
+ * avant-dernier. Une mesure sans résultat est absente.
+ */
+export function latestByKey(
+  results: readonly { key: string; value: number; date: string }[],
+): Map<string, MeasureLatest> {
+  const latest = new Map<string, MeasureLatest>();
+  for (const { key, value, date } of results) {
+    const known = latest.get(key);
+    if (known === undefined) {
+      latest.set(key, { value, date, previousValue: null });
+    } else if (known.previousValue === null) {
+      // value est un nombre : une fois posé, previousValue le reste.
+      latest.set(key, { ...known, previousValue: value });
+    }
+  }
+  return latest;
 }
 
 /**

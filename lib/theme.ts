@@ -2,9 +2,9 @@ import { DarkTheme, type Theme } from 'expo-router';
 import { Easing, Platform, StyleSheet } from 'react-native';
 
 // Design system : seule source de style de l'app, avec components/ (Screen, Card,
-// Chip, Button, IconButton, Stat, Flame, EmptyState, FieldError, SaveToast,
-// PitchPlaceholder, DayCell, BottomSheet, MonthSheet, ModuleIcon, StartRow,
-// exercise-content). Référence :
+// Chip, Button, IconButton, Stat, DurationValue, Flame, EmptyState, FieldError,
+// SaveToast, PitchPlaceholder, DayCell, BottomSheet, MonthSheet, ModuleIcon,
+// StartRow, exercise-content). Référence :
 // design/Strafoot_Direction_Artistique.html
 // (Palette, Typographie, Composants, Mouvement, Tokens) et design/maquettes/.
 // Un écran n'écrit aucune couleur, taille ni espacement en dur : il combine ces
@@ -51,7 +51,7 @@ export const colors = {
   quizTint: 'rgba(167,139,250,0.14)',
   /** quiz à 22 % → 0 : lueur du haut des écrans quiz (chantier 13), seule lueur de l'app. */
   quizGlow: 'rgba(167,139,250,0.22)',
-  /** Lignes des schémas et du terrain par défaut. */
+  /** Lignes des schémas et du terrain par défaut ; barre d'une semaine vide du graphe de régularité (DA). */
   pitchLine: '#3A3A44',
   /** bg à 60 % : voile derrière une feuille du bas, sous le flou (ou seul quand le flou manque). */
   scrim: 'rgba(16,16,19,0.6)',
@@ -134,6 +134,8 @@ export const radius = {
   card: RADIUS_SCALE.lg,
   button: RADIUS_SCALE.md,
   chip: RADIUS_SCALE.pill,
+  /** Haut d'une barre du graphe de régularité (DA : 4 px en haut, 2 px en bas). */
+  bar: 4,
 } as const;
 
 /**
@@ -179,6 +181,10 @@ export const size = {
   /** Traits dessinés (courbe d'une mesure, terrain par défaut, flamme) ; rayon des points de la courbe. */
   chartStroke: 2,
   chartPoint: 4,
+  /** Avatar rond de l'en-tête du Profil (maquette ecran-profil.png). */
+  avatar: 56,
+  /** Hauteur des barres du graphe de régularité du Profil (DA, carte Régularité) : la plus haute semaine. */
+  barChart: 80,
 } as const;
 
 /** Opacité d'un élément désactivé. */

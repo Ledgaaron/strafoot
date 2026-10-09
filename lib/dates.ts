@@ -226,8 +226,9 @@ export function localDateOfTimestamp(timestamp: string): string {
   return toLocalDateString(new Date(timestamp.replace(/(\.\d{3})\d+/, '$1')));
 }
 
-// Libellés de l'Accueil (en-tête, carte de la semaine, titre des séances du jour)
-// et de la ligne de date du formulaire de séance. Testés par dates.test.ts.
+// Libellés de l'Accueil (en-tête, carte de la semaine, titre des séances du jour),
+// de la ligne de date du formulaire de séance et de l'axe de la régularité du
+// Profil. Testés par dates.test.ts.
 
 const WEEKDAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 
@@ -262,6 +263,11 @@ export function formatRecentDay(day: string, today: string): string {
 /** « Aujourd’hui · 09/10/2026 », « Hier · 08/10/2026 », « Mar. 6 oct. · 06/10/2026 » : ligne de date d'une séance. */
 export function formatDateLine(day: string, today: string): string {
   return `${capitalize(formatRecentDay(day, today))} · ${formatNumericDay(day)}`;
+}
+
+/** « Juil. », « Mai », « Oct. » : mois court capitalisé, sans année, aux extrémités du graphe de régularité du Profil. */
+export function formatShortMonth(day: string): string {
+  return capitalize(MONTHS_SHORT[fromLocalDateString(day).getMonth()]);
 }
 
 /** « Semaine du 12 oct. » (l'année suit hors de celle de today) : carte de la semaine quand ce n'est pas la semaine courante. */

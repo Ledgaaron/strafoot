@@ -15,15 +15,6 @@ export type LatestResult = {
   session_id: string | null;
 };
 
-/** Dernier et avant-dernier résultats d'un test du catalogue. */
-export type LatestWithPrevious = {
-  value: number;
-  /** Jour local (YYYY-MM-DD) du dernier résultat. */
-  date: string;
-  /** Valeur de l'avant-dernier résultat ; null si le test n'a qu'un résultat. */
-  previousValue: number | null;
-};
-
 /** Résultat d'un test, avec le commentaire de la séance qui l'a produit. */
 export type TestResultWithSession = TestResultRow & {
   /** Séance d'origine ; null pour un résultat sans séance (seed) ou si la séance a été supprimée. */
@@ -42,7 +33,7 @@ export type TestResultInput = {
   comment?: string | null;
 };
 
-/** Catalogue des tests (une ligne par mesure), par nom. */
+/** Catalogue des tests (une ligne par mesure), par nom : id de la courbe de chaque mesure (statistiques d'une compétence). */
 export async function listTestCatalog(): Promise<DbResult<TestRow[]>> {
   const { data, error } = await supabase.from('tests').select('*').order('name', { ascending: true });
   return { data, error: error?.message ?? null };
@@ -113,36 +104,6 @@ export async function getLatestResults(
     }
   }
   return { data: latest, error: null };
-}
-
-/**
- * Dernier et avant-dernier résultats de chaque test (test_id → résultats), en
- * une requête pour tout le catalogue, dans l'ordre de getLatestResults : jour le
- * plus récent, puis saisie la plus récente (deux tests le même jour se
- * départagent ainsi). Un test sans résultat est absent. Résultats lus du plus
- * récent au plus ancien, dans la limite du max rows du projet (1000 par défaut).
- */
-export async function listAllLatestWithPrevious(): Promise<DbResult<ReadonlyMap<string, LatestWithPrevious>>> {
-  const { data, error } = await supabase
-    .from('test_results')
-    .select('test_id, value, date')
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
-  if (error) {
-    return { data: null, error: error.message };
-  }
-  const byTest = new Map<string, LatestWithPrevious>();
-  for (const row of data) {
-    const latest = byTest.get(row.test_id);
-    // Plus récents d'abord : le premier résultat vu est le dernier, le deuxième
-    // l'avant-dernier. value est not null : une fois posé, previousValue le reste.
-    if (!latest) {
-      byTest.set(row.test_id, { value: row.value, date: row.date, previousValue: null });
-    } else if (latest.previousValue === null) {
-      byTest.set(row.test_id, { ...latest, previousValue: row.value });
-    }
-  }
-  return { data: byTest, error: null };
 }
 
 /**

@@ -4,7 +4,13 @@
 import assert from 'node:assert/strict';
 
 import type { FamilyKey } from './test-families';
-import { proposeSession, type PlanHistoryEntry, type PlanTest, type SessionProposal } from './test-plan';
+import {
+  composeSession,
+  proposeSession,
+  type PlanHistoryEntry,
+  type PlanTest,
+  type SessionProposal,
+} from './test-plan';
 
 /** Jour local de référence ; la fenêtre de 28 jours va du 2026-09-12 au 2026-10-09 inclus. */
 const NOW = '2026-10-09';
@@ -39,6 +45,18 @@ function propose(
 ): SessionProposal {
   const proposal = proposeSession(tests, history, NOW, excluded);
   assert.ok(proposal !== null, 'proposition attendue, null obtenu');
+  return proposal;
+}
+
+/** Session composée pour une famille choisie, non nulle (l'assertion échoue sinon). */
+function compose(
+  tests: readonly PlanTest[],
+  history: readonly PlanHistoryEntry[],
+  family: FamilyKey,
+  excluded: readonly FamilyKey[] = [],
+): SessionProposal {
+  const proposal = composeSession(tests, history, NOW, family, excluded);
+  assert.ok(proposal !== null, 'session attendue, null obtenu');
   return proposal;
 }
 
@@ -231,6 +249,100 @@ check('famille dont aucun test ne tient en 60 min : écartée', () => {
   assert.equal(proposal.family, 'tir_arret');
   assert.deepEqual(slugsOf(proposal), ['test-tir-1']);
   assert.equal(proposeSession([test('test-endurance-1', 'phys_endurance', 75)], [], NOW), null);
+});
+
+check('excluded : la complétion ne reprend aucun test d’une famille écartée', () => {
+  const tests = [
+    test('test-tir-1', 'tir_arret'),
+    test('test-tir-2', 'tir_surface'),
+    test('test-tir-3', 'tir_loin'),
+    test('test-tir-4', 'tir_loin'),
+  ];
+  // Sans exclusion : Frappe à l'arrêt, complétée par 2 puis 3 (jamais faits, ordre d'entrée).
+  assert.deepEqual(slugsOf(propose(tests, [])), ['test-tir-1', 'test-tir-2', 'test-tir-3']);
+  // Frappe à l'arrêt écartée : Finition dans la surface, complétée par Frappe de loin seulement.
+  const changed = propose(tests, [], ['tir_arret']);
+  assert.equal(changed.family, 'tir_surface');
+  assert.deepEqual(slugsOf(changed), ['test-tir-2', 'test-tir-3', 'test-tir-4']);
+  assert.equal(changed.durationMin, 30);
+  // Deux familles écartées : Frappe de loin, sans complétion possible, garde ses 2 tests.
+  const last = propose(tests, [], ['tir_arret', 'tir_surface']);
+  assert.equal(last.family, 'tir_loin');
+  assert.deepEqual(slugsOf(last), ['test-tir-3', 'test-tir-4']);
+  assert.equal(last.durationMin, 20);
+});
+
+check('composeSession : la famille choisie plutôt que la proposée, ses tests par priorité', () => {
+  const tests = [
+    test('test-tir-1', 'tir_arret'),
+    test('test-tir-2', 'tir_arret'),
+    test('test-tir-3', 'tir_arret'),
+    test('test-tir-4', 'tir_arret'),
+    test('test-tir-5', 'tir_arret'),
+    test('test-passe-1', 'passe_courte'),
+  ];
+  const history = [
+    done('test-tir-1', '2026-10-08'),
+    done('test-tir-2', '2026-10-01'),
+    done('test-tir-4', '2026-09-20'),
+  ];
+  // Tir testé 3 fois sur 28 jours, Passe jamais : la proposition serait la Passe.
+  assert.equal(propose(tests, history).family, 'passe_courte');
+  const chosen = compose(tests, history, 'tir_arret');
+  assert.equal(chosen.family, 'tir_arret');
+  assert.equal(chosen.skill, 'tir');
+  // Priorité : 3 et 5 (jamais), 4 (20 sept.), 2 (1er oct.) ; 1 (8 oct.) reste. Passage dans l'ordre d'entrée.
+  assert.deepEqual(slugsOf(chosen), ['test-tir-2', 'test-tir-3', 'test-tir-4', 'test-tir-5']);
+  assert.equal(chosen.durationMin, 40);
+  // La proposition est la composition de sa famille.
+  assert.deepEqual(propose(tests, history), compose(tests, history, 'passe_courte'));
+});
+
+check('composeSession : famille à 1 test complétée par sa compétence, sans les familles écartées', () => {
+  const tests = [
+    test('test-tir-1', 'tir_arret'),
+    test('test-tir-2', 'tir_surface'),
+    test('test-tir-3', 'tir_surface'),
+    test('test-tir-4', 'tir_loin'),
+    test('test-tir-5', 'tir_loin'),
+    test('test-passe-1', 'passe_courte'),
+  ];
+  const history = [
+    done('test-tir-2', '2026-10-05'),
+    done('test-tir-4', '2026-09-20'),
+    done('test-tir-5', '2026-10-01'),
+  ];
+  // Complétion par priorité dans le Tir : 3 (jamais), puis 4 (20 sept.) ; jamais la Passe.
+  const completed = compose(tests, history, 'tir_arret');
+  assert.equal(completed.family, 'tir_arret');
+  assert.equal(completed.skill, 'tir');
+  assert.deepEqual(slugsOf(completed), ['test-tir-1', 'test-tir-3', 'test-tir-4']);
+  assert.equal(completed.durationMin, 30);
+  // Frappe de loin écartée : complétée par Finition dans la surface seulement (3, puis 2).
+  const skipped = compose(tests, history, 'tir_arret', ['tir_loin']);
+  assert.deepEqual(slugsOf(skipped), ['test-tir-1', 'test-tir-2', 'test-tir-3']);
+  assert.equal(skipped.durationMin, 30);
+  // Toutes les autres familles du Tir écartées : la session garde son seul test.
+  const alone = compose(tests, history, 'tir_arret', ['tir_surface', 'tir_loin']);
+  assert.deepEqual(slugsOf(alone), ['test-tir-1']);
+  assert.equal(alone.durationMin, 10);
+});
+
+check('composeSession : null sans test retenu, famille choisie prise même si écartée', () => {
+  // Famille sans test dans la liste.
+  assert.equal(composeSession(TIR_PASSE, [], NOW, 'phys_gainage'), null);
+  // Tous ses tests dépassent 60 min : null, même si une autre famille du Physique tiendrait.
+  const long = [
+    test('test-endurance-1', 'phys_endurance', 75),
+    test('test-endurance-2', 'phys_endurance', 65),
+    test('test-vitesse-1', 'phys_vitesse'),
+  ];
+  assert.equal(composeSession(long, [], NOW, 'phys_endurance'), null);
+  // excluded ne vaut que pour la complétion : la famille choisie reste prise.
+  const excludedChoice = compose(TIR_PASSE, [], 'tir_arret', ['tir_arret']);
+  assert.equal(excludedChoice.family, 'tir_arret');
+  assert.deepEqual(slugsOf(excludedChoice), ['test-tir-1', 'test-tir-2', 'test-tir-3']);
+  assert.equal(excludedChoice.durationMin, 30);
 });
 
 if (failures > 0) {

@@ -222,7 +222,9 @@ type TestReaderProps = {
  * crée sa séance puis ses résultats, et la confirmation remplace la saisie. En
  * session, les résultats se rattachent à la séance de la session et Enregistrer
  * enchaîne sur le test suivant ; au dernier, « Terminer la session » ouvre
- * l'écran de fin (durée réelle).
+ * l'écran de fin (durée réelle). Tant qu'aucun résultat de la session n'est
+ * enregistré, « Abandonner la session » (rien n'est créé) ; dès le premier,
+ * « Terminer » mène à l'écran de fin depuis chaque test sauf le dernier.
  */
 function TestReader({ loaded, previousSaved }: TestReaderProps) {
   const { test, lines } = loaded;
@@ -272,9 +274,12 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
   const saving = save.status === 'saving';
   const validatedCount = lines.filter((line) => validated.has(line.measure.key)).length;
   const allValidated = validatedCount === lines.length;
-  // Abandon possible tant qu'aucune séance n'est créée : rien n'est perdu.
-  const canAbandon =
-    (timed !== null && pendingSessionId === null) || (run !== null && run.sessionId === null && !resultsPending);
+  // Session sans résultat enregistré (ni séance créée, ni résultats en attente de
+  // réessai) : elle s'abandonne ; dès le premier résultat, elle se termine.
+  const runUnsaved = run !== null && run.sessionId === null && !resultsPending;
+  // Abandon possible tant qu'aucune séance n'est créée, rien n'est perdu : test
+  // démarré seul par ▶, ou session sans résultat.
+  const canAbandon = (timed !== null && pendingSessionId === null) || runUnsaved;
 
   function changeValue(key: string, entry: string) {
     setValues((currentValues) => ({ ...currentValues, [key]: entry }));
@@ -474,7 +479,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     router.replace({ pathname: '/test/[slug]', params: { slug: nextSlug, saved: test.title, records: String(records) } });
   }
 
-  /** Session : Terminer avant le dernier test ; l'écran de fin enregistre ce qui a été fait. */
+  /** Session entamée : Terminer avant le dernier test ; l'écran de fin complète la séance déjà créée. */
   function finishRun() {
     router.push('/session/finish');
   }
@@ -484,12 +489,15 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     if (pendingRef.current) {
       return;
     }
-    confirmAbandon(() => {
-      pendingRef.current = true;
-      void activeSession.clear();
-      // Sans params : une confirmation d'enregistrement restée sur l'onglet disparaît.
-      router.dismissTo('/training');
-    });
+    confirmAbandon(
+      () => {
+        pendingRef.current = true;
+        void activeSession.clear();
+        // Sans params : une confirmation d'enregistrement restée sur l'onglet disparaît.
+        router.dismissTo('/training');
+      },
+      run !== null ? 'la session' : 'la séance',
+    );
   }
 
   if (savedTest !== null) {
@@ -507,12 +515,20 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
       {!allValidated ? (
         <Text style={[text.meta, text.tabular]}>{`Valide chaque mesure avec ✓ : ${validatedCount} / ${lines.length}`}</Text>
       ) : null}
-      {/* Session : Terminer à chaque test sauf le dernier, dont l'action principale termine déjà. */}
-      {run !== null && !isLastOfRun ? (
+      {/* Session entamée : Terminer à chaque test sauf le dernier, dont l'action principale termine déjà. */}
+      {run !== null && !runUnsaved && !isLastOfRun ? (
         <Button variant="secondary" label="Terminer" disabled={saving} onPress={finishRun} />
       ) : null}
       <Button label={primaryLabel} disabled={!allValidated} loading={saving} onPress={submit} />
-      {canAbandon ? <Button variant="danger" label="Abandonner la séance" disabled={saving} onPress={abandon} /> : null}
+      {/* Un seul bouton d'abandon : la session sans résultat (à chaque test), ou le test démarré seul. */}
+      {canAbandon ? (
+        <Button
+          variant="danger"
+          label={run !== null ? 'Abandonner la session' : 'Abandonner la séance'}
+          disabled={saving}
+          onPress={abandon}
+        />
+      ) : null}
     </>
   );
 
