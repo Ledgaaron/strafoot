@@ -120,7 +120,8 @@ profile-taxonomy.ts postes du profil (ceux du quiz sans 'tous') et pieds forts
 quiz-select.ts choix des questions d'une série (pur, testé)
 measure-delta.ts évolution d'une mesure et format des valeurs (pur, testé)
 sheet-types.ts format des fiches, tests et sessions (kind, exercises, intro, mesures, blocks ; test atomique =
-un exercice), validation partagée app / script
+un exercice ; diagram_data facultatif d'un exercice : un objet, format au chantier 13a), validation partagée
+app / script
 json-types.ts contenu des autres colonnes jsonb (questions.options)
 diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
 db/ une fonction par requête, typée (sessions.ts, dont getSessionDefaults : dernier module et dernière
@@ -176,15 +177,17 @@ useElapsedLabel et HeaderClock, le même chrono dans l'en-tête de la fiche ou d
 start-row.tsx carte d'une fiche, d'un test ou d'une session et ▶ à sa droite (deux cibles voisines)
 exercise-content.tsx morceaux d'un exercice partagés par fiche et test : schéma ou terrain par défaut,
 intertitre, liste (numéros en orange), contenu de « Plus de tips »
-scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts ; build-seed-sheets.ts, qui découpe
-aussi tests_001.json en tests atomiques et sessions)
+scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts ; build-seed-sheets.ts : fiches,
+tests atomiques et sessions depuis sheets_NNN.json, tests_atomic_NNN.json et sessions_NNN.json, validés sans être
+réécrits)
 supabase/
 migrations/NNN_description.sql
 seed.sql données de démonstration
 seed_questions_NNN.sql, seed_sheets_NNN.sql générés par scripts/ : ne pas modifier à la main
-content/ JSON sources des seeds (questions, fiches, tests) et PNG des schémas (diagrams/) ;
-tests_atomic_001.json et sessions_001.json générés par build-seed-sheets.ts depuis tests_001.json (mapping des
-familles en dur dans le script) : ne pas modifier à la main
+content/ JSON sources des seeds, édités à la main (questions ; sheets_NNN.json : fiches de lecture ;
+tests_atomic_NNN.json : tests atomiques ; sessions_NNN.json : sessions prédéfinies ; pour ces trois sortes,
+plusieurs fichiers numérotés permis, NNN sur 3 chiffres) et PNG des schémas (diagrams/) ; archive/ : tests_001.json
+(batteries d'avant le chantier 10, source des tests atomiques jusqu'au 10b), à ne plus éditer, jamais lu
 public/ fichiers servis à la racine du site web, copiés dans dist/ par l'export
 index.html HTML racine du web, gabarit SPA d'Expo (pas d'app/+html.tsx : lu seulement en sortie static)
 manifest.webmanifest nom, couleurs et icônes de l'app installée sur l'écran d'accueil
@@ -247,7 +250,8 @@ d'exception.
   `FAMILY_KEYS` de `lib/test-families.ts`, null sinon), blocks text[] (slugs ordonnés des tests
   d'une session, null sinon), index (user_id, kind). Format d'exercises, d'intro et de blocks :
   `lib/sheet-types.ts` ; les mesures d'un test sont dans exercises[0].measures
-- `tests` : catalogue des mesures : name, protocol (« titre du test — titre du bloc »), unit ;
+- `tests` : catalogue des mesures : name, protocol (« Test <Compétence> — <titre du test> », écrit par le
+  seed : même valeur qu'avant le découpage, « titre de la batterie — titre du bloc »), unit ;
   depuis 004 : key (identifiant stable, unique par utilisateur, null pour les 2 tests de
   démonstration), higher_is_better (false pour les chronos)
 - `test_results` : test_id, date, value numeric, comment ; depuis 004 : session_id → sessions
@@ -276,8 +280,10 @@ Modèle des tests (007, chantier 10) :
 - Un résultat (`test_results`) garde test_id (ligne du catalogue `tests`, par key, inchangé) et
   session_id (séance module `test`) ; un test fait seul a sa séance (sheet_id = le test), une
   session une seule séance pour tous ses tests (sheet_id = la session prédéfinie, ou null).
-- Contenu : les 18 blocs de `tests_001.json` sont les 18 tests atomiques (slug
-  `<slug-batterie>-<n>`, intro = celle de la batterie, montrée en « Règles communes »).
+- Contenu (depuis 10b) : `tests_atomic_NNN.json` et `sessions_NNN.json` sont la source, éditée à la main ;
+  les 18 premiers tests sont les 18 blocs des batteries de `tests_001.json`, archivé (slug
+  `<slug-batterie>-<n>`, intro = celle de la batterie, montrée en « Règles communes »). Un test ou une
+  session retiré des JSON reste en base : le seed ne supprime rien.
 
 Deux streaks calculées côté app, jamais stockées : entraînement (jour avec ≥ 1 séance, tout
 module) et quiz (jour avec ≥ 1 réponse). Courante = jours consécutifs jusqu'à aujourd'hui,
@@ -578,8 +584,8 @@ messages bruts de Supabase restent en anglais (erreur jamais avalée).
 - Dessin SVG (seulement app/measure/[testId].tsx, components/pitch-placeholder.tsx, components/flame.tsx) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'react-native-svg'`
 - `npx tsx scripts/build-seed-questions.ts`, `npx tsx scripts/build-seed-sheets.ts`
-  (régénèrent les seeds depuis supabase/content/ ; le second réécrit aussi tests_atomic_001.json
-  et sessions_001.json ; relancé sans changement, tout est « inchangé »)
+  (régénèrent les seeds depuis supabase/content/ ; le second valide les JSON sans les réécrire et
+  n'écrit rien à la moindre erreur ; relancé sans changement, tout est « inchangé »)
 - `npx supabase gen types typescript --project-id <id> | Out-File -Encoding utf8 lib/types.ts`
 - Export web, comme sur Vercel : `npx expo export -p web` (dans dist/, variables lues dans .env)
 - Servir dist en local : `npx expo serve --port 8090` (sans repli SPA : une route profonde y

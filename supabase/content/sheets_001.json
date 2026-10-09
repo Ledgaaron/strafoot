@@ -1,9 +1,10 @@
 {
   "_format": {
-    "kind": "training = fiche de lecture, aucune saisie pendant ; test = chaque bloc porte des mesures saisies à la fin",
+    "kind": "training seulement : fiche de lecture, aucune saisie (les tests sont dans tests_atomic_NNN.json)",
     "positions": "taxonomie de lib/quiz-taxonomy.ts",
     "skill": "passe | tir | dribble | jonglerie | physique | recuperation | mixte",
-    "diagram": "nom de fichier dans le bucket Storage `diagrams` ; null si pas de schéma"
+    "diagram": "nom de fichier dans le bucket Storage `diagrams` ; null si pas de schéma",
+    "diagram_data": "facultatif, à côté de diagram : un objet (format au chantier 13a)"
   },
   "sheets": [
     {

@@ -1,8 +1,8 @@
 // Format des fiches et des tests : colonnes jsonb training_sheets.exercises et
 // training_sheets.intro, que supabase gen types type en `Json`, et colonne
 // training_sheets.blocks d'une session. C'est le format de
-// supabase/content/sheets_NNN.json, tests_NNN.json et tests_atomic_NNN.json, à
-// l'identique : il ne se simplifie pas, tout ce qu'il contient s'affiche.
+// supabase/content/sheets_NNN.json et tests_atomic_NNN.json, à l'identique :
+// il ne se simplifie pas, tout ce qu'il contient s'affiche.
 // Validation partagée : lib/db/training.ts à la lecture en base, et
 // scripts/build-seed-sheets.ts avant d'écrire le seed. Aucun import à
 // l'exécution : le script la charge hors de l'app, avec npx tsx.
@@ -60,6 +60,11 @@ export type Exercise = {
   /** Fichier du bucket Storage `diagrams` ; null : pas de schéma. */
   diagram: string | null;
   /**
+   * Données d'un schéma dessiné, à côté de diagram ; null : clé absente du
+   * JSON. Format fixé au chantier 13a : seul « un objet » est vérifié ici.
+   */
+  diagram_data: Record<string, unknown> | null;
+  /**
    * Au moins une pour un bloc de test. Fiche de lecture : clé absente du JSON et
    * de la base (refusée à la validation), [] une fois lue : ne jamais réécrire en
    * base un exercice validé, seul le JSON d'origine fait foi.
@@ -85,6 +90,8 @@ const EXERCISE_KEYS: readonly string[] = [
   'variations',
   'setup',
   'diagram',
+  // Facultative, la seule de la liste : absente, pas de données de schéma.
+  'diagram_data',
 ];
 /** Un bloc de test porte en plus ses mesures. */
 const TEST_EXERCISE_KEYS: readonly string[] = [...EXERCISE_KEYS, 'measures'];
@@ -169,8 +176,9 @@ export function parseIntro(value: unknown): ParseResult<string[]> {
  * obligatoire, pour un test ; interdite pour une fiche) ; order égal au rang ;
  * duration_min entier positif ; textes et listes de textes non vides ; variations
  * null ou { easier, harder } ; setup { surface, sequence, equipment } ; diagram
- * null ou nom de fichier simple ; mesures aux clés exactement key, name, unit,
- * higher_is_better, key en snake_case et unique dans la fiche.
+ * null ou nom de fichier simple ; diagram_data absente ou objet ; mesures aux
+ * clés exactement key, name, unit, higher_is_better, key en snake_case et unique
+ * dans la fiche.
  */
 export function validateExercises(value: unknown, kind: ExerciseFormat): Validation<Exercise[]> {
   const errors: string[] = [];
@@ -240,6 +248,7 @@ function validateExercise(
   const variations = checkVariations(item.variations, where, errors);
   const setup = checkSetup(item.setup, where, errors);
   const diagram = checkDiagram(item.diagram, where, errors);
+  const diagramData = checkDiagramData(item.diagram_data, where, errors);
   const measures = kind === 'test' ? checkMeasures(item.measures, where, measureKeys, errors) : [];
   if (
     order === null ||
@@ -253,6 +262,7 @@ function validateExercise(
     variations === undefined ||
     setup === null ||
     diagram === undefined ||
+    diagramData === undefined ||
     measures === null
   ) {
     return null;
@@ -269,6 +279,7 @@ function validateExercise(
     variations,
     setup,
     diagram,
+    diagram_data: diagramData,
     measures,
   };
 }
@@ -325,6 +336,23 @@ function checkDiagram(value: unknown, where: string, errors: string[]): string |
   errors.push(
     `${where} : ${fieldError('diagram', value)} ; attendu null ou un nom de fichier du bucket diagrams (lettres, chiffres, « . », « _ », « - »).`,
   );
+  return undefined;
+}
+
+/**
+ * Clé absente : null ; sinon un objet, sans rien vérifier de son contenu (format
+ * fixé au chantier 13a). undefined si invalide : null écrit dans le JSON est
+ * refusé, l'absence de données s'écrit en omettant la clé.
+ */
+function checkDiagramData(value: unknown, where: string, errors: string[]): Record<string, unknown> | null | undefined {
+  // JSON.parse ne produit jamais undefined : undefined veut dire clé absente.
+  if (value === undefined) {
+    return null;
+  }
+  if (isRecord(value)) {
+    return value;
+  }
+  errors.push(`${where} : ${fieldError('diagram_data', value)} ; attendu un objet, ou pas de clé diagram_data du tout.`);
   return undefined;
 }
 

@@ -1,55 +1,57 @@
-// Génère le contenu de l'onglet Tests à partir du contenu versionné :
-// supabase/content/sheets_001.json (fiches de lecture) et
-// supabase/content/tests_001.json (batteries de tests, source des tests
-// atomiques) → supabase/content/tests_atomic_001.json, sessions_001.json et
-// supabase/seed_sheets_001.sql.
+// Génère supabase/seed_sheets_001.sql depuis le contenu versionné de
+// supabase/content, édité à la main, seule source de vérité :
+// - sheets_NNN.json : fiches de lecture (kind training) ;
+// - tests_atomic_NNN.json : tests atomiques (kind test, un exercice et ses
+//   mesures, une famille) ;
+// - sessions_NNN.json : sessions prédéfinies, suites ordonnées de tests.
+// Le script ne réécrit aucun JSON : un test ajouté à la main reste.
+// tests_001.json, l'ancienne source des tests (5 batteries, découpées en 18 tests
+// atomiques au chantier 10), est archivé dans supabase/content/archive et ne se
+// lit plus.
 //
 // Usage, depuis la racine du projet (chemins relatifs au répertoire courant) :
 //   npx tsx scripts/build-seed-sheets.ts
-//     sans argument : lit sheets_001.json puis tests_001.json, dans cet ordre,
-//     qui est celui des lignes dans le SQL.
+//     sans argument : lit les sheets_NNN.json, puis les tests_atomic_NNN.json,
+//     puis les sessions_NNN.json, chaque sorte par numéro croissant (NNN : 3
+//     chiffres ; plusieurs fichiers par sorte : tests_atomic_002.json…). C'est
+//     l'ordre des lignes dans le SQL.
 //
-// Entrées : sheets_001.json, fiches kind training ; tests_001.json, batteries
-// kind test de plusieurs blocs avec mesures. Ce sont les seules sources : les
-// deux JSON générés ne se modifient pas à la main.
-// Sorties :
-// - tests_atomic_001.json : un test atomique par bloc de batterie, slug
-//   <slug-batterie>-<n> (n = order du bloc), titre du bloc, compétence et postes
-//   de la batterie, famille imposée par BLOCK_FAMILIES, durée du bloc, intro de
-//   la batterie (règles communes), exercises = [le bloc, order ramené à 1] ;
-// - sessions_001.json : une session par batterie (même slug, même titre),
-//   blocks = slugs de ses tests dans l'ordre des blocs ;
-// - seed_sheets_001.sql : catalogue des mesures (les lignes d'avant le
-//   découpage, protocol « titre de la batterie — titre du bloc »), fiches de
-//   lecture et tests atomiques, puis sessions, chaque partie en upsert.
+// Sortie : seed_sheets_001.sql, en trois parties, chacune en upsert : catalogue
+// des mesures des tests (protocol « Test <Compétence> — <titre du test> »),
+// fiches de lecture et tests atomiques, puis sessions (duration_min = somme des
+// durées de leurs tests).
 //
 // Validation, avec lib/sheet-types.ts, lib/test-families.ts et la taxonomie de
-// lib/quiz-taxonomy.ts : racine { _format facultatif, sheets non vide } ; fiche
-// aux clés exactement slug, kind, title, subtitle, positions, skill,
-// duration_min, intro, exercises ; slug en kebab-case ; kind training dans
-// sheets_001.json, test dans tests_001.json ; title, subtitle et skill non
-// vides ; positions non vide, dans la liste fermée, sans doublon ; duration_min
-// entier positif ; intro et exercises au format de lib/sheet-types.ts
-// (validateIntro, validateExercises). Aucune chaîne de la fiche, à toute
-// profondeur, ne contient de caractère de contrôle, ni « $$ », qui fermerait le
+// lib/quiz-taxonomy.ts. Fichiers : au moins un de chaque sorte ; un .json dont le
+// nom commence par sheets_, tests_ ou sessions_ sans suivre l'un des trois
+// formats est refusé (fichier mal numéroté, batteries sorties de l'archive) ;
+// racine { _format facultatif, sheets | tests | sessions non vide }.
+// - Fiche de lecture : clés exactement slug, kind, title, subtitle, positions,
+//   skill, duration_min, intro, exercises ; kind training ; title, subtitle et
+//   skill non vides ; exercises au format training (validateExercises).
+// - Test atomique : clés exactement slug, kind, title, positions, skill, family,
+//   duration_min, intro, exercises ; kind test ; title non vide ; skill dans
+//   SKILL_KEYS ; family dans FAMILY_KEYS, de la même compétence ; exactement un
+//   exercice, avec ses mesures (validateAtomicExercises).
+// - Session : clés exactement slug, title, skill, blocks ; title non vide ;
+//   skill dans SKILL_KEYS ; blocks conforme à validateBlocks, chaque slug celui
+//   d'un test atomique.
+// Pour tous : slug en kebab-case, unique sur toutes les fiches, tous les tests et
+// toutes les sessions (clé d'idempotence du SQL) ; positions non vide, dans la
+// liste fermée, sans doublon ; duration_min entier positif ; intro au format de
+// validateIntro. Aucune chaîne, valeur ou clé, à toute profondeur (diagram_data
+// compris), ne contient de caractère de contrôle, ni « $$ », qui fermerait le
 // bloc do du SQL, ni le marqueur de l'UUID.
-// Sur les fiches valides : key de mesure unique sur toutes les fiches (clé
+// Sur les éléments valides : key de mesure unique sur tous les tests (clé
 // d'idempotence du catalogue tests) ; chaque diagram est un fichier de
 // supabase/content/diagrams, au nom exact. Un fichier de ce dossier qu'aucune
-// fiche ne référence est signalé, sans être une erreur.
-// Découpage des batteries valides : chaque batterie et chacun de ses blocs a sa
-// famille dans BLOCK_FAMILIES, qui n'a ni batterie ni bloc en trop ; skill de la
-// batterie dans SKILL_KEYS ; famille dans FAMILY_KEYS, de la même compétence ;
-// test atomique conforme à validateAtomicExercises ; slug unique sur tout
-// (fiches, batteries, tests atomiques : clé d'idempotence du SQL) ; blocks de
-// chaque session conforme à validateBlocks, chaque slug celui d'un test
-// atomique. Toutes les erreurs sont listées en une passe ; s'il y en a une, rien
-// n'est écrit et le script finit en code 1.
+// fiche ni aucun test ne référence est signalé, sans être une erreur. Toutes les
+// erreurs sont listées en une passe ; s'il y en a une, rien n'est écrit et le
+// script finit en code 1.
 //
 // Sortie déterministe : ni date ni horodatage, fins de ligne LF, UTF-8 sans BOM,
-// retour à la ligne final. Chaque fichier n'est réécrit que s'il change (CRLF
-// ramenés à LF pour comparer) : relancé sur les mêmes JSON, le script annonce
-// « inchangé » pour les trois.
+// retour à la ligne final. Le SQL n'est réécrit que s'il change (CRLF ramenés à
+// LF pour comparer) : relancé sur les mêmes JSON, le script annonce « inchangé ».
 // TypeScript 6 n'inclut plus @types/node d'office : référence explicite pour node:fs.
 /// <reference types="node" />
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -67,6 +69,7 @@ import {
 import {
   FAMILY_KEYS,
   getFamily,
+  getSkill,
   isFamilyKey,
   isSkillKey,
   SKILL_KEYS,
@@ -77,18 +80,8 @@ import {
 const CONTENT_DIR = 'supabase/content';
 /** Schémas des exercices : les fichiers à déposer à la main dans le bucket Storage diagrams. */
 const DIAGRAMS_DIR = `${CONTENT_DIR}/diagrams`;
-const READINGS_FILE = 'sheets_001.json';
-const TESTS_FILE = 'tests_001.json';
-/** Entrées fixes, lues dans cet ordre, qui est celui des lignes dans le SQL ; chacune n'admet qu'un kind. */
-const CONTENT_FILES: readonly ContentSpec[] = [
-  { name: READINGS_FILE, kind: 'training' },
-  { name: TESTS_FILE, kind: 'test' },
-];
-/** Générés depuis tests_001.json, à côté des sources. */
-const ATOMIC_TESTS_FILE = 'tests_atomic_001.json';
-const SESSIONS_FILE = 'sessions_001.json';
-const ATOMIC_TESTS_PATH = `${CONTENT_DIR}/${ATOMIC_TESTS_FILE}`;
-const SESSIONS_PATH = `${CONTENT_DIR}/${SESSIONS_FILE}`;
+/** tests_001.json, ancienne source des tests : sous-dossier, jamais lu. */
+const ARCHIVE_DIR = `${CONTENT_DIR}/archive`;
 const OUTPUT_FILE = 'seed_sheets_001.sql';
 const OUTPUT_PATH = `supabase/${OUTPUT_FILE}`;
 const SCRIPT_PATH = 'scripts/build-seed-sheets.ts';
@@ -102,42 +95,24 @@ const DEMO_TEST_COUNT = 2;
 /** Postes d'une session insérée : elle vaut pour tous (jamais mis à jour ensuite). */
 const SESSION_POSITIONS: readonly PositionKey[] = ['tous'];
 
+/** Sorte de fichier source : nom (préfixe puis NNN), tableau racine, nom d'un élément dans les messages. */
+type SourceKind = { prefix: string; listKey: string; item: string; items: string };
+
+const READING_SOURCE: SourceKind = { prefix: 'sheets_', listKey: 'sheets', item: 'fiche', items: 'fiches' };
+const TEST_SOURCE: SourceKind = { prefix: 'tests_atomic_', listKey: 'tests', item: 'test', items: 'tests' };
+const SESSION_SOURCE: SourceKind = { prefix: 'sessions_', listKey: 'sessions', item: 'session', items: 'sessions' };
+const SOURCE_KINDS: readonly SourceKind[] = [READING_SOURCE, TEST_SOURCE, SESSION_SOURCE];
+/** Après le préfixe : le numéro du fichier sur 3 chiffres, puis .json. */
+const FILE_NUMBER = /^\d{3}\.json$/;
 /**
- * Famille de chaque bloc des batteries de tests_001.json, imposée : le bloc
- * d'order n reçoit la famille d'indice n − 1. Une batterie ou un bloc absent de
- * la table est une erreur, une entrée sans batterie ou sans bloc aussi : la
- * table et le JSON se correspondent exactement. Valeurs en string, contrôlées à
- * l'exécution (npx tsx ne vérifie pas les types) : clé de FAMILY_KEYS, famille
- * de la compétence de la batterie.
+ * Préfixes réservés aux sources : un .json qui en porte un sans suivre l'un des
+ * trois formats est refusé plutôt qu'ignoré sans bruit (tests_atomic_2.json, ou
+ * tests_001.json sorti de l'archive).
  */
-const BLOCK_FAMILIES: ReadonlyMap<string, readonly string[]> = new Map([
-  ['test-tir', ['tir_arret', 'tir_mouvement', 'tir_surface']],
-  ['test-passe', ['passe_courte', 'passe_longue', 'passe_mouvement']],
-  ['test-dribble', ['dribble_slalom', 'dribble_slalom', 'dribble_conduite', 'dribble_slalom']],
-  ['test-jonglerie', ['jonglerie_pieds', 'jonglerie_pieds', 'jonglerie_tete', 'jonglerie_pieds']],
-  ['test-physique', ['phys_vitesse', 'phys_agilite', 'phys_gainage', 'phys_endurance']],
-]);
+const RESERVED_PREFIXES: readonly string[] = ['sheets_', 'tests_', 'sessions_'];
 
-/** _format des JSON générés : de quoi les lire sans ouvrir le script. */
-const GENERATED_NOTE = `généré par ${SCRIPT_PATH} depuis ${TESTS_FILE} : ne pas modifier à la main, modifier ${TESTS_FILE} puis relancer npx tsx ${SCRIPT_PATH}`;
-const ATOMIC_TESTS_FORMAT: Readonly<Record<string, string>> = {
-  fichier: GENERATED_NOTE,
-  kind: `test : test atomique, un seul exercice (un bloc d'une batterie de ${TESTS_FILE}) et ses mesures, saisies sur le même écran`,
-  slug: "<slug de la batterie>-<order du bloc> ; clé d'idempotence du seed, ne jamais le renommer",
-  family: 'famille de lib/test-families.ts (FAMILY_KEYS), sous-type de la compétence skill ; imposée par BLOCK_FAMILIES du script',
-  intro: 'règles communes de la batterie, affichées dans « Plus de tips »',
-  exercises:
-    'le bloc de la batterie tel quel, order ramené à 1, mesures comprises (measure.key inchangée : relie test_results au catalogue tests)',
-};
-const SESSIONS_FORMAT: Readonly<Record<string, string>> = {
-  fichier: GENERATED_NOTE,
-  session: `suite ordonnée de tests atomiques, une par batterie de ${TESTS_FILE} (même slug, même titre : la ligne de la batterie en base devient la session)`,
-  blocks: `slugs des tests de ${ATOMIC_TESTS_FILE}, dans l'ordre des blocs de la batterie`,
-  duration_min: 'absente : le seed la calcule, somme des durées des tests de blocks',
-};
-
-const ROOT_KEYS: readonly string[] = ['_format', 'sheets'];
-const SHEET_KEYS: readonly string[] = [
+const ROOT_FORMAT_KEY = '_format';
+const READING_KEYS: readonly string[] = [
   'slug',
   'kind',
   'title',
@@ -148,9 +123,23 @@ const SHEET_KEYS: readonly string[] = [
   'intro',
   'exercises',
 ];
+/** Pas de subtitle (null en base) ; family en plus. */
+const TEST_KEYS: readonly string[] = [
+  'slug',
+  'kind',
+  'title',
+  'positions',
+  'skill',
+  'family',
+  'duration_min',
+  'intro',
+  'exercises',
+];
+/** Pas de duration_min : calculée, somme des durées des tests de blocks. */
+const SESSION_KEYS: readonly string[] = ['slug', 'title', 'skill', 'blocks'];
 /** kebab-case : « bo-tir-finition-surface ». */
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-// Retour à la ligne, tabulation… : refusés dans toute chaîne d'une fiche.
+// Retour à la ligne, tabulation… : refusés dans toute chaîne d'un élément.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 // Longueurs citées dans les messages d'erreur : slug ou titre, valeur fautive.
 const EXCERPT_LENGTH = 50;
@@ -158,15 +147,11 @@ const VALUE_LENGTH = 60;
 /** Indentation des champs d'une ligne du values (…) des fiches. */
 const FIELD_INDENT = '      ';
 
-/** Fichier source et le seul kind qu'il admet. */
-type ContentSpec = { name: string; kind: ExerciseFormat };
-
-/** Fiche source validée : fiche de lecture ou batterie de tests. */
-type SeedSheet = {
+/** Fiche de lecture validée (sheets_NNN.json). */
+type ReadingSheet = {
   /** « sheets_001.json, fiche 2 « bo-passe-remise-controle-scan » » : de quoi la retrouver dans le JSON. */
   where: string;
   slug: string;
-  kind: ExerciseFormat;
   title: string;
   subtitle: string;
   positions: PositionKey[];
@@ -174,34 +159,42 @@ type SeedSheet = {
   durationMin: number;
   /** intro telle que lue dans le JSON : le SQL l'écrit à l'identique. */
   introJson: unknown;
-  /** exercises tel que lu dans le JSON (sans measures pour une fiche training) : le SQL l'écrit à l'identique. */
+  /** exercises tel que lu dans le JSON : le SQL l'écrit à l'identique. */
   exercisesJson: unknown;
-  /** Exercices validés : mesures (aucune pour une fiche training) et schémas. */
+  /** Exercices validés : leurs schémas. */
   exercises: Exercise[];
 };
 
-/** Test atomique : un bloc d'une batterie, prêt pour le JSON et le SQL. */
+/** Test atomique validé (tests_atomic_NNN.json). */
 type AtomicTest = {
+  /** « tests_atomic_001.json, test 3 « test-tir-3 » ». */
+  where: string;
   slug: string;
   title: string;
   positions: PositionKey[];
   skill: SkillKey;
   family: FamilyKey;
   durationMin: number;
-  /** intro de la batterie, telle que lue dans le JSON. */
   introJson: unknown;
-  /** [le bloc tel que lu dans le JSON, order ramené à 1]. */
-  exercisesJson: unknown[];
+  /** exercises tel que lu dans le JSON, un seul exercice. */
+  exercisesJson: unknown;
+  /** Son exercice, validé : mesures et schéma. */
+  exercise: Exercise;
 };
 
-/** Session : la batterie, réduite à la suite de ses tests atomiques. */
-type SeedSession = {
+/** Session validée (sessions_NNN.json), ses tests pas encore cherchés. */
+type SessionSource = {
+  /** « sessions_001.json, session 2 « test-passe » ». */
   where: string;
   slug: string;
   title: string;
   skill: SkillKey;
-  /** Slugs de ses tests atomiques, dans l'ordre des blocs. */
+  /** Slugs de ses tests, dans l'ordre de passage. */
   blocks: string[];
+};
+
+/** Session dont chaque test a été trouvé. */
+type SeedSession = SessionSource & {
   /** Somme des durées de ses tests. */
   durationMin: number;
 };
@@ -222,16 +215,16 @@ type SheetRow = {
   exercisesJson: unknown;
 };
 
-/** Ligne du catalogue tests : une mesure et son protocole « titre de la batterie — titre du bloc ». */
+/** Ligne du catalogue tests : une mesure et son protocole « Test <Compétence> — <titre du test> ». */
 type SeedMeasure = Measure & { protocol: string };
 
-/**
- * Fichier de contenu (« tests_001.json ») : ses fiches valides, dans l'ordre du
- * JSON, et les slugs qu'il écrit, fiches invalides comprises.
- */
-type ContentFile = { name: string; sheets: SeedSheet[]; writtenSlugs: string[] };
+/** Fichier source lu : ses éléments valides, dans l'ordre du JSON, et les slugs qu'il écrit, éléments invalides compris. */
+type SourceFile<T> = { name: string; items: T[]; writtenSlugs: string[] };
 
-/** Schémas référencés par les fiches et présents ; fichiers du dossier que rien ne référence. */
+/** Exercice validé et l'endroit de sa fiche ou de son test, pour les contrôles croisés. */
+type PlacedExercise = { where: string; exercise: Exercise };
+
+/** Schémas référencés par les fiches et les tests et présents ; fichiers du dossier que rien ne référence. */
 type DiagramCheck = { found: Set<string>; unreferenced: string[] };
 
 function main(): void {
@@ -240,26 +233,36 @@ function main(): void {
     return;
   }
   const errors: string[] = [];
-  // Slug → endroit de la première fiche ou du premier test atomique qui l'emploie.
+  const names = listJsonFiles(CONTENT_DIR);
+  checkReservedNames(names, errors);
+  // Slug → endroit de la première fiche, du premier test ou de la première session qui l'emploie.
   const slugs = new Map<string, string>();
-  const files: ContentFile[] = [];
-  for (const spec of CONTENT_FILES) {
-    files.push(validateContentFile(spec, slugs, errors));
-  }
-  const sheets = files.flatMap((file) => file.sheets);
-  const measures = collectMeasures(sheets, errors);
-  const diagrams = checkDiagrams(sheets, errors);
-  const readings = sheets.filter((sheet) => sheet.kind === 'training');
-  const batteries = sheets.filter((sheet) => sheet.kind === 'test');
-  const batterySlugs = files.find((file) => file.name === TESTS_FILE)?.writtenSlugs ?? [];
-  const { tests, sessions } = splitBatteries(batteries, batterySlugs, slugs, errors);
-  checkSessions(sessions, tests, errors);
-  if (errors.length === 0 && measures.length === 0) {
-    // La liste in (…) et le values (…) du catalogue seraient vides : SQL invalide.
-    errors.push(
-      `${CONTENT_FILES.map((spec) => spec.name).join(', ')} : aucune mesure ; il faut au moins un test (kind test) pour le catalogue tests du SQL.`,
-    );
-  }
+  const readingFiles = readSources(READING_SOURCE, names, errors, (item, where) =>
+    validateReading(item, where, slugs, errors),
+  );
+  const testFiles = readSources(TEST_SOURCE, names, errors, (item, where) => validateTest(item, where, slugs, errors));
+  const sessionFiles = readSources(SESSION_SOURCE, names, errors, (item, where) =>
+    validateSession(item, where, slugs, errors),
+  );
+  const readings = readingFiles.flatMap((file) => file.items);
+  const tests = testFiles.flatMap((file) => file.items);
+  const writtenTestSlugs = new Set(testFiles.flatMap((file) => file.writtenSlugs));
+  const sessions = resolveSessions(
+    sessionFiles.flatMap((file) => file.items),
+    tests,
+    writtenTestSlugs,
+    errors,
+  );
+  const measures = collectMeasures(tests, errors);
+  const diagrams = checkDiagrams(
+    [
+      ...readings.flatMap((sheet) => sheet.exercises.map((exercise) => ({ where: sheet.where, exercise }))),
+      ...tests.map((test) => ({ where: test.where, exercise: test.exercise })),
+    ],
+    errors,
+  );
+  // Au moins un fichier non vide de chaque sorte, et rien d'écrit à la moindre
+  // erreur : aucune partie du SQL n'a de liste in (…) ni de values (…) vide.
   if (errors.length > 0) {
     for (const message of errors) {
       console.error(message);
@@ -267,31 +270,24 @@ function main(): void {
     fail(`${formatCount(errors.length, 'erreur', 'erreurs')}, aucun fichier écrit.`);
     return;
   }
-  // Seulement sans erreur : une fiche invalide, écartée des contrôles croisés, peut référencer le fichier.
+  // Seulement sans erreur : un élément invalide, écarté des contrôles croisés, peut référencer le fichier.
   for (const name of diagrams.unreferenced) {
     console.warn(
-      `${DIAGRAMS_DIR}/${name} : aucune fiche ne le référence ; inutile de le déposer dans le bucket diagrams.`,
+      `${DIAGRAMS_DIR}/${name} : aucune fiche ni aucun test ne le référence ; inutile de le déposer dans le bucket diagrams.`,
     );
   }
 
-  const sql = buildSql(readings, tests, sessions, measures);
+  const sourceNames = [...readingFiles, ...testFiles, ...sessionFiles].map((file) => file.name);
+  const sql = buildSql(readings, tests, sessions, measures, sourceNames);
   // Garde-fou : une chaîne qui contiendrait le marqueur le dupliquerait (déjà refusé par checkSqlSafety).
   if (sql.split(UUID_MARKER).length !== 2) {
     fail(`${UUID_MARKER} doit apparaître une seule fois dans le SQL, aucun fichier écrit.`);
     return;
   }
   const sqlUnchanged = writeIfChanged(OUTPUT_PATH, sql);
-  const testsUnchanged = writeIfChanged(
-    ATOMIC_TESTS_PATH,
-    jsonText({ _format: ATOMIC_TESTS_FORMAT, tests: tests.map(atomicTestJson) }),
-  );
-  const sessionsUnchanged = writeIfChanged(
-    SESSIONS_PATH,
-    jsonText({ _format: SESSIONS_FORMAT, sessions: sessions.map(sessionJson) }),
-  );
-  for (const file of files) {
-    console.log(`${file.name} : ${formatCount(file.sheets.length, 'fiche valide', 'fiches valides')}`);
-  }
+  printFileCounts(READING_SOURCE, readingFiles);
+  printFileCounts(TEST_SOURCE, testFiles);
+  printFileCounts(SESSION_SOURCE, sessionFiles);
   const total = formatCount(readings.length + tests.length + sessions.length, 'fiche', 'fiches');
   const parts = [
     `${readings.length} training`,
@@ -301,25 +297,70 @@ function main(): void {
   const measureTotal = formatCount(measures.length, 'mesure', 'mesures');
   const found = formatCount(diagrams.found.size, 'schéma trouvé', 'schémas trouvés');
   console.log(`${total} (${parts}), ${measureTotal}, ${found} → ${OUTPUT_PATH} (${writeState(sqlUnchanged)})`);
-  console.log(
-    `${ATOMIC_TESTS_PATH} : ${formatCount(tests.length, 'test atomique', 'tests atomiques')} (${writeState(testsUnchanged)})`,
-  );
-  console.log(`${SESSIONS_PATH} : ${formatCount(sessions.length, 'session', 'sessions')} (${writeState(sessionsUnchanged)})`);
 }
 
-// Validation : chaque erreur s'ajoute à `errors` et la lecture continue, pour
-// tout signaler en une passe.
+// Fichiers sources.
 
-/** Fiches valides d'un fichier de contenu et slugs qu'il écrit ; ses erreurs s'ajoutent à `errors`. */
-function validateContentFile(spec: ContentSpec, slugs: Map<string, string>, errors: string[]): ContentFile {
-  const fileName = spec.name;
-  const empty: ContentFile = { name: fileName, sheets: [], writtenSlugs: [] };
-  const filePath = `${CONTENT_DIR}/${fileName}`;
-  if (!statSync(filePath, { throwIfNoEntry: false })?.isFile()) {
-    errors.push(`${fileName} : ${filePath} introuvable.`);
-    return empty;
+/** Noms des .json du dossier, triés (donc par numéro dans chaque sorte) ; ses sous-dossiers, dont l'archive, ne sont pas lus. */
+function listJsonFiles(dir: string): string[] {
+  return readdirSync(dir)
+    .filter(
+      (name) => name.endsWith('.json') && (statSync(`${dir}/${name}`, { throwIfNoEntry: false })?.isFile() ?? false),
+    )
+    .sort();
+}
+
+/** La sorte d'un fichier source (« tests_atomic_002.json »), undefined pour tout autre nom. */
+function sourceKindOf(name: string): SourceKind | undefined {
+  return SOURCE_KINDS.find((kind) => name.startsWith(kind.prefix) && FILE_NUMBER.test(name.slice(kind.prefix.length)));
+}
+
+/** Un .json au préfixe réservé qui ne suit aucun des trois formats : erreur, pour qu'il ne soit pas ignoré sans bruit. */
+function checkReservedNames(names: readonly string[], errors: string[]): void {
+  const formats = SOURCE_KINDS.map((kind) => `${kind.prefix}NNN.json`).join(', ');
+  for (const name of names) {
+    if (RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix)) && sourceKindOf(name) === undefined) {
+      errors.push(
+        `${CONTENT_DIR}/${name} : nom non reconnu ; les sources sont ${formats} (NNN : 3 chiffres). Les batteries de tests_001.json sont archivées dans ${ARCHIVE_DIR}, à ne plus éditer.`,
+      );
+    }
   }
-  const text = readFileSync(filePath, 'utf8');
+}
+
+/**
+ * Fichiers d'une sorte, par numéro croissant : les éléments que `validate`
+ * accepte et les slugs écrits. Aucun fichier de la sorte : erreur.
+ */
+function readSources<T>(
+  kind: SourceKind,
+  names: readonly string[],
+  errors: string[],
+  validate: (item: unknown, where: string) => T | null,
+): SourceFile<T>[] {
+  const files = names.filter((name) => sourceKindOf(name) === kind);
+  if (files.length === 0) {
+    errors.push(`${CONTENT_DIR} : aucun fichier ${kind.prefix}NNN.json ; il en faut au moins un (${kind.items}).`);
+  }
+  return files.map((fileName) => {
+    const items = readRootList(kind, fileName, errors);
+    const valid: T[] = [];
+    const writtenSlugs: string[] = [];
+    for (const [index, item] of (items ?? []).entries()) {
+      if (isRecord(item) && typeof item.slug === 'string') {
+        writtenSlugs.push(item.slug);
+      }
+      const value = validate(item, locate(`${fileName}, ${kind.item} ${index + 1}`, itemName(item)));
+      if (value !== null) {
+        valid.push(value);
+      }
+    }
+    return { name: fileName, items: valid, writtenSlugs };
+  });
+}
+
+/** Tableau racine d'un fichier source ; null, son erreur ajoutée, s'il est illisible, absent ou vide. */
+function readRootList(kind: SourceKind, fileName: string, errors: string[]): readonly unknown[] | null {
+  const text = readFileSync(`${CONTENT_DIR}/${fileName}`, 'utf8');
   let root: unknown;
   try {
     // BOM retiré : un éditeur Windows peut en ajouter un, et JSON.parse le refuse.
@@ -327,69 +368,69 @@ function validateContentFile(spec: ContentSpec, slugs: Map<string, string>, erro
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     errors.push(`${fileName} : JSON illisible (${reason}).`);
-    return empty;
+    return null;
   }
   if (!isRecord(root)) {
-    errors.push(`${fileName} : racine ${describeValue(root)} invalide ; attendu un objet { "sheets": [ … ] }.`);
-    return empty;
+    errors.push(`${fileName} : racine ${describeValue(root)} invalide ; attendu un objet { "${kind.listKey}": [ … ] }.`);
+    return null;
   }
-
   const rootWhere = `${fileName}, racine`;
-  checkUnknownKeys(root, ROOT_KEYS, rootWhere, errors);
-  const items = root.sheets;
+  checkUnknownKeys(root, [ROOT_FORMAT_KEY, kind.listKey], rootWhere, errors);
+  const items = root[kind.listKey];
   if (!isArray(items) || items.length === 0) {
-    errors.push(`${rootWhere} : ${fieldError('sheets', items)} ; attendu un tableau non vide de fiches.`);
-    return empty;
+    errors.push(`${rootWhere} : ${fieldError(kind.listKey, items)} ; attendu un tableau non vide de ${kind.items}.`);
+    return null;
   }
-  const sheets: SeedSheet[] = [];
-  const writtenSlugs: string[] = [];
-  for (const [index, item] of items.entries()) {
-    if (isRecord(item) && typeof item.slug === 'string') {
-      writtenSlugs.push(item.slug);
-    }
-    const sheet = validateSheet(item, spec, index + 1, slugs, errors);
-    if (sheet) {
-      sheets.push(sheet);
-    }
-  }
-  return { name: fileName, sheets, writtenSlugs };
+  return items;
 }
 
-/**
- * Une fiche ; null si elle a une erreur, quelle qu'elle soit (clé inconnue
- * comprise) : seules les fiches sans erreur passent aux contrôles croisés.
- */
-function validateSheet(
+/** Une ligne par fichier source : « tests_atomic_001.json : 18 tests ». */
+function printFileCounts(kind: SourceKind, files: readonly SourceFile<unknown>[]): void {
+  for (const file of files) {
+    console.log(`${file.name} : ${formatCount(file.items.length, kind.item, kind.items)}`);
+  }
+}
+
+/** Ce qui nomme un élément dans les messages : son slug s'il est renseigné, sinon son titre. */
+function itemName(item: unknown): unknown {
+  if (!isRecord(item)) {
+    return undefined;
+  }
+  return typeof item.slug === 'string' && item.slug.trim() !== '' ? item.slug : item.title;
+}
+
+// Validation : chaque erreur s'ajoute à `errors` et la lecture continue, pour
+// tout signaler en une passe. Un élément qui a une erreur, quelle qu'elle soit
+// (clé inconnue comprise), vaut null : seuls les éléments sans erreur passent aux
+// contrôles croisés.
+
+/** Une fiche de lecture de sheets_NNN.json. */
+function validateReading(
   item: unknown,
-  spec: ContentSpec,
-  number: number,
+  where: string,
   slugs: Map<string, string>,
   errors: string[],
-): SeedSheet | null {
-  const where = locate(`${spec.name}, fiche ${number}`, sheetName(item));
+): ReadingSheet | null {
   if (!isRecord(item)) {
-    errors.push(`${where} : ${describeValue(item)} invalide ; attendu un objet { ${SHEET_KEYS.join(', ')} }.`);
+    errors.push(`${where} : ${describeValue(item)} invalide ; attendu un objet { ${READING_KEYS.join(', ')} }.`);
     return null;
   }
   const errorCount = errors.length;
-  checkUnknownKeys(item, SHEET_KEYS, where, errors);
-
+  checkUnknownKeys(item, READING_KEYS, where, errors);
   const slug = checkSlug(item.slug, where, slugs, errors);
-  const kind = checkKind(item.kind, spec, where, errors);
+  checkKind(item.kind, 'training', READING_SOURCE, where, errors);
   const title = checkText(item.title, 'title', where, errors);
   const subtitle = checkText(item.subtitle, 'subtitle', where, errors);
   const positions = checkPositions(item.positions, where, errors);
   const skill = checkText(item.skill, 'skill', where, errors);
   const durationMin = checkPositiveInteger(item.duration_min, 'duration_min', where, errors);
   addSheetErrors(validateIntro(item.intro).errors, where, errors);
-  // Format des exercices : celui du fichier (measures pour un test), même si le kind écrit est faux.
-  const exercises = validateExercises(item.exercises, spec.kind);
+  const exercises = validateExercises(item.exercises, 'training');
   addSheetErrors(exercises.errors, where, errors);
   checkSqlSafety(item, '', where, errors);
   if (
     errors.length > errorCount ||
     slug === null ||
-    kind === null ||
     title === null ||
     subtitle === null ||
     positions === null ||
@@ -401,7 +442,6 @@ function validateSheet(
   return {
     where,
     slug,
-    kind,
     title,
     subtitle,
     positions,
@@ -413,15 +453,79 @@ function validateSheet(
   };
 }
 
-/** Ce qui nomme une fiche dans les messages : son slug s'il est renseigné, sinon son titre. */
-function sheetName(item: unknown): unknown {
+/** Un test atomique de tests_atomic_NNN.json. */
+function validateTest(item: unknown, where: string, slugs: Map<string, string>, errors: string[]): AtomicTest | null {
   if (!isRecord(item)) {
-    return undefined;
+    errors.push(`${where} : ${describeValue(item)} invalide ; attendu un objet { ${TEST_KEYS.join(', ')} }.`);
+    return null;
   }
-  return typeof item.slug === 'string' && item.slug.trim() !== '' ? item.slug : item.title;
+  const errorCount = errors.length;
+  checkUnknownKeys(item, TEST_KEYS, where, errors);
+  const slug = checkSlug(item.slug, where, slugs, errors);
+  checkKind(item.kind, 'test', TEST_SOURCE, where, errors);
+  const title = checkText(item.title, 'title', where, errors);
+  const positions = checkPositions(item.positions, where, errors);
+  const skill = checkSkill(item.skill, where, errors);
+  const family = checkFamily(item.family, skill, where, errors);
+  const durationMin = checkPositiveInteger(item.duration_min, 'duration_min', where, errors);
+  addSheetErrors(validateIntro(item.intro).errors, where, errors);
+  // Exactement un exercice, au format test : mesures obligatoires.
+  const exercises = validateAtomicExercises(item.exercises);
+  addSheetErrors(exercises.errors, where, errors);
+  checkSqlSafety(item, '', where, errors);
+  const exercise = exercises.value.at(0);
+  if (
+    errors.length > errorCount ||
+    slug === null ||
+    title === null ||
+    positions === null ||
+    skill === null ||
+    family === null ||
+    durationMin === null ||
+    exercise === undefined
+  ) {
+    return null;
+  }
+  return {
+    where,
+    slug,
+    title,
+    positions,
+    skill,
+    family,
+    durationMin,
+    introJson: item.intro,
+    exercisesJson: item.exercises,
+    exercise,
+  };
 }
 
-/** Slug kebab-case, pas encore employé par une autre fiche des deux fichiers ; null sinon. */
+/** Une session de sessions_NNN.json ; ses tests sont cherchés ensuite (resolveSessions). */
+function validateSession(
+  item: unknown,
+  where: string,
+  slugs: Map<string, string>,
+  errors: string[],
+): SessionSource | null {
+  if (!isRecord(item)) {
+    errors.push(`${where} : ${describeValue(item)} invalide ; attendu un objet { ${SESSION_KEYS.join(', ')} }.`);
+    return null;
+  }
+  const errorCount = errors.length;
+  checkUnknownKeys(item, SESSION_KEYS, where, errors);
+  const slug = checkSlug(item.slug, where, slugs, errors);
+  const title = checkText(item.title, 'title', where, errors);
+  const skill = checkSkill(item.skill, where, errors);
+  const blocks = validateBlocks(item.blocks);
+  addSheetErrors(blocks.errors, where, errors);
+  checkSqlSafety(item, '', where, errors);
+  if (errors.length > errorCount || slug === null || title === null || skill === null) {
+    return null;
+  }
+  return { where, slug, title, skill, blocks: blocks.value };
+}
+
+/** Slug kebab-case, pas encore employé par une autre fiche, un autre test ou une autre session ; null sinon. */
 function checkSlug(value: unknown, where: string, slugs: Map<string, string>, errors: string[]): string | null {
   if (typeof value !== 'string' || !SLUG_PATTERN.test(value)) {
     errors.push(
@@ -429,32 +533,63 @@ function checkSlug(value: unknown, where: string, slugs: Map<string, string>, er
     );
     return null;
   }
-  return claimSlug(value, where, slugs, errors) ? value : null;
+  const first = slugs.get(value);
+  if (first !== undefined) {
+    errors.push(
+      `${where} : slug "${value}" déjà employé (${first}) ; un slug est unique sur toutes les fiches, tous les tests et toutes les sessions (clé d'idempotence du SQL).`,
+    );
+    return null;
+  }
+  slugs.set(value, where);
+  return value;
+}
+
+/** Le kind de la sorte du fichier : training dans sheets_NNN.json, test dans tests_atomic_NNN.json. */
+function checkKind(
+  value: unknown,
+  expected: ExerciseFormat,
+  source: SourceKind,
+  where: string,
+  errors: string[],
+): void {
+  if (value !== expected) {
+    errors.push(
+      `${where} : ${fieldError('kind', value)} ; ${source.prefix}NNN.json ne contient que des ${source.items} kind ${expected}.`,
+    );
+  }
+}
+
+/** Compétence de lib/test-families.ts ; null sinon. */
+function checkSkill(value: unknown, where: string, errors: string[]): SkillKey | null {
+  if (typeof value === 'string' && isSkillKey(value)) {
+    return value;
+  }
+  errors.push(
+    `${where} : ${fieldError('skill', value)} ; valeurs permises : ${SKILL_KEYS.join(', ')} (lib/test-families.ts).`,
+  );
+  return null;
 }
 
 /**
- * Réserve un slug pour `where` ; false s'il est déjà employé, par une fiche, une
- * batterie ou un test atomique (clé d'idempotence du SQL).
+ * Famille de lib/test-families.ts, sous-type de la compétence du test ; null
+ * sinon. Compétence invalide (null, déjà signalée) : la famille n'est pas
+ * comparée.
  */
-function claimSlug(slug: string, where: string, slugs: Map<string, string>, errors: string[]): boolean {
-  const first = slugs.get(slug);
-  if (first !== undefined) {
+function checkFamily(value: unknown, skill: SkillKey | null, where: string, errors: string[]): FamilyKey | null {
+  if (typeof value !== 'string' || !isFamilyKey(value)) {
     errors.push(
-      `${where} : slug "${slug}" déjà employé (${first}) ; un slug est unique sur toutes les fiches, batteries et tests atomiques (clé d'idempotence du SQL).`,
+      `${where} : ${fieldError('family', value)} ; valeurs permises : ${FAMILY_KEYS.join(', ')} (lib/test-families.ts).`,
     );
-    return false;
+    return null;
   }
-  slugs.set(slug, where);
-  return true;
-}
-
-/** Le kind du fichier : training dans sheets_001.json, test dans tests_001.json ; null sinon. */
-function checkKind(value: unknown, spec: ContentSpec, where: string, errors: string[]): ExerciseFormat | null {
-  if (value === spec.kind) {
-    return spec.kind;
+  const familySkill = getFamily(value).skill;
+  if (skill !== null && familySkill !== skill) {
+    errors.push(
+      `${where} : famille "${value}" de la compétence ${familySkill}, pas ${skill} ; une famille est un sous-type de la compétence du test.`,
+    );
+    return null;
   }
-  errors.push(`${where} : ${fieldError('kind', value)} ; ${spec.name} ne contient que des fiches kind ${spec.kind}.`);
-  return null;
+  return value;
 }
 
 /** Tableau non vide de postes de la liste fermée, sans doublon ; null sinon. */
@@ -497,7 +632,7 @@ function checkPositiveInteger(value: unknown, field: string, where: string, erro
   return null;
 }
 
-/** Erreurs de lib/sheet-types.ts (« intro : … », « exercice 2 « … » : … »), précédées de l'endroit de la fiche. */
+/** Erreurs de lib/sheet-types.ts (« intro : … », « exercice 1 « … » : … », « blocks, test 2 : … »), précédées de l'endroit de l'élément. */
 function addSheetErrors(messages: readonly string[], where: string, errors: string[]): void {
   for (const message of messages) {
     errors.push(`${where}, ${message}`);
@@ -505,87 +640,131 @@ function addSheetErrors(messages: readonly string[], where: string, errors: stri
 }
 
 /**
- * Chaque chaîne de la fiche, à toute profondeur (les valeurs, pas les clés) :
- * ni caractère de contrôle, ni « $$ », qui fermerait le bloc do $$ du SQL, ni le
- * marqueur de l'UUID. L'erreur donne le chemin JSON de la valeur
- * (« exercises[2].instructions[0] »).
+ * Chaque chaîne de l'élément, à toute profondeur, valeurs et clés (celles de
+ * diagram_data sont libres) : ni caractère de contrôle, ni « $$ », qui fermerait
+ * le bloc do $$ du SQL, ni le marqueur de l'UUID. L'erreur donne le chemin JSON
+ * de la valeur (« exercises[0].instructions[2] »).
  */
 function checkSqlSafety(value: unknown, jsonPath: string, where: string, errors: string[]): void {
   if (typeof value === 'string') {
-    const control = CONTROL_CHARACTER.exec(value);
-    if (control) {
-      const code = control[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
-      errors.push(
-        `${where} : ${jsonPath} contient le caractère de contrôle U+${code} ; un texte tient sur une ligne, sans tabulation.`,
-      );
-    }
-    if (value.includes('$$')) {
-      errors.push(`${where} : ${jsonPath} contient "$$", qui fermerait le bloc do $$ … $$ du SQL.`);
-    }
-    if (value.includes(UUID_MARKER)) {
-      errors.push(`${where} : ${jsonPath} contient le marqueur ${UUID_MARKER}, réservé à la ligne uid du SQL.`);
-    }
+    checkSqlText(value, jsonPath, where, errors);
   } else if (isArray(value)) {
     for (const [index, item] of value.entries()) {
       checkSqlSafety(item, `${jsonPath}[${index}]`, where, errors);
     }
   } else if (isRecord(value)) {
     for (const [key, item] of Object.entries(value)) {
-      checkSqlSafety(item, jsonPath === '' ? key : `${jsonPath}.${key}`, where, errors);
+      const path = jsonPath === '' ? key : `${jsonPath}.${key}`;
+      checkSqlText(key, `${path} (nom de la clé)`, where, errors);
+      checkSqlSafety(item, path, where, errors);
     }
   }
 }
 
+/** Une chaîne de l'élément, valeur ou clé : les trois interdits de checkSqlSafety. */
+function checkSqlText(text: string, jsonPath: string, where: string, errors: string[]): void {
+  const control = CONTROL_CHARACTER.exec(text);
+  if (control) {
+    const code = control[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
+    errors.push(
+      `${where} : ${jsonPath} contient le caractère de contrôle U+${code} ; un texte tient sur une ligne, sans tabulation.`,
+    );
+  }
+  if (text.includes('$$')) {
+    errors.push(`${where} : ${jsonPath} contient "$$", qui fermerait le bloc do $$ … $$ du SQL.`);
+  }
+  if (text.includes(UUID_MARKER)) {
+    errors.push(`${where} : ${jsonPath} contient le marqueur ${UUID_MARKER}, réservé à la ligne uid du SQL.`);
+  }
+}
+
+// Contrôles croisés, sur les éléments valides.
+
 /**
- * Mesures des fiches valides, fiche → bloc → mesure, chacune avec son protocole.
- * validateExercises n'assure l'unicité de key que dans une fiche : ici, sur toutes.
- * Lues sur les batteries, pas sur les tests atomiques : protocol garde le titre
- * de la batterie, et le catalogue reste celui d'avant le découpage.
+ * Sessions dont chaque slug de blocks est celui d'un test atomique valide, avec
+ * leur durée, somme de celles de leurs tests. Un slug écrit par un test invalide
+ * n'est pas signalé une seconde fois : l'erreur du test suffit.
  */
-function collectMeasures(sheets: readonly SeedSheet[], errors: string[]): SeedMeasure[] {
-  const measures: SeedMeasure[] = [];
-  // key → endroit de la première mesure qui l'emploie, toutes fiches confondues.
-  const keys = new Map<string, string>();
-  for (const sheet of sheets) {
-    for (const exercise of sheet.exercises) {
-      for (const [index, measure] of exercise.measures.entries()) {
-        const where = `${exerciseWhere(sheet, exercise)}, mesure ${index + 1}`;
-        const first = keys.get(measure.key);
-        if (first !== undefined) {
-          errors.push(
-            `${where} : key "${measure.key}" déjà employée (${first}) ; une key est unique sur toutes les fiches (clé d'idempotence du catalogue tests).`,
-          );
-          continue;
-        }
-        keys.set(measure.key, where);
-        measures.push({ ...measure, protocol: `${sheet.title} — ${exercise.title}` });
+function resolveSessions(
+  sessions: readonly SessionSource[],
+  tests: readonly AtomicTest[],
+  writtenTestSlugs: ReadonlySet<string>,
+  errors: string[],
+): SeedSession[] {
+  const testsBySlug = new Map(tests.map((test) => [test.slug, test]));
+  const resolved: SeedSession[] = [];
+  for (const session of sessions) {
+    let durationMin = 0;
+    let complete = true;
+    for (const slug of session.blocks) {
+      const test = testsBySlug.get(slug);
+      if (test !== undefined) {
+        durationMin += test.durationMin;
+        continue;
       }
+      complete = false;
+      if (!writtenTestSlugs.has(slug)) {
+        errors.push(
+          `${session.where} : blocks cite "${slug}", qui n'est le slug d'aucun test de ${TEST_SOURCE.prefix}NNN.json.`,
+        );
+      }
+    }
+    if (complete) {
+      resolved.push({ ...session, durationMin });
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Mesures des tests valides, test → mesure, dans l'ordre des fichiers, chacune
+ * avec son protocole « Test <Compétence> — <titre du test> » : une batterie
+ * s'appelait « Test <Compétence> » et chacun de ses tests porte le titre de son
+ * bloc, si bien que les mesures d'avant le découpage gardent leur protocol
+ * (« titre de la batterie — titre du bloc »). validateExercises n'assure
+ * l'unicité de key que dans un test : ici, sur tous.
+ */
+function collectMeasures(tests: readonly AtomicTest[], errors: string[]): SeedMeasure[] {
+  const measures: SeedMeasure[] = [];
+  // key → endroit de la première mesure qui l'emploie, tous tests confondus.
+  const keys = new Map<string, string>();
+  for (const test of tests) {
+    const protocol = `Test ${getSkill(test.skill).label} — ${test.title}`;
+    for (const [index, measure] of test.exercise.measures.entries()) {
+      const where = `${exerciseWhere(test.where, test.exercise)}, mesure ${index + 1}`;
+      const first = keys.get(measure.key);
+      if (first !== undefined) {
+        errors.push(
+          `${where} : key "${measure.key}" déjà employée (${first}) ; une key est unique sur tous les tests (clé d'idempotence du catalogue tests).`,
+        );
+        continue;
+      }
+      keys.set(measure.key, where);
+      measures.push({ ...measure, protocol });
     }
   }
   return measures;
 }
 
 /**
- * Schémas des fiches valides : chaque diagram non nul est un fichier de
+ * Schémas des exercices valides : chaque diagram non nul est un fichier de
  * supabase/content/diagrams, au nom exact (le bucket Storage distingue la casse,
  * Windows non). Retourne les fichiers référencés et présents, et ceux du dossier
- * qu'aucune fiche ne référence.
+ * que rien ne référence.
  */
-function checkDiagrams(sheets: readonly SeedSheet[], errors: string[]): DiagramCheck {
+function checkDiagrams(exercises: readonly PlacedExercise[], errors: string[]): DiagramCheck {
   const files = listDiagramFiles();
   const found = new Set<string>();
-  for (const sheet of sheets) {
-    for (const exercise of sheet.exercises) {
-      if (exercise.diagram === null) {
-        continue;
-      }
-      if (files.includes(exercise.diagram)) {
-        found.add(exercise.diagram);
-      } else {
-        errors.push(
-          `${exerciseWhere(sheet, exercise)} : diagram "${exercise.diagram}" introuvable dans ${DIAGRAMS_DIR} (nom exact, casse comprise) ; c'est ce fichier qui est déposé dans le bucket diagrams.`,
-        );
-      }
+  for (const { where, exercise } of exercises) {
+    if (exercise.diagram === null) {
+      continue;
+    }
+    if (files.includes(exercise.diagram)) {
+      found.add(exercise.diagram);
+    } else {
+      errors.push(
+        `${exerciseWhere(where, exercise)} : diagram "${exercise.diagram}" introuvable dans ${DIAGRAMS_DIR} (nom exact, casse comprise) ; c'est ce fichier qui est déposé dans le bucket diagrams.`,
+      );
     }
   }
   return { found, unreferenced: files.filter((name) => !found.has(name)) };
@@ -601,129 +780,9 @@ function listDiagramFiles(): string[] {
     .sort();
 }
 
-/**
- * Tests atomiques (batteries puis blocs, dans l'ordre des JSON) et sessions (une
- * par batterie) tirés des batteries valides. `writtenSlugs` : slugs écrits dans
- * tests_001.json, batteries invalides comprises, pour signaler une entrée de
- * BLOCK_FAMILIES sans batterie sans doubler l'erreur d'une batterie invalide.
- */
-function splitBatteries(
-  batteries: readonly SeedSheet[],
-  writtenSlugs: readonly string[],
-  slugs: Map<string, string>,
-  errors: string[],
-): { tests: AtomicTest[]; sessions: SeedSession[] } {
-  const tests: AtomicTest[] = [];
-  const sessions: SeedSession[] = [];
-  for (const battery of batteries) {
-    const families = BLOCK_FAMILIES.get(battery.slug);
-    if (families === undefined) {
-      errors.push(
-        `${battery.where} : batterie absente de BLOCK_FAMILIES (${SCRIPT_PATH}) ; chacun de ses blocs y reçoit sa famille.`,
-      );
-      continue;
-    }
-    const skill = battery.skill;
-    if (!isSkillKey(skill)) {
-      errors.push(
-        `${battery.where} : skill "${skill}" invalide pour une batterie ; valeurs permises : ${SKILL_KEYS.join(', ')} (lib/test-families.ts).`,
-      );
-      continue;
-    }
-    if (families.length > battery.exercises.length) {
-      errors.push(
-        `${battery.where} : BLOCK_FAMILIES (${SCRIPT_PATH}) donne ${families.length} familles pour ${battery.exercises.length} blocs ; une par bloc, ni plus ni moins.`,
-      );
-    }
-    // Validé par validateExercises : un tableau d'objets, dans l'ordre de battery.exercises.
-    const blocks = isArray(battery.exercisesJson) ? battery.exercisesJson : [];
-    const batteryTests: AtomicTest[] = [];
-    for (const [index, exercise] of battery.exercises.entries()) {
-      const test = splitBlock(battery, skill, exercise, blocks[index], families.at(index), slugs, errors);
-      if (test) {
-        batteryTests.push(test);
-      }
-    }
-    tests.push(...batteryTests);
-    sessions.push({
-      where: battery.where,
-      slug: battery.slug,
-      title: battery.title,
-      skill,
-      blocks: batteryTests.map((test) => test.slug),
-      durationMin: batteryTests.reduce((sum, test) => sum + test.durationMin, 0),
-    });
-  }
-  for (const slug of BLOCK_FAMILIES.keys()) {
-    if (!writtenSlugs.includes(slug)) {
-      errors.push(
-        `${SCRIPT_PATH}, BLOCK_FAMILIES : batterie "${slug}" absente de ${TESTS_FILE} ; retirer l'entrée ou rétablir la batterie.`,
-      );
-    }
-  }
-  return { tests, sessions };
-}
-
-/** Le test atomique d'un bloc ; null s'il a une erreur (famille, slug, format). */
-function splitBlock(
-  battery: SeedSheet,
-  skill: SkillKey,
-  exercise: Exercise,
-  block: unknown,
-  family: string | undefined,
-  slugs: Map<string, string>,
-  errors: string[],
-): AtomicTest | null {
-  const where = exerciseWhere(battery, exercise);
-  const errorCount = errors.length;
-  if (family === undefined) {
-    errors.push(`${where} : bloc absent de BLOCK_FAMILIES (${SCRIPT_PATH}) ; chaque bloc y reçoit sa famille.`);
-  } else if (!isFamilyKey(family)) {
-    errors.push(
-      `${where} : famille "${family}" (BLOCK_FAMILIES) inconnue ; valeurs permises : ${FAMILY_KEYS.join(', ')}.`,
-    );
-  } else if (getFamily(family).skill !== skill) {
-    errors.push(
-      `${where} : famille "${family}" (BLOCK_FAMILIES) de la compétence ${getFamily(family).skill}, pas ${skill} ; une famille est un sous-type de la compétence de sa batterie.`,
-    );
-  }
-  const slug = `${battery.slug}-${exercise.order}`;
-  claimSlug(slug, `${where}, test atomique`, slugs, errors);
-  // Le bloc tel que lu dans le JSON, order ramené à 1 (la clé garde sa place).
-  const exercisesJson = isRecord(block) ? [{ ...block, order: 1 }] : [];
-  addSheetErrors(validateAtomicExercises(exercisesJson).errors, `${where}, test atomique "${slug}"`, errors);
-  if (errors.length > errorCount || family === undefined || !isFamilyKey(family)) {
-    return null;
-  }
-  return {
-    slug,
-    title: exercise.title,
-    positions: battery.positions,
-    skill,
-    family,
-    durationMin: exercise.duration_min,
-    introJson: battery.introJson,
-    exercisesJson,
-  };
-}
-
-/** blocks de chaque session : conforme à validateBlocks, chaque slug celui d'un test atomique. */
-function checkSessions(sessions: readonly SeedSession[], tests: readonly AtomicTest[], errors: string[]): void {
-  const testSlugs = new Set(tests.map((test) => test.slug));
-  for (const session of sessions) {
-    const where = `${session.where}, session`;
-    addSheetErrors(validateBlocks(session.blocks).errors, where, errors);
-    for (const slug of session.blocks) {
-      if (!testSlugs.has(slug)) {
-        errors.push(`${where} : blocks cite "${slug}", qui n'est pas un test atomique.`);
-      }
-    }
-  }
-}
-
-/** « tests_001.json, fiche 1 « test-tir », exercice 2 « Finition après contrôle » », comme lib/sheet-types.ts. */
-function exerciseWhere(sheet: SeedSheet, exercise: Exercise): string {
-  return `${sheet.where}, ${locate(`exercice ${exercise.order}`, exercise.title)}`;
+/** « tests_atomic_001.json, test 3 « test-tir-3 », exercice 1 « Enchaînement sous chrono » », comme lib/sheet-types.ts. */
+function exerciseWhere(where: string, exercise: Exercise): string {
+  return `${where}, ${locate(`exercice ${exercise.order}`, exercise.title)}`;
 }
 
 /** Clés hors de la liste attendue : une faute de frappe (« subtitel ») est signalée, pas ignorée. */
@@ -768,41 +827,15 @@ function isArray(value: unknown): value is readonly unknown[] {
   return Array.isArray(value);
 }
 
-// JSON générés : clés dans l'ordre de SHEET_KEYS, indentation de 2.
-
-/** Un test de tests_atomic_001.json. */
-function atomicTestJson(test: AtomicTest): Record<string, unknown> {
-  return {
-    slug: test.slug,
-    kind: 'test',
-    title: test.title,
-    positions: test.positions,
-    skill: test.skill,
-    family: test.family,
-    duration_min: test.durationMin,
-    intro: test.introJson,
-    exercises: test.exercisesJson,
-  };
-}
-
-/** Une session de sessions_001.json (duration_min absente : calculée par le SQL). */
-function sessionJson(session: SeedSession): Record<string, unknown> {
-  return { slug: session.slug, title: session.title, skill: session.skill, blocks: session.blocks };
-}
-
-/** JSON indenté de 2, retour à la ligne final. */
-function jsonText(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
-}
-
 // SQL : même mise en page que supabase/seed_questions_001.sql.
 
-/** SQL du seed ; mêmes JSON, même texte à l'octet près (aucune date). */
+/** SQL du seed ; mêmes JSON, même texte à l'octet près (aucune date). `sourceNames` : fichiers lus, dans l'ordre. */
 function buildSql(
-  readings: readonly SeedSheet[],
+  readings: readonly ReadingSheet[],
   tests: readonly AtomicTest[],
   sessions: readonly SeedSession[],
   measures: readonly SeedMeasure[],
+  sourceNames: readonly string[],
 ): string {
   const rows: SheetRow[] = [...readings.map(readingRow), ...tests.map(atomicTestRow)];
   const sheetTotal = formatCount(readings.length + tests.length + sessions.length, 'fiche', 'fiches');
@@ -814,12 +847,11 @@ function buildSql(
     '-- =============================================================================',
     `-- ${OUTPUT_FILE} : ${sheetTotal} de l'onglet Tests (${readingTotal} de lecture,`,
     `-- ${testTotal}, ${sessionTotal}) et le catalogue de leurs ${measureTotal},`,
-    `-- depuis ${CONTENT_DIR}/${READINGS_FILE} et ${TESTS_FILE}. Tests`,
-    `-- atomiques et sessions : ${ATOMIC_TESTS_FILE} et ${SESSIONS_FILE},`,
-    '-- générés en même temps que ce fichier.',
+    `-- depuis les JSON sources de ${CONTENT_DIR}, édités à la main :`,
+    ...sourceNames.map((name) => `--   ${name}`),
     '--',
     `-- Fichier généré par ${SCRIPT_PATH} : ne pas modifier à la`,
-    `-- main, modifier les JSON sources (${READINGS_FILE}, ${TESTS_FILE}) puis`,
+    '-- main, modifier les JSON sources (ou en ajouter un, numéroté) puis',
     `-- relancer npx tsx ${SCRIPT_PATH}.`,
     '--',
     '-- À exécuter dans le SQL Editor APRÈS',
@@ -836,19 +868,21 @@ function buildSql(
     '-- Trois parties, chacune en upsert idempotent : une ligne absente est insérée ;',
     '-- une ligne qui diffère est mise à jour sur place (même id : séances et',
     "-- résultats liés conservés) ; une ligne identique n'est pas touchée.",
-    `-- 1. Catalogue des mesures, sur (user_id, key) : les ${measureTotal} d'avant le`,
-    "--    découpage, à l'identique (protocol = « titre de la batterie — titre du",
+    '-- 1. Catalogue des mesures, sur (user_id, key) ; protocol = « Test',
+    "--    <Compétence> — <titre du test> », soit pour les mesures d'avant le",
+    "--    découpage la même valeur qu'alors (« titre de la batterie — titre du",
     "--    bloc ») : une ré-exécution n'en change aucune.",
-    '-- 2. Fiches de lecture et tests atomiques, sur (user_id, slug) : un test par',
-    '--    bloc de batterie (slug <batterie>-<n>), avec sa famille ; subtitle et',
-    '--    blocks null pour un test, family et blocks null pour une fiche.',
-    '-- 3. Sessions, sur (user_id, slug) : une par batterie, même slug ; la ligne',
-    '--    de la batterie déjà en base devient la session (même id). Seuls kind,',
-    '--    title, skill, family, duration_min (somme des durées de ses tests) et',
-    '--    blocks sont mis à jour, jamais exercises, intro, subtitle ni positions :',
-    '--    les anciens blocs restent stockés, sans être lus.',
-    '-- Une seconde exécution ne change rien. Aucune ligne supprimée ; test_results',
-    "-- n'est pas touchée (comptée avant et après, en fin de bloc).",
+    '-- 2. Fiches de lecture et tests atomiques, sur (user_id, slug), chaque test',
+    '--    avec sa famille ; subtitle et blocks null pour un test, family et blocks',
+    '--    null pour une fiche.',
+    "-- 3. Sessions, sur (user_id, slug) ; la ligne d'une batterie d'avant 007, de",
+    '--    même slug, devient la session (même id). Seuls kind, title, skill,',
+    '--    family, duration_min (somme des durées de ses tests) et blocks sont mis',
+    '--    à jour, jamais exercises, intro, subtitle ni positions : les anciens',
+    "--    blocs d'une batterie restent stockés, sans être lus.",
+    '-- Une seconde exécution ne change rien. Aucune ligne supprimée (un élément',
+    "-- retiré des JSON reste en base) ; test_results n'est pas touchée (comptée",
+    '-- avant et après, en fin de bloc).',
     '-- Les schémas (champ diagram) sont des fichiers du bucket Storage diagrams,',
     '-- déposés à la main : ce fichier ne les crée pas.',
     '--',
@@ -882,8 +916,8 @@ function buildSql(
     '  select count(*) into results_before from public.test_results r where r.user_id = uid;',
     '',
     '  -- ---------------------------------------------------------------------------',
-    '  -- 1. Catalogue des mesures (clé : key) ; protocol = titre de la batterie —',
-    '  --    titre du bloc, comme avant le découpage en tests atomiques',
+    '  -- 1. Catalogue des mesures (clé : key) ; protocol = Test <Compétence> —',
+    "  --    <titre du test>, même valeur qu'avant le découpage en tests atomiques",
     '  -- ---------------------------------------------------------------------------',
     ...existingCountLines('tests', 't', 'key', measures.map((measure) => measure.key)),
     '',
@@ -994,10 +1028,10 @@ function buildSql(
 }
 
 /** Fiche de lecture : ni famille ni blocks. */
-function readingRow(sheet: SeedSheet): SheetRow {
+function readingRow(sheet: ReadingSheet): SheetRow {
   return {
     slug: sheet.slug,
-    kind: sheet.kind,
+    kind: 'training',
     title: sheet.title,
     subtitle: sheet.subtitle,
     positions: sheet.positions,

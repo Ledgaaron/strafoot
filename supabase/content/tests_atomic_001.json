@@ -1,11 +1,12 @@
 {
   "_format": {
-    "fichier": "généré par scripts/build-seed-sheets.ts depuis tests_001.json : ne pas modifier à la main, modifier tests_001.json puis relancer npx tsx scripts/build-seed-sheets.ts",
-    "kind": "test : test atomique, un seul exercice (un bloc d'une batterie de tests_001.json) et ses mesures, saisies sur le même écran",
-    "slug": "<slug de la batterie>-<order du bloc> ; clé d'idempotence du seed, ne jamais le renommer",
-    "family": "famille de lib/test-families.ts (FAMILY_KEYS), sous-type de la compétence skill ; imposée par BLOCK_FAMILIES du script",
-    "intro": "règles communes de la batterie, affichées dans « Plus de tips »",
-    "exercises": "le bloc de la batterie tel quel, order ramené à 1, mesures comprises (measure.key inchangée : relie test_results au catalogue tests)"
+    "fichier": "source des tests atomiques, éditée à la main (tests_atomic_002.json… pour d'autres) ; npx tsx scripts/build-seed-sheets.ts la valide puis régénère supabase/seed_sheets_001.sql",
+    "kind": "test : test atomique, un seul exercice et ses mesures, saisies sur le même écran",
+    "slug": "kebab-case, unique sur toutes les fiches, tous les tests et toutes les sessions ; clé d'idempotence du seed, ne jamais le renommer (les 18 premiers : <slug de la batterie>-<n>)",
+    "title": "titre du test ; protocol de ses mesures dans le catalogue tests : « Test <Compétence> — <title> »",
+    "family": "famille de lib/test-families.ts (FAMILY_KEYS), sous-type de la compétence skill",
+    "intro": "règles communes, affichées dans « Plus de tips »",
+    "exercises": "exactement un exercice (order 1, format de lib/sheet-types.ts) et ses mesures ; measure.key unique sur tous les tests, jamais renommée (relie test_results au catalogue tests) ; diagram_data facultatif : un objet (format au chantier 13a)"
   },
   "tests": [
     {

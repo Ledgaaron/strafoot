@@ -1,12 +1,13 @@
 -- =============================================================================
 -- seed_sheets_001.sql : 25 fiches de l'onglet Tests (2 fiches de lecture,
 -- 18 tests atomiques, 5 sessions) et le catalogue de leurs 23 mesures,
--- depuis supabase/content/sheets_001.json et tests_001.json. Tests
--- atomiques et sessions : tests_atomic_001.json et sessions_001.json,
--- générés en même temps que ce fichier.
+-- depuis les JSON sources de supabase/content, édités à la main :
+--   sheets_001.json
+--   tests_atomic_001.json
+--   sessions_001.json
 --
 -- Fichier généré par scripts/build-seed-sheets.ts : ne pas modifier à la
--- main, modifier les JSON sources (sheets_001.json, tests_001.json) puis
+-- main, modifier les JSON sources (ou en ajouter un, numéroté) puis
 -- relancer npx tsx scripts/build-seed-sheets.ts.
 --
 -- À exécuter dans le SQL Editor APRÈS
@@ -23,19 +24,21 @@
 -- Trois parties, chacune en upsert idempotent : une ligne absente est insérée ;
 -- une ligne qui diffère est mise à jour sur place (même id : séances et
 -- résultats liés conservés) ; une ligne identique n'est pas touchée.
--- 1. Catalogue des mesures, sur (user_id, key) : les 23 mesures d'avant le
---    découpage, à l'identique (protocol = « titre de la batterie — titre du
+-- 1. Catalogue des mesures, sur (user_id, key) ; protocol = « Test
+--    <Compétence> — <titre du test> », soit pour les mesures d'avant le
+--    découpage la même valeur qu'alors (« titre de la batterie — titre du
 --    bloc ») : une ré-exécution n'en change aucune.
--- 2. Fiches de lecture et tests atomiques, sur (user_id, slug) : un test par
---    bloc de batterie (slug <batterie>-<n>), avec sa famille ; subtitle et
---    blocks null pour un test, family et blocks null pour une fiche.
--- 3. Sessions, sur (user_id, slug) : une par batterie, même slug ; la ligne
---    de la batterie déjà en base devient la session (même id). Seuls kind,
---    title, skill, family, duration_min (somme des durées de ses tests) et
---    blocks sont mis à jour, jamais exercises, intro, subtitle ni positions :
---    les anciens blocs restent stockés, sans être lus.
--- Une seconde exécution ne change rien. Aucune ligne supprimée ; test_results
--- n'est pas touchée (comptée avant et après, en fin de bloc).
+-- 2. Fiches de lecture et tests atomiques, sur (user_id, slug), chaque test
+--    avec sa famille ; subtitle et blocks null pour un test, family et blocks
+--    null pour une fiche.
+-- 3. Sessions, sur (user_id, slug) ; la ligne d'une batterie d'avant 007, de
+--    même slug, devient la session (même id). Seuls kind, title, skill,
+--    family, duration_min (somme des durées de ses tests) et blocks sont mis
+--    à jour, jamais exercises, intro, subtitle ni positions : les anciens
+--    blocs d'une batterie restent stockés, sans être lus.
+-- Une seconde exécution ne change rien. Aucune ligne supprimée (un élément
+-- retiré des JSON reste en base) ; test_results n'est pas touchée (comptée
+-- avant et après, en fin de bloc).
 -- Les schémas (champ diagram) sont des fichiers du bucket Storage diagrams,
 -- déposés à la main : ce fichier ne les crée pas.
 --
@@ -69,8 +72,8 @@ begin
   select count(*) into results_before from public.test_results r where r.user_id = uid;
 
   -- ---------------------------------------------------------------------------
-  -- 1. Catalogue des mesures (clé : key) ; protocol = titre de la batterie —
-  --    titre du bloc, comme avant le découpage en tests atomiques
+  -- 1. Catalogue des mesures (clé : key) ; protocol = Test <Compétence> —
+  --    <titre du test>, même valeur qu'avant le découpage en tests atomiques
   -- ---------------------------------------------------------------------------
   select count(*) into existing_count
   from public.tests t

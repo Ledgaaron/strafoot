@@ -1,8 +1,9 @@
 {
   "_format": {
-    "fichier": "généré par scripts/build-seed-sheets.ts depuis tests_001.json : ne pas modifier à la main, modifier tests_001.json puis relancer npx tsx scripts/build-seed-sheets.ts",
-    "session": "suite ordonnée de tests atomiques, une par batterie de tests_001.json (même slug, même titre : la ligne de la batterie en base devient la session)",
-    "blocks": "slugs des tests de tests_atomic_001.json, dans l'ordre des blocs de la batterie",
+    "fichier": "source des sessions prédéfinies, éditée à la main (sessions_002.json… pour d'autres) ; npx tsx scripts/build-seed-sheets.ts la valide puis régénère supabase/seed_sheets_001.sql",
+    "session": "suite ordonnée de tests atomiques ; les 5 premières reprennent les batteries d'avant 007 (même slug, même titre : la ligne de la batterie en base est devenue la session)",
+    "skill": "compétence de lib/test-families.ts (SKILL_KEYS)",
+    "blocks": "slugs de tests de tests_atomic_NNN.json, dans l'ordre de passage ; chacun doit exister",
     "duration_min": "absente : le seed la calcule, somme des durées des tests de blocks"
   },
   "sessions": [
