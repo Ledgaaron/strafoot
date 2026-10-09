@@ -3,7 +3,7 @@
 Outil personnel de suivi d'entraînement football. Un seul utilisateur en v1 (moi).
 Le schéma est multi-utilisateurs (user_id + RLS), les écrans ne le sont pas.
 
-Objectif produit : logger une séance en moins de 15 secondes, répondre à un quizz
+Objectif produit : logger une séance en moins de 15 secondes, répondre à un quiz
 par jour, suivre ma progression (séances, tests physiques/techniques, auto-évaluations).
 
 ## Stack
@@ -15,11 +15,15 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - Postgres via Supabase, RLS activée sur toutes les tables, policies sur `auth.uid() = user_id`
 - Pas de lib UI, pas de state manager, pas d'ORM, pas de lib de formulaires en v1
 - react-native-svg (version du SDK, installée par `npx expo install`) : seule lib de dessin,
-  importée uniquement dans app/measure/ (courbe d'une mesure) et
-  components/pitch-placeholder.tsx (terrain par défaut) ; pas de lib de charts
+  importée uniquement dans app/measure/ (courbe d'une mesure), components/pitch-placeholder.tsx
+  (terrain par défaut) et components/flame.tsx (flamme de série) ; pas de lib de charts
 - @expo/vector-icons (version du SDK, installée par `npx expo install` : le SDK 57 ne
-  l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation, ▶ de
-  démarrage, boutons icône) ; aucune autre lib d'icônes
+  l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation, coche d'une
+  puce choisie, ▶ de démarrage, boutons icône) ; aucune autre lib d'icônes
+- expo-font (version du SDK) et @expo-google-fonts/barlow-condensed, installés par
+  `npx expo install` (plugin expo-font ajouté dans app.json) : Barlow Condensed 600 et 700,
+  seule police custom, chargée par app/_layout.tsx depuis les dossiers par graisse du paquet
+  (`/600SemiBold`, `/700Bold` : son index embarquerait les 18 fichiers) ; voir Design system
 - expo-haptics (version du SDK, installée par `npx expo install`) : importée seulement par
   lib/haptics.ts : `hapticSuccess` (ligne de mesure validée) et `hapticMedium` (tout
   enregistrement : séance libre, séance déjà faite, « Séance faite », fin de séance
@@ -40,6 +44,8 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 ## Structure
 
 app/ routes Expo Router
+_layout.tsx racine : providers, police d'affichage (useFonts) chargée derrière l'écran de chargement,
+veille « Réduire les animations » (watchReduceMotion)
 (auth)/login.tsx
 (tabs)/_layout.tsx, index.tsx (Accueil), quiz.tsx, training.tsx, profile.tsx
 calendar.tsx calendrier mensuel (hors onglets, garde d'auth dans l'écran) : un jour touché → Accueil, ce jour choisi
@@ -64,16 +70,18 @@ active-session-context.tsx séance en cours partagée (provider monté dans app/
 useActiveSession), navigation vers elle (reprendre, terminer), Alert « séance déjà en cours »,
 confirmation d'abandon, vibration d'enregistrement (vibrateOnSave, via haptics.ts)
 haptics.ts hapticSuccess et hapticMedium : seul import d'expo-haptics, rien sur le web
-theme.ts tokens du design system (couleurs, tailles, interlignes, espacements, rayons,
-dimensions, styles de texte et de champ, animations « motion », thème de navigation) : seule source
-de style avec components/
+reduce-motion.ts « Réduire les animations » (AccessibilityInfo ; prefers-reduced-motion sur le web) :
+watchReduceMotion (démarré par app/_layout.tsx), useReduceMotion, isReduceMotionEnabled
+theme.ts tokens du design system (couleurs, tailles et interlignes, police d'affichage, espacements,
+rayons, dimensions, styles de texte et de champ, mouvement « motion », thème de navigation) : seule
+source de style avec components/
 dates.ts jours locaux YYYY-MM-DD et libellés, dont relativeDay (« auj. », « hier », « il y a 3 j »,
 puis absolu), semaine (startOfWeek, weekDays, formatWeekRange) et daysBetween (« J-42 ») : seul
 endroit où un jour est calculé ; ces quatre-là testés par dates.test.ts
 modules.ts liste fermée des modules de séance (MODULE_KEYS)
 training-themes.ts thèmes fermés de l'onglet Entraînement (tests, specifique, recuperation) et thème d'une fiche
-quiz-taxonomy.ts listes fermées du quizz : thèmes, postes, barème
-profile-taxonomy.ts postes du profil (ceux du quizz sans 'tous') et pieds forts
+quiz-taxonomy.ts listes fermées du quiz : thèmes, postes, barème
+profile-taxonomy.ts postes du profil (ceux du quiz sans 'tous') et pieds forts
 quiz-select.ts choix des questions d'une série (pur, testé)
 measure-delta.ts évolution d'une mesure et format des valeurs (pur, testé)
 sheet-types.ts format des fiches (exercises, intro, mesures), validation partagée app / script
@@ -86,15 +94,20 @@ types.ts types générés depuis Supabase (npx supabase gen types)
 components/ design system et composants réutilisés par ≥ 2 écrans uniquement
 screen.tsx cadre d'écran : fond, marges, zones sûres (sur le web, sans doubler celles de l'en-tête et de la
 barre d'onglets), clavier, titre 28, pied fixe de l'action principale, confirmation flottante (prop toast)
-card.tsx carte (surface), tappable avec onPress (0,97 à l'appui), mise en évidence par bordure accent
-chip.tsx puce de choix, la seule de l'app (44 px, zone tactile 48 px)
-button.tsx bouton primary / secondary / danger / text, icône après le libellé, états pressé (0,97),
-désactivé, loading
+card.tsx carte (surface, rayon 16, marge 16, sans ombre), tappable avec onPress (0,98 et fond
+surfacePressed à l'appui), mise en évidence par bordure et teinte accent ou quiz (prop tone)
+chip.tsx puce de choix, la seule de l'app (48 px ; choisie : teinte 14 %, contour 1,5 px et coche ;
+tone quiz en contexte quiz)
+button.tsx bouton primary / quiz / secondary / danger / text, 56 px, libellé 16/20 700, icône après
+le libellé, états pressé (0,98 et un cran plus sombre), désactivé, loading
 press-scale.ts usePressScale : micro-interaction a, partagée par Card et Button
 icon-button.tsx bouton icône carré de 48 px (flèches, en-tête du profil, ✓ d'une mesure)
-save-toast.tsx confirmation d'enregistrement qui glisse du bas, 2 s (micro-interaction c)
-pitch-placeholder.tsx demi-terrain SVG affiché quand un exercice n'a pas de schéma
-stat.tsx chiffre dominant 44 px, libellé et unité en secondaire
+save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
+pitch-placeholder.tsx demi-terrain SVG (lignes pitchLine) affiché quand un exercice n'a pas de schéma
+stat.tsx chiffre dominant 44 px en police d'affichage, libellé, dénominateur à 40 % et unité en
+secondaire, élément de tête optionnel (flamme)
+flame.tsx flamme de série (SVG) : faite (pleine), à faire (contour), perdue (grise, jamais rouge),
+orange ou violet ; ne s'anime qu'en se remplissant (micro-interaction d)
 empty-state.tsx état vide : ce qui manque, quoi faire, le bouton pour le faire
 field-error.tsx erreur sous un champ ou au-dessus de l'action qui a échoué
 session-form.tsx formulaire de séance partagé par session/new et session/[id] ; exporte
@@ -183,21 +196,26 @@ de `supabase/content/diagrams/` y sont déposés à la main, sous le nom exact d
 Ne plus ré-exécuter 002 après 004 : elle recréerait `sessions_module_check`, sans `test`.
 
 Deux streaks calculées côté app, jamais stockées : entraînement (jour avec ≥ 1 séance, tout
-module) et quizz (jour avec ≥ 1 réponse). Courante = jours consécutifs jusqu'à aujourd'hui,
+module) et quiz (jour avec ≥ 1 réponse). Courante = jours consécutifs jusqu'à aujourd'hui,
 ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logique dans
 `lib/streak.ts`, tests dans `lib/streak.test.ts`.
 
 ## Écrans v1 (figés)
 
-1. **Accueil** : 2 streaks (entraînement, quizz : courante + meilleure ; le chiffre compte
-   jusqu'à sa nouvelle valeur quand il augmente), séances ce mois / total, bouton « Nouvelle
+Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
+
+1. **Accueil** : 2 streaks (entraînement, quiz : courante avec sa flamme — pleine si faite
+   aujourd'hui, contour tant que la série tient, grise si perdue — et meilleure ; après une
+   action qui l'augmente, la flamme se remplit puis le chiffre passe à sa nouvelle valeur),
+   séances ce mois / total, bouton « Nouvelle
    séance » → formulaire (date auj. → J-13, module, durée ±5 ou saisie de 1 à 600 min,
    difficulté optionnelle = 3 si vide, nom auto modifiable, commentaire optionnel) ;
-   bande de la semaine, lundi → dimanche (points entraînement / quizz, aujourd'hui encadré,
+   bande de la semaine, lundi → dimanche (points entraînement / quiz, aujourd'hui encadré,
    ‹ › pour changer de semaine) et « Voir le mois » → calendrier mensuel (app/calendar.tsx),
    dont un jour touché revient à l'Accueil ; tap sur un jour → séances du jour → édition /
    suppression.
-2. **Quizz** : filtre thème / poste (replié par défaut, mémorisé tant que l'app tourne), stats (total, moyenne
+2. **Quiz** (violet : bouton principal, puces, option choisie) : filtre thème / poste (replié par
+   défaut, mémorisé tant que l'app tourne), stats (total, moyenne
    sur 7 jours, streak) ; séries de 5 questions QCM 4 options (jamais vues, puis dernier
    score ≤ 1, puis les plus anciennes) ; après réponse, affichage du score de l'option
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
@@ -256,23 +274,50 @@ le signaler et ne pas coder.
 
 ## Design system et règles UX
 
-Design system : lib/theme.ts et components/ sont la seule source de style. Aucune couleur,
-taille ou espacement en dur dans un écran. Aucune lib UI, aucune police custom. Les 14
-règles UX ci-dessous s'appliquent à tout nouvel écran.
+Référence : design/Strafoot_Direction_Artistique.html (Palette, Typographie, Composants,
+Mouvement, Tokens) et design/maquettes/ (planches 01 à 08, écrans de référence Accueil, Quiz,
+Test, Profil). Design system : lib/theme.ts et components/ sont la seule source de style.
+Aucune couleur, taille ou espacement en dur dans un écran. Aucune lib UI. Les 14 règles UX
+ci-dessous s'appliquent à tout nouvel écran.
 
-Animations : uniquement la liste fermée a–e, avec l'API Animated ou LayoutAnimation de
-React Native, jamais Reanimated ni Moti (Reanimated reste installé pour expo-router, jamais
-importé). Valeurs dans `motion` de lib/theme.ts ; tout scrollTo en `animated: false`.
-a. Pression : Card tappable et Button à 0,97 pendant l'appui, retour en moins de 150 ms
-   (components/press-scale.ts).
-b. Ligne de mesure validée (saisie d'un test) : fond successSoft, 1 → 1,04 → 1 en 400 ms,
-   hapticSuccess.
+Police : système pour tout le texte ; une seule police d'affichage, Barlow Condensed 600 et
+700 (chargée par app/_layout.tsx derrière l'écran de chargement, police système si elle
+échoue), réservée aux chiffres de 28 px et plus et référencée seulement par `text.number`
+(44/44) et `text.hero` (72/68, un par écran au plus) de lib/theme.ts, en chiffres
+tabulaires ; le dénominateur d'un chiffre number (« 74/99 », `text.denominator`) hérite de
+sa police à 40 % de sa taille. Interlignes de la DA : meta 14/20, body 16/24, title 20/26,
+screen 28/32, bouton 16/20 700 ; libellés en majuscules (`text.overline`) espacés de 6 %.
+
+Tokens (lib/theme.ts, valeurs de la planche Tokens) : couleurs (bg #101013, surface,
+surface2, surfacePressed, border, text, textMuted #A1A1AB, accent, accentPressed, accentTint,
+onAccent, danger #F05A5C, error, success, successSoft, quiz, quizPressed, quizTint, quizGlow,
+pitchLine ; `quizGradient` à part), espacements (xs 4 → xxxl 48), rayons (sm 8, md 12 =
+boutons et champs, lg 16 = cartes, xl 20, pill = puces ; alias card / button / chip),
+dimensions (touch 48, chip 48, button 56, flame 32, tabBar) et `motion` (press 100, micro 160,
+base 240, screen 320, count 600, courbe cubic-bezier(0.2, 0, 0, 1), pressScale 0,98,
+validateScale 1,03). quizGlow et quizGradient sont définis mais réservés au chantier 13.
+Onglets : Accueil · Tests · Quiz · Profil, libellés 14 px 600, actif en orange. « Quiz » (un
+seul z) dans tout texte affiché ; tables, colonnes, fichiers et routes gardent leur nom.
+
+Mouvement (principes de la DA) : le mouvement confirme une action ; aucun ressort, aucun
+dépassement ; les chiffres acquis ne s'animent pas à l'affichage ; le rouge ne clignote
+jamais ; avec « Réduire les animations » (lib/reduce-motion.ts), seul l'appui reste.
+Uniquement la liste fermée a–e, avec l'API Animated ou LayoutAnimation de React Native,
+jamais Reanimated ni Moti (Reanimated reste installé pour expo-router, jamais importé).
+Valeurs dans `motion` de lib/theme.ts ; tout scrollTo en `animated: false`.
+a. Appui : Card tappable et Button à 0,98 et fond un cran plus sombre, 100 ms
+   (components/press-scale.ts) ; Chip, IconButton, lignes et cases : fond un cran plus sombre.
+b. Ligne de mesure validée (saisie d'un test) : teinte successSoft et coche en 160 ms,
+   pulsation 1 → 1,03 → 1 en 240 ms avec la courbe de la DA, hapticSuccess.
 c. Enregistrement (séance libre, séance déjà faite, « Séance faite », fin de séance, test,
-   profil) : hapticMedium et SaveToast, qui glisse de 24 px depuis le bas en 200 ms et
+   profil) : hapticMedium et SaveToast, qui glisse de 24 px depuis le bas en 240 ms et
    disparaît après 2 s.
-d. Streak de l'Accueil : si elle augmente depuis le dernier affichage, le chiffre compte de
-   l'ancienne à la nouvelle valeur en 500 ms.
-e. Quizz : explications déroulées par LayoutAnimation.easeInEaseOut.
+d. Streak de l'Accueil : uniquement quand elle augmente à la suite d'une action (séance
+   enregistrée, réponse au quiz), la flamme passe de contour à pleine (160 ms) puis le chiffre
+   passe de N à N+1 (160 ms). Jamais d'animation à l'affichage simple de l'Accueil.
+e. Quiz : explications déroulées par LayoutAnimation (easeInEaseOut, 240 ms).
+Les animations propres aux chantiers suivants (décompte de l'Elo, bulle du coach, feuille
+modale du calendrier) seront autorisées dans leur chantier, avec ces durées.
 
 Règles UX (figées : tout écran nouveau ou modifié est relu contre cette liste) :
 
@@ -292,11 +337,11 @@ Règles UX (figées : tout écran nouveau ou modifié est relu contre cette list
 13. Sombre par défaut, pas de mode clair.
 14. Nombres grands, alignés, scannables verticalement.
 
-Valeurs des tokens qui s'écartent de la demande du chantier 6, pour respecter la règle 4 :
-`fontSize.meta` = 14 (13 demandé), `colors.danger` = #E85052 (#E5383B demandé : 4,34:1 sur
-surface). Depuis le chantier 7, `colors.quiz` = #A78BFA, violet clair distinct de l'orange
-de l'entraînement (7,23:1 sur bg, 6,76:1 sur surface, 6,10:1 sur surface2). Les messages
-bruts de Supabase restent en anglais (erreur jamais avalée).
+Écarts assumés. Règle 4 et interlignes : meta 14/20 et body 16/24 la respectent ; title 20/26
+et screen 28/32 suivent la DA (titres, pas du texte courant). Contrastes de la DA sur bg
+#101013 : text 17,3:1, textMuted 7,4:1, accent 6,6:1, quiz 7,0:1, danger 5,7:1 (4,8:1 sur
+surface2), onAccent sur accent 6,6:1 ; `colors.error` (3,6:1) ne porte jamais de texte. Les
+messages bruts de Supabase restent en anglais (erreur jamais avalée).
 
 ## Méthode de travail
 
@@ -316,6 +361,18 @@ bruts de Supabase restent en anglais (erreur jamais avalée).
      attente : CLAUDE.md reflète l'état du code à la fin de chaque chantier.
 - Git : un commit par chantier, message en français à l'impératif
   (« Ajoute le formulaire de séance libre »). Pas de push automatique.
+
+## Estimation de durée
+
+- En fin de Phase 0, avant toute modification : « Estimation : ~X-Y min au total, dont
+  ~Z min d'attente d'agents ». Fourchette honnête, pas de précision fictive. Noter l'heure
+  de début avec Get-Date.
+- Avant de lancer des agents ou une recherche : annoncer leur nombre, leur rôle en une
+  ligne chacun et l'attente estimée. Ne pas en lancer si le gain est inférieur à 10 minutes.
+- Avant chaque étape longue (plus de 5 minutes) : l'annoncer avec sa durée estimée.
+- Si une étape dépasse son estimation de plus de 50 % : le signaler avec la raison et la
+  nouvelle estimation.
+- Dans le livrable : durée réelle (Get-Date) face à l'estimation.
 
 ## Déploiement
 
@@ -367,6 +424,13 @@ bruts de Supabase restent en anglais (erreur jamais avalée).
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'expo-haptics'`
 - Animations hors liste (aucune ligne attendue ; `\b` : le token `motion` contient « moti ») :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern '\bmoti\b|react-native-reanimated'`
+- « Quizz » (aucune ligne attendue, commentaires compris) :
+  `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'quizz' -CaseSensitive:$false`
+- Police d'affichage (attendus : lib/theme.ts pour text.number et text.hero, app/_layout.tsx pour
+  le chargement, app/measure/[testId].tsx pour le sans-serif du SVG sur le web) :
+  `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'BarlowCondensed|fontFamily'`
+- Dessin SVG (seulement app/measure/[testId].tsx, components/pitch-placeholder.tsx, components/flame.tsx) :
+  `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'react-native-svg'`
 - `npx tsx scripts/build-seed-questions.ts`, `npx tsx scripts/build-seed-sheets.ts`
   (régénèrent les seeds depuis supabase/content/)
 - `npx supabase gen types typescript --project-id <id> | Out-File -Encoding utf8 lib/types.ts`

@@ -113,6 +113,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
   },
   errorPressed: {
-    backgroundColor: colors.border,
+    backgroundColor: colors.surfacePressed,
   },
 });

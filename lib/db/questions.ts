@@ -7,7 +7,7 @@ import type { DbResult } from './result';
 export type QuestionRow = Tables<'questions'>;
 
 /**
- * Question prête pour le quizz : options typées, et dernière réponse donnée
+ * Question prête pour le quiz : options typées, et dernière réponse donnée
  * (instant et score), null si la question n'a jamais été répondue.
  */
 export type EligibleQuestion = Omit<QuestionRow, 'options'> & {
@@ -16,7 +16,7 @@ export type EligibleQuestion = Omit<QuestionRow, 'options'> & {
   lastScore: number | null;
 };
 
-/** Filtre du quizz ; un champ absent ne filtre pas (« Tous », « Tous postes »). */
+/** Filtre du quiz ; un champ absent ne filtre pas (« Tous », « Tous postes »). */
 export type QuestionFilter = {
   theme?: ThemeKey;
   position?: PositionKey;

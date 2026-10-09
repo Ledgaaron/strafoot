@@ -183,7 +183,10 @@ export default function QuizScreen() {
   }
 
   return (
-    <Screen title="Quizz" footer={<Button label="Lancer une série" onPress={startRun} disabled={!canStart} />}>
+    <Screen
+      title="Quiz"
+      footer={<Button variant="quiz" label="Lancer une série" onPress={startRun} disabled={!canStart} />}
+    >
       <View style={layout.section}>
         {/* Sans carte : une carte porte un seul chiffre, et trois ne tiennent pas en largeur. */}
         <View style={styles.statRow}>
@@ -194,7 +197,7 @@ export default function QuizScreen() {
             <Stat
               label="Moyenne 7 j"
               value={formatAverage(average)}
-              unit={average !== null ? `/${MAX_OPTION_SCORE}` : undefined}
+              denominator={average !== null ? `/${MAX_OPTION_SCORE}` : undefined}
             />
           </View>
           <View style={styles.statCell}>
@@ -233,6 +236,7 @@ export default function QuizScreen() {
               <Text style={text.overline}>Thème</Text>
               <View style={layout.chipRow}>
                 <Chip
+                  tone="quiz"
                   label="Tous"
                   accessibilityLabel="Tous les thèmes"
                   selected={theme === null}
@@ -241,6 +245,7 @@ export default function QuizScreen() {
                 {THEMES.map((entry) => (
                   <Chip
                     key={entry.key}
+                    tone="quiz"
                     label={entry.label}
                     selected={entry.key === theme}
                     onPress={() => changeFilter({ theme: entry.key, position })}
@@ -252,6 +257,7 @@ export default function QuizScreen() {
               <Text style={text.overline}>Poste</Text>
               <View style={layout.chipRow}>
                 <Chip
+                  tone="quiz"
                   label="Tous postes"
                   selected={position === null}
                   onPress={() => changeFilter({ theme, position: null })}
@@ -259,6 +265,7 @@ export default function QuizScreen() {
                 {POSITION_FILTERS.map((entry) => (
                   <Chip
                     key={entry.key}
+                    tone="quiz"
                     label={entry.label}
                     selected={entry.key === position}
                     onPress={() => changeFilter({ theme, position: entry.key })}
@@ -276,12 +283,12 @@ export default function QuizScreen() {
             <Button variant="secondary" label="Réessayer" onPress={retryEligible} />
           </>
         ) : null}
-        {/* Sans filtre, rien à élargir : le contenu du quizz vient du seed, aucun bouton n'y remédie. */}
+        {/* Sans filtre, rien à élargir : le contenu du quiz vient du seed, aucun bouton n'y remédie. */}
         {eligible !== null && eligible.count === 0 ? (
           theme === null && position === null ? (
             <EmptyState
               title="Aucune question disponible"
-              message="Le contenu du quizz n’est pas encore chargé dans la base."
+              message="Le contenu du quiz n’est pas encore chargé dans la base."
             />
           ) : (
             // Le pied est alors désactivé : « Retirer les filtres » reste la seule action principale active.

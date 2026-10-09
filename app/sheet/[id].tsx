@@ -44,6 +44,7 @@ import { DIAGRAM_HEIGHT, DIAGRAM_WIDTH, diagramUrl } from '../../lib/diagrams';
 import { hapticMedium, hapticSuccess } from '../../lib/haptics';
 import { formatDecimal, formatMeasure } from '../../lib/measure-delta';
 import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY, TEST_MODULE_KEY } from '../../lib/modules';
+import { useReduceMotion } from '../../lib/reduce-motion';
 import type { Exercise, Measure } from '../../lib/sheet-types';
 import { colors, input, inputProps, layout, motion, radius, size, spacing, text } from '../../lib/theme';
 
@@ -1008,7 +1009,7 @@ type MeasureFieldProps = {
 
 /**
  * Une mesure façon Strong : la dernière valeur en gris dans le champ, ✓ valide
- * la saisie ou, sans saisie, cette valeur grise. Ligne validée : fond vert,
+ * la saisie ou, sans saisie, cette valeur grise. Ligne validée : teinte succès,
  * valeur en clair ; touchée (valeur ou ✓), elle redevient modifiable.
  */
 function MeasureField({
@@ -1024,8 +1025,12 @@ function MeasureField({
 }: MeasureFieldProps) {
   const label = formatMeasureLabel(measure);
   const typed = value.trim();
-  // Micro-interaction b : 1 → 1,04 → 1 au passage à « validée ».
+  const reduceMotion = useReduceMotion();
+  // Micro-interaction b, au passage à « validée » : teinte succès fondue en
+  // motion.micro (la coche se pose en même temps) et pulsation 1 → 1,03 → 1 en
+  // motion.base, courbe de la DA, sans ressort.
   const [scale] = useState(() => new Animated.Value(1));
+  const [tint] = useState(() => new Animated.Value(validated ? 1 : 0));
   // Validée au rendu précédent : une ligne déjà validée à l'affichage (retour d'un bloc) ne s'anime pas.
   const wasValidated = useRef(validated);
   const inputRef = useRef<TextInput>(null);
@@ -1040,24 +1045,32 @@ function MeasureField({
       return;
     }
     if (!validated) {
+      tint.setValue(0);
       if (focusOnEdit.current) {
         focusOnEdit.current = false;
         inputRef.current?.focus();
       }
       return;
     }
-    const half = motion.validateMs / 2;
-    const pulse = Animated.sequence([
-      Animated.timing(scale, { toValue: motion.validateScale, duration: half, useNativeDriver: motion.useNativeDriver }),
-      Animated.timing(scale, { toValue: 1, duration: half, useNativeDriver: motion.useNativeDriver }),
+    if (reduceMotion) {
+      tint.setValue(1);
+      return;
+    }
+    const half = motion.base / 2;
+    const timing = (animated: Animated.Value, toValue: number, duration: number) =>
+      Animated.timing(animated, { toValue, duration, easing: motion.easing, useNativeDriver: motion.useNativeDriver });
+    const animation = Animated.parallel([
+      timing(tint, 1, motion.micro),
+      Animated.sequence([timing(scale, motion.validateScale, half), timing(scale, 1, half)]),
     ]);
-    pulse.start();
+    animation.start();
     return () => {
-      // Ligne rouverte ou écran quitté pendant l'animation : taille normale aussitôt.
-      pulse.stop();
+      // Ligne rouverte ou écran quitté pendant l'animation : aspect validé aussitôt.
+      animation.stop();
       scale.setValue(1);
+      tint.setValue(1);
     };
-  }, [validated, scale]);
+  }, [validated, reduceMotion, scale, tint]);
 
   function validate() {
     // Sans saisie, la dernière valeur (en gris) devient la valeur de la ligne.
@@ -1073,7 +1086,9 @@ function MeasureField({
   }
 
   return (
-    <Animated.View style={[styles.measure, validated && styles.measureValidated, { transform: [{ scale }] }]}>
+    <Animated.View style={[styles.measure, { transform: [{ scale }] }]}>
+      {/* Teinte succès sous le contenu, aux coins de la ligne ; les touches passent à travers. */}
+      <Animated.View style={[styles.measureTint, { opacity: tint }]} />
       <Text style={text.body}>{label}</Text>
       <View style={styles.measureRow}>
         {validated ? (
@@ -1165,14 +1180,21 @@ const styles = StyleSheet.create({
   blockCard: {
     gap: spacing.lg,
   },
-  // Même marge et mêmes coins validée ou non, seul le fond change : rien ne se décale.
+  // Même marge et mêmes coins validée ou non, seule la teinte change : rien ne se décale.
   measure: {
     gap: spacing.sm,
     padding: spacing.sm,
     borderRadius: radius.button,
   },
-  measureValidated: {
+  measureTint: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: radius.button,
     backgroundColor: colors.successSoft,
+    pointerEvents: 'none',
   },
   measureRow: {
     flexDirection: 'row',
@@ -1192,6 +1214,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.button,
   },
   validatedValuePressed: {
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.surfacePressed,
   },
 });

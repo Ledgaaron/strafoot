@@ -171,7 +171,7 @@ function MonthCalendar() {
               <Text style={styles.trainingMark}>●</Text> Entraînement
             </Text>
             <Text style={text.meta}>
-              <Text style={styles.quizMark}>●</Text> Quizz
+              <Text style={styles.quizMark}>●</Text> Quiz
             </Text>
           </View>
         </Card>
@@ -198,7 +198,7 @@ type DayCellProps = {
 };
 
 function DayCell({ day, isToday, isSelected, hasTraining, hasQuiz, onPress }: DayCellProps) {
-  const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quizz' : ''}`;
+  const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quiz' : ''}`;
   return (
     <Pressable
       role="button"
@@ -214,7 +214,7 @@ function DayCell({ day, isToday, isSelected, hasTraining, hasQuiz, onPress }: Da
     >
       <Text style={[text.body, text.tabular]}>{dayOfMonth(day)}</Text>
       {/* Rangée de hauteur fixe : le numéro ne bouge pas quand les points apparaissent.
-          Deux places fixes, entraînement à gauche, quizz à droite (ordre de la légende) :
+          Deux places fixes, entraînement à gauche, quiz à droite (ordre de la légende) :
           la place double la couleur (orange, violet). */}
       <View style={styles.dots}>
         <View style={[styles.dot, hasTraining && styles.trainingDot]} />
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
   },
   pressedCell: {
-    backgroundColor: colors.border,
+    backgroundColor: colors.surfacePressed,
   },
   dots: {
     height: size.dot,

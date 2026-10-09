@@ -481,6 +481,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.button,
   },
   rowInfoPressed: {
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.surfacePressed,
   },
 });

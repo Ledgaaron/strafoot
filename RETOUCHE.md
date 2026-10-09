@@ -22,12 +22,12 @@
 
 ---
 
-## Chantier 8c — Direction artistique Claude Design `[ ]`
-- [ ] Tokens.
-- [ ] Police Barlow Condensed.
-- [ ] Composants.
-- [ ] Logo.
-- [ ] Référence : design/Strafoot_Direction_Artistique.html.
+## Chantier 8c — Direction artistique Claude Design `[x]`
+- [x] Tokens.
+- [x] Police Barlow Condensed.
+- [x] Composants.
+- [x] Logo.
+- [x] Référence : design/Strafoot_Direction_Artistique.html.
 
 ---
 
@@ -88,6 +88,11 @@
 ---
 
 ## Chantier 13 — Quiz refonte (façon chess.com) + contenu + schémas `[ ]`
+- [ ] Réponse en deux temps : sélection (la flèche correspondante s'allume sur le schéma, les autres s'atténuent) puis « Valider ».
+- [ ] Après réponse sur le schéma : meilleur choix en vert, ton choix dans sa couleur, les autres en gris.
+- [ ] Pas de chrono dans le mode par défaut : le temps n'influence pas l'Elo.
+- [ ] Répétition espacée : une question ratée revient quelques jours plus tard, puis plus tard encore.
+- [ ] Règles de rédaction : le contexte (score, minute, position) change la bonne réponse ; les 4 options ont la même longueur et le même niveau de détail.
 ### Elo
 - [ ] Elo global + un Elo par thème (5) ; cote fixe par question selon son niveau (1 → 800, 2 → 1200, 3 → 1600).
 - [ ] Gain = K × (résultat − attendu) ; résultat : bon choix 1, défendable 0,5, faible 0,2, erreur 0.
@@ -120,6 +125,7 @@
 - [ ] Progression nourrie automatiquement par les résultats de tests ; barre visible sur l'Accueil.
 - [ ] 1 à 3 objectifs actifs maximum ; deadline.
 - [ ] Question ouverte : comment rendre l'objectif central dans l'app (Accueil ? écran dédié ? lien avec les bilans mensuels et Coach Carter ?).
+- [ ] Objectif hebdomadaire de séances (ex. 3 / semaine), suivi « N / 12 semaines à l'objectif » (idée de la DA).
 
 ---
 
@@ -158,6 +164,8 @@
 - Filtre par matériel disponible.
 - Notifications.
 - Couleur principale orange / violet (inspiration Strava + chess.com) au chantier habillage.
+- Mode Rush : le plus de bonnes décisions en 3 minutes, classement séparé.
+- Vue limitée et bouton « Scanner » : le schéma n'affiche que les joueurs dans ton champ de vision ; chaque appui sur « Scanner » révèle la zone hors champ pendant un court instant (~1 s) ; le nombre de scans est compté (lié à la prise d'information).
 
 ---
 

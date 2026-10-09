@@ -31,18 +31,24 @@ import {
   SCORE_LABELS,
   themeLabel,
 } from '../../lib/quiz-taxonomy';
-import { colors, layout, radius, size, spacing, text } from '../../lib/theme';
+import { isReduceMotionEnabled } from '../../lib/reduce-motion';
+import { colors, layout, motion, radius, size, spacing, text } from '../../lib/theme';
 
 const NO_ROW_MESSAGE = 'Supabase n’a renvoyé ni la réponse ni d’erreur.';
 
-// Micro-interaction e : les explications se déroulent (LayoutAnimation). Sous la
-// Nouvelle Architecture (RN 0.86, bridgeless), elle marche d'office sur Android
-// et ce drapeau n'est plus qu'un avertissement : on ne l'active que sur
+// Micro-interaction e : les explications se déroulent (LayoutAnimation, motion.base).
+// Sous la Nouvelle Architecture (RN 0.86, bridgeless), elle marche d'office sur
+// Android et ce drapeau n'est plus qu'un avertissement : on ne l'active que sur
 // l'ancienne. Sur le web, LayoutAnimation ne fait rien.
 const isNewArchitecture = (globalThis as { RN$Bridgeless?: boolean }).RN$Bridgeless === true;
 if (Platform.OS === 'android' && !isNewArchitecture) {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
 }
+const EXPLANATIONS_ANIMATION = LayoutAnimation.create(
+  motion.base,
+  LayoutAnimation.Types.easeInEaseOut,
+  LayoutAnimation.Properties.opacity,
+);
 
 type OptionScore = QuestionOption['score'];
 
@@ -131,7 +137,7 @@ export default function QuizRunScreen() {
     // Lien mal formé : réessayer ne changerait rien, seul le retour est proposé.
     return (
       <>
-        <Stack.Screen options={{ title: 'Quizz' }} />
+        <Stack.Screen options={{ title: 'Quiz' }} />
         <Screen>
           <View style={layout.section}>
             <FieldError message={filterError} />
@@ -162,7 +168,7 @@ export default function QuizRunScreen() {
     const question = run.questions[index];
     pendingRef.current = true;
     updatePhase(run.id, index, { step: 'saving', chosenIndex, answerId });
-    // Enregistrée dès le tap : la streak quizz compte dès la première réponse.
+    // Enregistrée dès le tap : la streak quiz compte dès la première réponse.
     const { data, error } = await createAnswer({
       id: answerId,
       question_id: question.id,
@@ -180,8 +186,11 @@ export default function QuizRunScreen() {
       });
       return;
     }
-    // Score et explications se déroulent au prochain rendu (micro-interaction e).
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // Score et explications se déroulent au prochain rendu (micro-interaction e),
+    // sauf avec « Réduire les animations ».
+    if (!isReduceMotionEnabled()) {
+      LayoutAnimation.configureNext(EXPLANATIONS_ANIMATION);
+    }
     updatePhase(run.id, index, { step: 'answered', chosenIndex, answer: data, flagging: false, flagError: null });
   }
 
@@ -259,20 +268,26 @@ export default function QuizRunScreen() {
       ? `Question ${screen.run.scores.length + 1} / ${screen.run.questions.length}`
       : screen.status === 'recap'
         ? 'Récap'
-        : 'Quizz';
+        : 'Quiz';
 
-  // Pied selon l'étape : l'action qui fait avancer la série, sous le pouce. Aucun
-  // pendant le choix (les options sont l'action), l'enregistrement ou le chargement.
+  // Pied selon l'étape : l'action qui fait avancer la série, sous le pouce, en
+  // violet (quiz). Aucun pendant le choix (les options sont l'action),
+  // l'enregistrement ou le chargement.
   let footer: ReactNode = null;
   if (screen.status === 'running' && screen.run.phase.step === 'answered') {
     const isLast = screen.run.scores.length === screen.run.questions.length - 1;
     footer = (
-      <Button label={isLast ? 'Voir le récap' : 'Suivant'} onPress={goNext} disabled={screen.run.phase.flagging} />
+      <Button
+        variant="quiz"
+        label={isLast ? 'Voir le récap' : 'Suivant'}
+        onPress={goNext}
+        disabled={screen.run.phase.flagging}
+      />
     );
   } else if (screen.status === 'recap') {
     footer = (
       <>
-        <Button label="Nouvelle série" onPress={reload} />
+        <Button variant="quiz" label="Nouvelle série" onPress={reload} />
         <Button variant="secondary" label="Retour" onPress={leaveRun} />
       </>
     );
@@ -292,7 +307,7 @@ export default function QuizRunScreen() {
         {screen.status === 'empty' ? (
           <EmptyState
             title="Aucune question pour ce filtre"
-            message="Élargis le thème ou le poste depuis l’onglet Quizz."
+            message="Élargis le thème ou le poste depuis l’onglet Quiz."
             action={{ label: 'Retour', onPress: leaveRun }}
           />
         ) : null}
@@ -374,7 +389,7 @@ function randomUuid(): string {
   });
 }
 
-/** Retour à l'écran précédent ; sans historique (lien direct, rechargement web) : l'onglet Quizz. */
+/** Retour à l'écran précédent ; sans historique (lien direct, rechargement web) : l'onglet Quiz. */
 function leaveRun() {
   if (router.canGoBack()) {
     router.back();
@@ -422,10 +437,11 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
         <AnswerReview options={question.options} phase={phase} onToggleFlag={onToggleFlag} />
       ) : (
         <View style={layout.section}>
-          {/* Une fois le choix fait, il reste en évidence et les autres sont grisées. */}
+          {/* Une fois le choix fait, il reste en évidence (violet) et les autres sont grisées. */}
           {question.options.map((option, optionIndex) => (
             <Card
               key={optionIndex}
+              tone="quiz"
               onPress={() => onChoose(optionIndex)}
               highlighted={phase.step !== 'choosing' && phase.chosenIndex === optionIndex}
               disabled={phase.step !== 'choosing'}
@@ -463,7 +479,7 @@ function AnswerReview({ options, phase, onToggleFlag }: AnswerReviewProps) {
   const flagged = phase.answer.flagged;
   return (
     <>
-      <Card highlighted>
+      <Card highlighted tone="quiz">
         <Text style={text.overline}>Ton choix</Text>
         <View style={styles.scoreRow}>
           <ScorePill score={chosen.score} />
@@ -475,7 +491,7 @@ function AnswerReview({ options, phase, onToggleFlag }: AnswerReviewProps) {
       <View style={layout.section}>
         <Text style={text.overline}>Toutes les options</Text>
         {ranked.map(({ option, index }) => (
-          <Card key={index} highlighted={index === phase.chosenIndex}>
+          <Card key={index} tone="quiz" highlighted={index === phase.chosenIndex}>
             <View style={styles.scoreRow}>
               <ScorePill score={option.score} />
               <Text style={text.meta}>
@@ -512,7 +528,7 @@ function RunRecap({ questions, scores }: RunRecapProps) {
   const total = scores.reduce<number>((sum, score) => sum + score, 0);
   return (
     <>
-      <Stat label="Score de la série" value={total} unit={`/${questions.length * MAX_OPTION_SCORE}`} tone="accent" />
+      <Stat label="Score de la série" value={total} denominator={`/${questions.length * MAX_OPTION_SCORE}`} tone="quiz" />
       <View style={layout.section}>
         {questions.map((question, index) => (
           <Card key={question.id} style={styles.recapRow}>

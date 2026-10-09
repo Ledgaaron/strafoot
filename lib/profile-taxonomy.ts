@@ -8,7 +8,7 @@ import { ALL_POSITIONS, POSITIONS, type PositionKey, type TaxonomyEntry } from '
 
 export { positionLabel } from './quiz-taxonomy';
 
-/** Poste d'un joueur : un poste du quizz, sauf 'tous' (qui qualifie une question, pas un joueur). */
+/** Poste d'un joueur : un poste du quiz, sauf 'tous' (qui qualifie une question, pas un joueur). */
 export type ProfilePositionKey = Exclude<PositionKey, typeof ALL_POSITIONS>;
 
 type ProfilePosition = Extract<(typeof POSITIONS)[number], { key: ProfilePositionKey }>;

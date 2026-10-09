@@ -1,6 +1,6 @@
 import type { QuestionOption } from './json-types';
 
-// Taxonomie du quizz : listes fermées, seule source de vérité côté app (clé +
+// Taxonomie du quiz : listes fermées, seule source de vérité côté app (clé +
 // libellé). Les contraintes questions_theme_check et questions_positions_check
 // (migration 003) reprennent les clés à l'identique : changer une liste demande
 // une nouvelle migration. scripts/build-seed-questions.ts valide le contenu avec.

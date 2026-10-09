@@ -1,11 +1,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, disabledOpacity, fontSize, lineHeight, radius, size, spacing } from '../lib/theme';
+import { colors, disabledOpacity, radius, size, spacing, text } from '../lib/theme';
 import type { IconName } from './icon-button';
 import { usePressScale } from './press-scale';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'text';
+export type ButtonVariant = 'primary' | 'quiz' | 'secondary' | 'danger' | 'text';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -14,8 +14,9 @@ type ButtonProps = {
   onPress: () => void;
   /**
    * primary : l'action principale de l'écran, une seule, dans le pied de Screen ;
-   * secondary : toute autre action ; danger : suppression, déconnexion ;
-   * text : lien discret, sans fond (« Voir le mois »).
+   * quiz : la même, violette, sur un écran du quiz ; secondary : toute autre
+   * action ; danger : suppression, déconnexion ; text : lien discret, sans fond
+   * (« Voir le mois »).
    */
   variant?: ButtonVariant;
   disabled?: boolean;
@@ -30,6 +31,7 @@ type ButtonProps = {
   style?: StyleProp<ViewStyle>;
 };
 
+/** Bouton de 56 px, coins md, libellé 16/20 700 ; pressé : 0,98 et fond un cran plus sombre (micro-interaction a). */
 export function Button({
   label,
   onPress,
@@ -43,7 +45,6 @@ export function Button({
 }: ButtonProps) {
   const inactive = disabled || loading;
   const variantStyles = VARIANTS[variant];
-  // Micro-interaction a : 0,97 pendant l'appui.
   const press = usePressScale();
   return (
     <AnimatedPressable
@@ -67,7 +68,7 @@ export function Button({
       ]}
     >
       {loading ? <ActivityIndicator color={CONTENT_COLORS[variant]} /> : null}
-      <Text style={[styles.label, variantStyles.label]}>{label}</Text>
+      <Text style={[text.button, styles.label, variantStyles.label]}>{label}</Text>
       {icon !== undefined ? <Ionicons name={icon} size={size.icon} color={CONTENT_COLORS[variant]} /> : null}
     </AnimatedPressable>
   );
@@ -76,6 +77,7 @@ export function Button({
 /** Couleur du libellé, reprise par l'indicateur de chargement et l'icône. */
 const CONTENT_COLORS: Readonly<Record<ButtonVariant, string>> = {
   primary: colors.onAccent,
+  quiz: colors.onAccent,
   secondary: colors.text,
   danger: colors.danger,
   text: colors.accent,
@@ -97,9 +99,6 @@ const styles = StyleSheet.create({
   },
   label: {
     flexShrink: 1,
-    fontSize: fontSize.body,
-    lineHeight: lineHeight.body,
-    fontWeight: '600',
     textAlign: 'center',
   },
 });
@@ -110,9 +109,14 @@ const VARIANTS = {
     pressed: { backgroundColor: colors.accentPressed },
     label: { color: CONTENT_COLORS.primary },
   }),
+  quiz: StyleSheet.create({
+    container: { backgroundColor: colors.quiz },
+    pressed: { backgroundColor: colors.quizPressed },
+    label: { color: CONTENT_COLORS.quiz },
+  }),
   secondary: StyleSheet.create({
     container: { backgroundColor: colors.surface2 },
-    pressed: { backgroundColor: colors.border },
+    pressed: { backgroundColor: colors.surfacePressed },
     label: { color: CONTENT_COLORS.secondary },
   }),
   danger: StyleSheet.create({

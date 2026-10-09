@@ -835,7 +835,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   pressed: {
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.surfacePressed,
   },
   measureName: {
     flex: 1,

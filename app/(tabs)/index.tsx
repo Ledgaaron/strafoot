@@ -6,10 +6,11 @@ import { Button } from '../../components/button';
 import { Card } from '../../components/card';
 import { EmptyState } from '../../components/empty-state';
 import { FieldError } from '../../components/field-error';
+import { Flame, type FlameState, type FlameTone } from '../../components/flame';
 import { IconButton } from '../../components/icon-button';
 import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
-import { Stat, type StatTone } from '../../components/stat';
+import { Stat } from '../../components/stat';
 import {
   dayOfMonth,
   formatShortDay,
@@ -26,6 +27,7 @@ import {
 import { listAnswerDays } from '../../lib/db/answers';
 import { countSessions, listActiveDays, listSessionsForDay, type SessionRow } from '../../lib/db/sessions';
 import { moduleLabel } from '../../lib/modules';
+import { useReduceMotion } from '../../lib/reduce-motion';
 import { computeStreaks, type Streaks } from '../../lib/streak';
 import { colors, layout, motion, radius, size, spacing, text } from '../../lib/theme';
 
@@ -42,7 +44,7 @@ const DAYS_PER_WEEK = 7;
 type StreakKind = 'training' | 'quiz';
 
 // Dernière streak courante affichée par l'Accueil : survit au démontage de l'écran
-// tant que l'app tourne, jamais persistée (comme lastFilter du Quizz). Une valeur
+// tant que l'app tourne, jamais persistée (comme lastFilter du Quiz). Une valeur
 // plus haute à un chargement suivant compte depuis celle-ci.
 const lastShownStreak: Record<StreakKind, number | null> = { training: null, quiz: null };
 
@@ -199,11 +201,23 @@ export default function HomeScreen() {
     >
       <View style={layout.section}>
         <View style={styles.streakRow}>
-          <StreakCard kind="training" label="Entraînement" tone="accent" streaks={summary ? summary.training : null}>
+          <StreakCard
+            kind="training"
+            label="Entraînement"
+            tone="accent"
+            streaks={summary ? summary.training : null}
+            todayDone={summary !== null && summary.trainingDays.has(today)}
+          >
             <Text style={text.meta}>ce mois : {summary ? formatSessionCount(summary.monthCount) : PLACEHOLDER}</Text>
             <Text style={text.meta}>total : {summary ? formatSessionCount(summary.totalCount) : PLACEHOLDER}</Text>
           </StreakCard>
-          <StreakCard kind="quiz" label="Quizz" tone="quiz" streaks={summary ? summary.quiz : null} />
+          <StreakCard
+            kind="quiz"
+            label="Quiz"
+            tone="quiz"
+            streaks={summary ? summary.quiz : null}
+            todayDone={summary !== null && summary.quizDays.has(today)}
+          />
         </View>
         {summaryState.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {summaryState.status === 'error' ? (
@@ -265,27 +279,34 @@ function formatSessionCount(count: number): string {
 }
 
 type StreakCardProps = {
-  /** Streak affichée : son chiffre compte jusqu'à la nouvelle valeur quand elle augmente. */
+  /** Streak affichée : son chiffre passe à la nouvelle valeur quand elle augmente. */
   kind: StreakKind;
   label: string;
-  tone: StatTone;
-  /** null tant que le résumé n'est pas chargé : « — », sans unité. */
+  tone: FlameTone;
+  /** null tant que le résumé n'est pas chargé : « — », sans flamme. */
   streaks: Streaks | null;
+  /** Au moins une activité aujourd'hui : flamme pleine. */
+  todayDone: boolean;
   /** Lignes secondaires sous la meilleure streak. */
   children?: ReactNode;
 };
 
-/** Streak courante en chiffre dominant ; meilleure et compteurs en secondaire. */
-function StreakCard({ kind, label, tone, streaks, children }: StreakCardProps) {
-  const current = useStreakCountUp(kind, streaks ? streaks.current : null);
+/** Streak courante en chiffre dominant, flamme à sa gauche ; meilleure et compteurs en secondaire. */
+function StreakCard({ kind, label, tone, streaks, todayDone, children }: StreakCardProps) {
+  const reduceMotion = useReduceMotion();
+  const current = useStreakCountUp(kind, streaks ? streaks.current : null, reduceMotion);
+  const flame = streaks !== null ? flameState(streaks.current, todayDone) : null;
   return (
     <Card style={styles.streakCard}>
       <Stat
         label={label}
         value={current ?? PLACEHOLDER}
-        // L'unité suit le chiffre affiché, décompte compris (« 1 jour », puis « 2 jours »).
-        unit={current !== null ? dayUnit(current) : undefined}
-        tone={tone}
+        tone={flame === 'lost' ? 'muted' : tone}
+        // Flamme seulement une fois la streak chargée : montée dans son état, sans transition.
+        leading={flame !== null ? <Flame state={flame} tone={tone} /> : undefined}
+        accessibilityLabel={
+          current !== null && flame !== null ? `${label} : ${formatDayCount(current)}, ${FLAME_LABELS[flame]}` : undefined
+        }
       />
       <View>
         <Text style={text.meta}>meilleure : {streaks ? formatDayCount(streaks.best) : PLACEHOLDER}</Text>
@@ -295,12 +316,30 @@ function StreakCard({ kind, label, tone, streaks, children }: StreakCardProps) {
   );
 }
 
+/** Pleine dès une activité aujourd'hui ; contour tant que la série tient (jusqu'à minuit) ; grise si elle est perdue. */
+function flameState(current: number, todayDone: boolean): FlameState {
+  if (todayDone) {
+    return 'done';
+  }
+  return current > 0 ? 'todo' : 'lost';
+}
+
+const FLAME_LABELS: Readonly<Record<FlameState, string>> = {
+  done: 'faite aujourd’hui',
+  todo: 'à faire aujourd’hui',
+  lost: 'série perdue',
+};
+
 /**
  * Chiffre de la streak courante (micro-interaction d) : target dès qu'elle est
- * chargée ; plus haute que la dernière valeur affichée, elle compte depuis
- * celle-ci en motion.countUpMs. null tant que target est null (« — »).
+ * chargée. Plus haute que la dernière valeur affichée depuis le lancement, donc
+ * après une action (séance enregistrée, réponse au quiz) et jamais au simple
+ * affichage de l'Accueil, le chiffre laisse d'abord la flamme se remplir
+ * (motion.micro), puis passe de l'ancienne à la nouvelle valeur en motion.micro.
+ * « Réduire les animations » : nouvelle valeur aussitôt. null tant que target
+ * est null (« — »).
  */
-function useStreakCountUp(kind: StreakKind, target: number | null): number | null {
+function useStreakCountUp(kind: StreakKind, target: number | null, reduceMotion: boolean): number | null {
   const [shown, setShown] = useState<number | null>(null);
 
   useEffect(() => {
@@ -308,39 +347,43 @@ function useStreakCountUp(kind: StreakKind, target: number | null): number | nul
       return;
     }
     const previous = lastShownStreak[kind];
-    if (previous === null || target <= previous) {
-      // Premier affichage depuis le lancement, streak égale ou en baisse : pas de décompte.
+    if (previous === null || target <= previous || reduceMotion) {
+      // Premier affichage depuis le lancement, streak égale ou en baisse : pas de transition.
       lastShownStreak[kind] = target;
       setShown(target);
       return;
     }
     const value = new Animated.Value(previous);
     const listener = value.addListener(({ value: current }) => {
-      // Chaque chiffre affiché devient la référence : un décompte interrompu reprend là où il en était.
+      // Chaque chiffre affiché devient la référence : une transition interrompue reprend là où elle en était.
       const rounded = Math.round(current);
       lastShownStreak[kind] = rounded;
       setShown(rounded);
     });
     setShown(previous);
     // Valeur lue en JS pour écrire le chiffre : pas de pilote natif.
-    const animation = Animated.timing(value, {
-      toValue: target,
-      duration: motion.countUpMs,
-      useNativeDriver: false,
-    });
+    const animation = Animated.sequence([
+      Animated.delay(motion.micro),
+      Animated.timing(value, {
+        toValue: target,
+        duration: motion.micro,
+        easing: motion.easing,
+        useNativeDriver: false,
+      }),
+    ]);
     animation.start(({ finished }) => {
       if (finished) {
         lastShownStreak[kind] = target;
         setShown(target);
       }
     });
-    // Nouvelle valeur, démontage ou double effet de StrictMode : décompte arrêté, le
-    // suivant repart de la dernière valeur affichée.
+    // Nouvelle valeur, démontage ou double effet de StrictMode : transition arrêtée, la
+    // suivante repart de la dernière valeur affichée.
     return () => {
       animation.stop();
       value.removeListener(listener);
     };
-  }, [kind, target]);
+  }, [kind, target, reduceMotion]);
 
   return target === null ? null : shown;
 }
@@ -389,7 +432,7 @@ function WeekStrip({ week, today, selectedDay, activity, onShiftWeek, onSelectDa
             <Text style={styles.trainingMark}>●</Text> Entraînement
           </Text>
           <Text style={text.meta}>
-            <Text style={styles.quizMark}>●</Text> Quizz
+            <Text style={styles.quizMark}>●</Text> Quiz
           </Text>
         </View>
         <Button variant="text" label="Voir le mois" icon="chevron-forward" onPress={onOpenMonth} />
@@ -410,7 +453,7 @@ type WeekDayCellProps = {
 };
 
 function WeekDayCell({ day, initial, isToday, isSelected, hasTraining, hasQuiz, onPress }: WeekDayCellProps) {
-  const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quizz' : ''}`;
+  const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quiz' : ''}`;
   return (
     <Pressable
       role="button"
@@ -427,7 +470,7 @@ function WeekDayCell({ day, initial, isToday, isSelected, hasTraining, hasQuiz, 
       <Text style={text.meta}>{initial}</Text>
       <Text style={[text.body, text.tabular]}>{dayOfMonth(day)}</Text>
       {/* Rangée de hauteur fixe : le numéro ne bouge pas quand les points apparaissent.
-          Deux places fixes, entraînement à gauche, quizz à droite (ordre de la légende) :
+          Deux places fixes, entraînement à gauche, quiz à droite (ordre de la légende) :
           la place double la couleur (orange, violet). */}
       <View style={styles.dots}>
         <View style={[styles.dot, hasTraining && styles.trainingDot]} />
@@ -501,7 +544,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
   },
   pressedCell: {
-    backgroundColor: colors.border,
+    backgroundColor: colors.surfacePressed,
   },
   dots: {
     height: size.dot,

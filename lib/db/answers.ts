@@ -113,7 +113,7 @@ export async function flagAnswer(id: string, flagged: boolean): Promise<DbResult
 }
 
 /**
- * Statistiques du quizz. total est exact ; byTheme porte sur les réponses lues,
+ * Statistiques du quiz. total est exact ; byTheme porte sur les réponses lues,
  * dans la limite du max rows du projet (1000 par défaut, les plus récentes).
  */
 export async function getQuizStats(): Promise<DbResult<QuizStats>> {

@@ -21,8 +21,8 @@ type IconButtonProps = {
 
 /**
  * Bouton icône carré de 48 px : flèches des calendriers, icônes de l'en-tête du
- * profil, ✓ d'une mesure. Fond surface2 (success s'il est coché), border
- * pendant l'appui.
+ * profil, ✓ d'une mesure. Fond surface2 (success s'il est coché), un cran plus
+ * sombre pendant l'appui.
  */
 export function IconButton({
   icon,
@@ -57,7 +57,7 @@ export function IconButton({
           <Ionicons
             name={icon}
             size={size.icon}
-            // Pendant l'appui, le fond passe à border : l'icône reprend la couleur text.
+            // Pendant l'appui, le fond passe à surfacePressed : l'icône reprend la couleur text.
             color={checked === true && !pressed ? colors.onAccent : colors.text}
           />
         )
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
   },
   pressed: {
-    backgroundColor: colors.border,
+    backgroundColor: colors.surfacePressed,
   },
   disabled: {
     opacity: disabledOpacity,

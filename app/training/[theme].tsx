@@ -265,6 +265,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   startButtonPressed: {
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.surfacePressed,
   },
 });

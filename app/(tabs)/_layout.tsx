@@ -46,17 +46,18 @@ export default function TabsLayout() {
           borderTopColor: colors.border,
           borderTopWidth: size.border,
         },
-        // Interligne explicite : la hauteur de la barre (size.tabBar) en dépend.
-        tabBarLabelStyle: { fontSize: fontSize.meta, lineHeight: lineHeight.meta },
+        // Libellé 14 px 600 ; interligne explicite : la hauteur de la barre (size.tabBar) en dépend.
+        tabBarLabelStyle: { fontSize: fontSize.meta, lineHeight: lineHeight.meta, fontWeight: '600' },
       }}
     >
+      {/* Ordre de la DA : Accueil · Tests · Quiz · Profil. */}
       <Tabs.Screen name="index" options={{ title: 'Accueil', tabBarIcon: tabIcon('home') }} />
-      <Tabs.Screen name="quiz" options={{ title: 'Quizz', tabBarIcon: tabIcon('help-circle') }} />
       {/* Libellé d'onglet seul : l'écran garde son titre « Entraînement » pour l'instant. */}
       <Tabs.Screen
         name="training"
         options={{ title: 'Entraînement', tabBarLabel: 'Tests', tabBarIcon: tabIcon('fitness') }}
       />
+      <Tabs.Screen name="quiz" options={{ title: 'Quiz', tabBarIcon: tabIcon('help-circle') }} />
       <Tabs.Screen name="profile" options={{ title: 'Profil', tabBarIcon: tabIcon('person') }} />
     </Tabs>
   );

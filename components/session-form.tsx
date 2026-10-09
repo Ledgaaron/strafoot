@@ -14,7 +14,7 @@ import {
   TEST_MODULE_KEY,
   type ModuleKey,
 } from '../lib/modules';
-import { fontSize, hitSlop, input, inputProps, layout, spacing, text } from '../lib/theme';
+import { fontSize, input, inputProps, layout, spacing, text } from '../lib/theme';
 import { Button } from './button';
 import { Chip } from './chip';
 import { FieldError } from './field-error';
@@ -387,9 +387,6 @@ export function CommentField({ value, onChange }: { value: string; onChange: (te
 const styles = StyleSheet.create({
   dayRow: {
     gap: spacing.md,
-    // La ScrollView coupe ce qui la dépasse : place pour la zone tactile agrandie
-    // des puces (hitSlop), 48 px de haut au lieu de 44.
-    paddingVertical: hitSlop.top,
   },
   /** Libellé et sa précision serrés ; les puces restent à 12 px dessous. */
   labelGroup: {
