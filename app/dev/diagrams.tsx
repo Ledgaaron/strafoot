@@ -9,18 +9,19 @@ import { FieldError } from '../../components/field-error';
 import { Screen } from '../../components/screen';
 import { listQuestionDiagrams, type QuestionDiagramRow } from '../../lib/db/questions';
 import { listSheets, type SheetRow } from '../../lib/db/training';
-import { parseDiagram, type DiagramParseResult, type OptionScores } from '../../lib/diagram-types';
+import { optionLetter, parseDiagram, type DiagramParseResult, type OptionScores } from '../../lib/diagram-types';
 import { SCORE_LABELS } from '../../lib/quiz-taxonomy';
 import { parseAtomicExercise, parseExercises, type Exercise, type ParseResult } from '../../lib/sheet-types';
 import { colors, layout, spacing, text } from '../../lib/theme';
 
 // Prévisualisation des schémas (chantier 13a), ouverte seulement par l'URL
-// /dev/diagrams, liée nulle part dans l'app : chaque schéma en base, nu, option 2
-// sélectionnée, puis réponse avec le choix 3 ; deux démonstrations du format en
+// /dev/diagrams, liée nulle part dans l'app : chaque schéma en base, nu, option B
+// sélectionnée, réponse avec le choix C (la choisie et les options à 3), puis la
+// même réponse avec tout affiché (showAll) ; deux démonstrations du format en
 // code pour ce que les schémas en base n'emploient pas (encart, objets, passes,
 // tir, vues full et box_right). Vérification visuelle, rien n'est enregistré.
 
-/** Option allumée par l'état selected, et choix de l'état result. */
+/** Option allumée par l'état selected (B), et choix de l'état result (C). */
 const SELECTED_ID = 2;
 const CHOSEN_ID = 3;
 
@@ -136,7 +137,7 @@ export default function DiagramsPreviewScreen() {
       <Stack.Screen options={{ title: 'Schémas' }} />
       <Screen footer={<Button variant="secondary" label="Retour" onPress={leave} />}>
         <Text style={text.meta}>
-          {`Vérification visuelle : chaque schéma nu, option ${SELECTED_ID} sélectionnée, puis réponse avec le choix ${CHOSEN_ID}.`}
+          {`Vérification visuelle : chaque schéma nu, option ${optionLetter(SELECTED_ID)} sélectionnée, réponse avec le choix ${optionLetter(CHOSEN_ID)}, puis la même avec tout affiché.`}
         </Text>
         {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
         {state.status === 'error' ? (
@@ -253,9 +254,13 @@ function PreviewSection({ title, items }: { title: string; items: readonly Previ
   );
 }
 
-/** Un schéma : nu ; avec des options, option 2 sélectionnée ; avec des scores, la réponse au choix 3. */
+/**
+ * Un schéma : nu ; avec des options, option B sélectionnée ; avec des scores, la
+ * réponse au choix C, puis la même avec tout affiché.
+ */
 function PreviewCard({ item }: { item: PreviewItem }) {
   const { parsed, scores } = item;
+  const chosen = optionLetter(CHOSEN_ID);
   return (
     <View style={styles.item}>
       <Text style={text.bodyStrong}>{item.title}</Text>
@@ -267,16 +272,18 @@ function PreviewCard({ item }: { item: PreviewItem }) {
           <Diagram diagram={parsed.data} />
           {parsed.data.options.length > 0 ? (
             <>
-              <Text style={text.overline}>{`Option ${SELECTED_ID} sélectionnée`}</Text>
+              <Text style={text.overline}>{`Option ${optionLetter(SELECTED_ID)} sélectionnée`}</Text>
               <Diagram diagram={parsed.data} selected={SELECTED_ID} />
             </>
           ) : (
-            <Text style={text.meta}>Sans options : les trois états sont identiques.</Text>
+            <Text style={text.meta}>Sans options : les quatre états sont identiques.</Text>
           )}
           {parsed.data.options.length > 0 && scores !== null ? (
             <>
-              <Text style={text.overline}>{`Réponse : choix ${CHOSEN_ID} · ${SCORE_LABELS[scores[CHOSEN_ID]]}`}</Text>
+              <Text style={text.overline}>{`Réponse : choix ${chosen} · ${SCORE_LABELS[scores[CHOSEN_ID]]}`}</Text>
               <Diagram diagram={parsed.data} result={{ chosen: CHOSEN_ID, scores }} />
+              <Text style={text.overline}>{`Réponse : choix ${chosen}, tout afficher`}</Text>
+              <Diagram diagram={parsed.data} result={{ chosen: CHOSEN_ID, scores }} showAll />
             </>
           ) : null}
         </>

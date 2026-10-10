@@ -68,7 +68,7 @@ commentaire, ou abandon tant que rien n'est enregistré ; session : séance de m
 mise à jour (updateSession), « N tests enregistrés sur M » ; au-delà de 3 h de chrono, « séance oubliée ? » : durée
 de la fiche (durée prévue d'une session) ou du chrono
 quiz/_layout.tsx garde d'auth + pile de la série ; quiz/run.tsx série de 5 questions puis récap ; schéma de la
-question s'il en a un, entre la situation et les options (numérotées comme ses pastilles)
+question s'il en a un, entre la situation et les options (lettres A-D, comme ses pastilles)
 training/_layout.tsx garde d'auth ; training/[theme].tsx liste des fiches de lecture, ouverte par la carte Fiches du
 Profil : une section par thème, celui de l'URL d'abord (Entraînements spécifiques, puis Récupération, vide), cartes
 et ▶
@@ -84,8 +84,8 @@ measure/_layout.tsx garde d'auth ; measure/[testId].tsx courbe, historique et su
 (dossier sans index à côté d'un onglet du même nom : /quiz, /training et /profile restent les onglets ; /training
 est l'onglet Tests)
 dev/_layout.tsx garde d'auth ; dev/diagrams.tsx prévisualisation des schémas, ouverte seulement par l'URL
-/dev/diagrams, liée nulle part : chaque schéma en base (questions, diagram_data des exercices) nu, option 2
-sélectionnée, réponse au choix 3, et deux démonstrations du format en code
+/dev/diagrams, liée nulle part : chaque schéma en base (questions, diagram_data des exercices) nu, option B
+sélectionnée, réponse au choix C, la même avec tout affiché (showAll), et deux démonstrations du format en code
 lib/
 supabase.ts client unique
 auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth
@@ -129,7 +129,7 @@ un exercice ; diagram_data facultatif d'un exercice : schéma au format de diagr
 app / script
 diagram-types.ts format des schémas (vues, joueurs, ballon, objets, options 1-4, trajet, encart ; voir Schémas),
 validateDiagram / parseDiagram partagés app / scripts, viewRegion, optionIdOfIndex (option affichée → id du
-schéma) (pur, testé par diagram-types.test.ts)
+schéma), optionLetter (id 1-4 → lettre affichée A-D) (pur, testé par diagram-types.test.ts)
 json-types.ts contenu des autres colonnes jsonb (questions.options)
 diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
 db/ une fonction par requête, typée (sessions.ts, dont getSessionDefaults : dernier module et dernière
@@ -166,8 +166,12 @@ chaque ouverture) ; mode browse (Accueil) ou pick (date d'une séance : jours à
 save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
 pitch-placeholder.tsx demi-terrain SVG (lignes pitchLine) affiché quand un exercice n'a pas de schéma
 diagram.tsx schéma dessiné depuis ses données (react-native-svg, cadre 722 × 646, sans animation) : terrain,
-joueurs, flèches de vitesse, ballon, objets, trajet d'un test, options 1-4 et leurs pastilles, encart score ·
-minute ; états nu / selected / result ; exporte OptionBadge, la pastille d'une option dans les réponses du quiz
+joueurs, flèches de vitesse, ballon, objets, trajet d'un test, options A-D et leurs pastilles, encart score ·
+minute ; états nu / selected / result (prop showAll) ; exporte OptionBadge, la pastille (lettre) d'une option
+dans les réponses du quiz
+diagram-layout.ts géométrie des schémas, sans react-native ni dessin : cadre, terrain, flèches, traits des
+options, places des pastilles et des étiquettes d'objets (règles : voir Schémas) ; pur, testé par
+diagram-layout.test.ts sur les schémas pilotes de supabase/content/diagrams_001.json
 stat.tsx chiffre dominant 44 px en police d'affichage, libellé, dénominateur à 40 % et unité en
 secondaire, élément de tête optionnel (flamme)
 duration-value.tsx durée en chiffre dominant (text.number) : « 6 h 40 », « 45 min », unité en secondaire dans le
@@ -339,9 +343,10 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
    `answers`, signalement d'une réponse contestable, récap de la série. Question à schéma
    (chantier 13a, intégration minimale avant la refonte 13b) : le schéma entre la situation et les
-   options, chaque option précédée de la pastille de son numéro ; l'option touchée s'allume sur le
-   schéma pendant l'enregistrement (selected), puis la réponse confirmée le colore (result) et les
-   pastilles des réponses prennent les mêmes couleurs.
+   options, chaque option précédée de la pastille de sa lettre (A-D) ; l'option touchée s'allume sur
+   le schéma pendant l'enregistrement (selected : seule à garder sa pastille), puis la réponse
+   confirmée ne montre que ton choix, dans sa catégorie, et les options à 3 (result) ; les pastilles
+   des réponses prennent les mêmes couleurs.
 3. **Tests** (onglet ; titre d'écran « Tests » depuis le chantier 10), de haut en bas : bouton
    « Proposer une session » → feuille du bas : la session de `proposeSession` (lib/test-plan.ts :
    famille la moins testée sur 28 jours, jamais testée d'abord, puis la plus anciennement testée ;
@@ -427,12 +432,13 @@ ou du test en cours (même hook `useElapsedLabel`) ne la rafraîchissent chaque 
 (écran au premier plan, app active). Pas de notification, pas de chrono par exercice, pas de
 lib de timer.
 
-## Schémas (chantier 13a)
+## Schémas (chantiers 13a et 13a bis)
 
 Un schéma est une donnée, jamais une image : format, validation et repères dans
 `lib/diagram-types.ts` (`validateDiagram` liste toutes les erreurs, `parseDiagram` les résume) ;
-`components/diagram.tsx` le dessine en SVG selon la DA (Illustration, « Schéma tactique vu du
-dessus »), cadre 722 × 646, même rendu web et natif, aucune animation (flèches fixes).
+`components/diagram-layout.ts` en calcule la géométrie (pure, testée) et `components/diagram.tsx` le
+dessine en SVG selon la DA (Illustration, « Schéma tactique vu du dessus »), cadre 722 × 646, même
+rendu web et natif, aucune animation (flèches fixes).
 
 - **Où vivent les données** : `questions.diagram` (009), contenu `supabase/content/diagrams_NNN.json`
   (`{ situation, diagram }`, situation = texte exact d'une question de `questions_NNN.json`, même
@@ -453,23 +459,39 @@ dessus »), cadre 722 × 646, même rendu web et natif, aucune animation (flèch
   (centre), w, h (mètres, goal / wall / zone seulement), label? }` ; `options?` (1 à 4) `{ id: 1-4,
   kind: pass | dribble | run | shot | hold, from? (défaut : le joueur you), to: { x, y } | id de joueur,
   path? }`, hold sur place, sans path ; `path?` (tests) `{ points (2+), style: run | dribble }` ;
-  `context?` `{ score: "2-1" (nous-eux), minute }`.
+  `context?` `{ score: "2-1" (nous-eux), minute }`. Les id restent 1-4 en données ; à l'écran, une
+  option est une lettre (`optionLetter` : 1 → A … 4 → D), jamais un chiffre (ceux des maillots).
 - **Rendu** (pixels de la DA, schéma de 358 px de large) : nous disque blanc r 11, numéro 12 px gras
   anthracite ; eux anneau gris 2,5 ; toi halo violet ; ballon cerclé collé au porteur ; vitesse
   9 / 15 / 22 px et 2 / 2,5 / 3,2 ; passe en pointillé, conduite / course / tir en trait plein, hold en
-  arc autour du joueur ; pastille numérotée 14 px gras à l'extrémité (juste avant la pointe vers un
-  joueur), qui recule le long du trait si un joueur, le ballon ou une autre pastille y est déjà
-  (l'option la plus contrainte se place d'abord) ; trajet d'un test en blanc, conduite : ballon au
-  départ ; plots orange, objets gris ; encart score · minute en `text.scoreboard`.
-- **États** : nu (trait violet à 50 %, pastille violette) ; `selected` (l'option choisie en violet
-  plein, les autres à 40 %) ; `result` (options à 3 en success, la choisie dans sa catégorie :
-  3 success · 2 textMuted · 1 danger · 0 error, les autres couleur border, numéro secondaire).
-  `OptionBadge` : la même pastille dans les réponses du quiz.
+  arc autour du joueur ; pastille à lettre 14 px gras (disque r 11 cerclé de surface) ; trajet d'un
+  test en blanc, conduite : ballon au départ ; plots orange, objets gris ; encart score · minute en
+  `text.scoreboard`.
+- **Placement des pastilles** : à l'extrémité du trait, à la place de la pointe (vers un joueur :
+  juste avant la pointe, donc avant le receveur) ; place prise : elle recule le long du trait (pas de
+  4 px), puis s'en écarte perpendiculairement (18, puis 26 px du trait) ; hold : milieu d'un arc de
+  120° autour du joueur, 24 directions. Jamais : un bord de pastille à moins de 2 px d'un joueur (halo
+  compris), d'un ballon ou d'une autre pastille, ni hors du cadre. Si possible : ne couvrir ni le trait
+  d'une autre option, ni une flèche de vitesse, ni le trajet ; l'arc d'un hold ne croise ni trait ni
+  pastille. Options posées une à une dans chacun des 24 ordres, la répartition la moins coûteuse
+  l'emporte ; mêmes places dans tous les états (seules certaines pastilles disparaissent).
+- **Étiquettes d'objets** : sous l'objet, sinon au-dessus, à droite, à gauche (une zone : en son centre
+  d'abord), à la première place libre : sans croiser trait, ligne du terrain ni bord de zone, sans
+  recouvrir joueur, ballon, pastille, objet ni autre étiquette, dans le cadre ; aucune place libre :
+  la moins gênée (longueur de trait traversée, chevauchements).
+- **États** : nu (les quatre options, trait violet à 50 %, pastille violette) ; `selected` (l'option
+  choisie en violet plein avec sa pastille, les autres en trait à 40 % sans pastille) ; `result`
+  (seules la choisie, dans sa catégorie : 3 success · 2 textMuted · 1 danger · 0 error, et les options
+  à 3 en success) ; `result` avec `showAll` (« Voir les autres choix », 13b : les autres aussi,
+  couleur border, lettre secondaire). `OptionBadge` : la même pastille dans les réponses du quiz,
+  pour chacune des quatre options.
 - **Lien avec les réponses** : id d'une option du schéma = rang de l'option dans `questions.options`,
-  à partir de 1 (`optionIdOfIndex`) ; le mélange des réponses (13b) devra garder ce rang d'origine.
-- **/dev/diagrams** : chaque schéma en base dans ses états (nu, option 2 sélectionnée, réponse au
-  choix 3 ; un seul état sans options) et deux démonstrations du format en code ; ouvert seulement
-  par l'URL (sur iPhone, dans Safari : l'app installée n'a pas de barre d'adresse).
+  à partir de 1 (`optionIdOfIndex`), affiché en lettre (`optionLetter`) ; le mélange des réponses
+  (13b) devra garder ce rang d'origine.
+- **/dev/diagrams** : chaque schéma en base dans ses états (nu, option B sélectionnée, réponse au
+  choix C, la même avec tout affiché ; un seul état sans options) et deux démonstrations du format en
+  code ; ouvert seulement par l'URL (sur iPhone, dans Safari : l'app installée n'a pas de barre
+  d'adresse).
 
 ## Hors périmètre v1 — ne pas proposer, ne pas préparer
 
@@ -554,7 +576,8 @@ et screen 28/32 suivent la DA (titres, pas du texte courant). Contrastes de la D
 surface2), onAccent sur accent 6,6:1 ; `colors.error` (3,6:1) ne porte jamais de texte. Les
 messages bruts de Supabase restent en anglais (erreur jamais avalée). Schémas : numéros de
 maillot en 12 px gras (exception de la DA, toujours repris en toutes lettres dans la question) ;
-options en retrait après réponse couleur border (décoratif), leur numéro en textMuted reste lisible.
+options en retrait (réponse avec showAll) couleur border (décoratif), leur lettre en textMuted
+reste lisible.
 
 ## Méthode de travail
 
@@ -633,7 +656,9 @@ options en retrait après réponse couleur border (décoratif), leur numéro en 
   `npx tsx lib/measure-delta.test.ts`, `npx tsx lib/dates.test.ts`,
   `npx tsx lib/active-session.test.ts`, `npx tsx lib/records.test.ts`,
   `npx tsx lib/test-plan.test.ts`, `npx tsx lib/profile-stats.test.ts`,
-  `npx tsx lib/diagram-types.test.ts` (tests purs, sans framework)
+  `npx tsx lib/diagram-types.test.ts`, `npx tsx components/diagram-layout.test.ts` (lit les schémas
+  pilotes de supabase/content/diagrams_001.json : depuis la racine du projet) (tests purs, sans
+  framework)
 - Stockage de l'appareil (seulement lib/supabase.ts et lib/active-session.ts attendus) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'async-storage'`
 - Contrôle du design system (aucune ligne attendue) :

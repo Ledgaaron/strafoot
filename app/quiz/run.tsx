@@ -438,7 +438,7 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
   const question = run.questions[index];
   const { phase } = run;
   // Schéma : l'option choisie s'allume pendant l'enregistrement, puis la réponse
-  // confirmée colore chaque option selon son score.
+  // confirmée ne garde que la choisie (couleur de sa catégorie) et les options à 3.
   const selected =
     phase.step === 'saving' || phase.step === 'saveError' ? (optionIdOfIndex(phase.chosenIndex) ?? undefined) : undefined;
   const result =
@@ -461,7 +461,7 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
         <AnswerReview
           options={question.options}
           phase={phase}
-          numbered={question.diagram !== null}
+          lettered={question.diagram !== null}
           result={result}
           onToggleFlag={onToggleFlag}
         />
@@ -479,11 +479,11 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
                 disabled={phase.step !== 'choosing'}
                 style={styles.option}
               >
-                {/* Avec un schéma : le numéro de sa pastille, pour relier la réponse à sa flèche. */}
+                {/* Avec un schéma : la lettre de sa pastille, pour relier la réponse à sa flèche. */}
                 {id !== null ? (
-                  <View style={styles.numberedRow}>
+                  <View style={styles.letteredRow}>
                     <OptionBadge id={id} />
-                    <Text style={[text.body, styles.numberedText]}>{option.text}</Text>
+                    <Text style={[text.body, styles.letteredText]}>{option.text}</Text>
                   </View>
                 ) : (
                   <Text style={text.body}>{option.text}</Text>
@@ -507,23 +507,23 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
 type AnswerReviewProps = {
   options: QuestionOption[];
   phase: AnsweredPhase;
-  /** La question porte un schéma : chaque option garde son numéro, dans la couleur du schéma. */
-  numbered: boolean;
+  /** La question porte un schéma : chaque option garde sa lettre, dans la couleur du schéma. */
+  lettered: boolean;
   result: DiagramResult | undefined;
   onToggleFlag: () => void;
 };
 
 /** Réponse confirmée : le score de l'option choisie, puis les 4 options et leurs explications. */
-function AnswerReview({ options, phase, numbered, result, onToggleFlag }: AnswerReviewProps) {
+function AnswerReview({ options, phase, lettered, result, onToggleFlag }: AnswerReviewProps) {
   const chosen = options[phase.chosenIndex];
   // Score décroissant ; à égalité, ordre d'origine, explicite quel que soit le moteur JS.
   const ranked = options
     .map((option, index) => ({ option, index }))
     .sort((a, b) => b.option.score - a.option.score || a.index - b.index);
   const flagged = phase.answer.flagged;
-  /** Pastille du numéro de l'option (rang d'origine), comme sur le schéma. */
+  /** Pastille de la lettre de l'option (rang d'origine), comme sur le schéma. */
   const badge = (index: number) => {
-    const id = numbered ? optionIdOfIndex(index) : null;
+    const id = lettered ? optionIdOfIndex(index) : null;
     return id !== null ? <OptionBadge id={id} result={result} /> : null;
   };
   return (
@@ -615,13 +615,13 @@ const styles = StyleSheet.create({
     minHeight: size.option,
     justifyContent: 'center',
   },
-  // Pastille du numéro à gauche, le texte prend le reste et passe à la ligne sous lui-même.
-  numberedRow: {
+  // Pastille de la lettre à gauche, le texte prend le reste et passe à la ligne sous lui-même.
+  letteredRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
   },
-  numberedText: {
+  letteredText: {
     flex: 1,
   },
   scoreRow: {

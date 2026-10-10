@@ -3,7 +3,7 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 
-import { parseDiagram, validateDiagram } from './diagram-types';
+import { OPTION_IDS, optionIdOfIndex, optionLetter, parseDiagram, validateDiagram } from './diagram-types';
 
 let total = 0;
 let failures = 0;
@@ -123,6 +123,14 @@ check('test sans options : repère local, plots étiquetés et trajet', () => {
     ],
   );
   assert.deepEqual(data.path, { points: [{ x: 0, y: 12 }, { x: 30, y: 12 }], style: 'run' });
+});
+
+check('optionLetter : 1 → A, 2 → B, 3 → C, 4 → D ; une réponse garde la lettre de son rang', () => {
+  assert.deepEqual(OPTION_IDS.map(optionLetter), ['A', 'B', 'C', 'D']);
+  // 3e réponse de questions.options (rang 2) : option 3 du schéma, lettre C.
+  const id = optionIdOfIndex(2);
+  assert.ok(id !== null);
+  assert.equal(optionLetter(id), 'C');
 });
 
 if (failures > 0) {

@@ -76,10 +76,15 @@ export type DiagramObject = {
   label: string | null;
 };
 
-/** Numéro d'une option, repris dans les réponses. */
+/** Numéro d'une option en données (1 à 4) ; affiché en lettre (optionLetter). */
 export type OptionId = 1 | 2 | 3 | 4;
 
 export const OPTION_IDS: readonly OptionId[] = [1, 2, 3, 4];
+
+/** Lettre d'une option sur le schéma et dans les réponses : distincte des numéros de maillot. */
+export type OptionLetter = 'A' | 'B' | 'C' | 'D';
+
+const OPTION_LETTERS: Readonly<Record<OptionId, OptionLetter>> = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' };
 
 /** Passe : pointillé. Conduite, course, tir : trait plein. Hold : petit arc sur place. */
 export type OptionKind = 'pass' | 'dribble' | 'run' | 'shot' | 'hold';
@@ -185,6 +190,11 @@ export function viewRegion(view: DiagramView, widthM: number | null): Region {
  */
 export function optionIdOfIndex(index: number): OptionId | null {
   return OPTION_IDS.find((id) => id === index + 1) ?? null;
+}
+
+/** Lettre affichée d'une option : 1 → A, 2 → B, 3 → C, 4 → D (l'id reste 1-4 en données). */
+export function optionLetter(id: OptionId): OptionLetter {
+  return OPTION_LETTERS[id];
 }
 
 /** Schéma lu en base ; erreur lisible (les 5 premiers problèmes) s'il ne respecte pas le format. */
