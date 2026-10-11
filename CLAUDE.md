@@ -76,8 +76,10 @@ session/finish.tsx fin d'une fiche ou d'une session de tests chronométrée : du
 commentaire, ou abandon tant que rien n'est enregistré ; session : séance de module test déjà créée par son 1er test,
 mise à jour (updateSession), « N tests enregistrés sur M » ; au-delà de 3 h de chrono, « séance oubliée ? » : durée
 de la fiche (durée prévue d'une session) ou du chrono
-quiz/_layout.tsx garde d'auth + pile de la série ; quiz/run.tsx série de 5 questions puis récap ; schéma de la
-question s'il en a un, entre la situation et les options (lettres A-D, comme ses pastilles)
+quiz/_layout.tsx garde d'auth + pile de la série ; quiz/run.tsx série de 5 questions puis récap ; réponse en deux
+temps (sélection d'une option, puis « Valider » en pied, chantier 16) ; schéma de la question s'il en a un, entre
+la situation et les options (lettres A-D, comme ses pastilles), au repos sans option, puis la sélection seule,
+puis ton choix et la meilleure option
 training/_layout.tsx garde d'auth ; training/[theme].tsx liste des fiches de lecture, ouverte par la carte Fiches du
 Profil : une section par thème, celui de l'URL d'abord (Entraînements spécifiques, puis Récupération, vide), cartes
 et ▶
@@ -93,8 +95,12 @@ measure/_layout.tsx garde d'auth ; measure/[testId].tsx courbe, historique et su
 (dossier sans index à côté d'un onglet du même nom : /quiz, /training et /profile restent les onglets ; /training
 est l'onglet Tests)
 dev/_layout.tsx garde d'auth ; dev/diagrams.tsx prévisualisation des schémas, ouverte seulement par l'URL
-/dev/diagrams, liée nulle part : chaque schéma en base (questions, diagram_data des exercices) nu, option B
-sélectionnée, réponse au choix C, la même avec tout affiché (showAll), et deux démonstrations du format en code
+/dev/diagrams, liée nulle part : deux sources, « Dépôt » d'abord (les JSON de supabase/content/ importés dans le
+bundle, liste REPOSITORY du fichier : un fichier numéroté nouveau s'y ajoute à la main ; de quoi relire un lot sur
+la préversion avant tout seed), puis « Base » ; chaque schéma (questions avec les scores de leurs options,
+diagram_data des exercices) dans ses états : repos, sélection de B, réponse pour chaque choix, réponse A avec tout
+affiché (un seul état pour un test), puis les superpositions calculées par components/diagram-layout.ts (celles que
+les seeds refusent) ; deux démonstrations du format en code
 lib/
 supabase.ts client unique
 auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth ; un échec rend l'AuthError
@@ -157,11 +163,14 @@ measure-delta.ts évolution d'une mesure et format des valeurs (pur, testé)
 sheet-types.ts format des fiches, tests et sessions (kind, exercises, intro, mesures, blocks ; test atomique =
 un exercice ; diagram_data facultatif d'un exercice : schéma au format de diagram-types.ts), validation partagée
 app / script
-diagram-types.ts format des schémas (vues, joueurs, ballon, objets, options 1-4, trajet, encart ; voir Schémas),
-validateDiagram / parseDiagram partagés app / scripts, viewRegion, optionIdOfIndex (option affichée → id du
-schéma), optionLetter (id 1-4 → lettre affichée A-D) (pur, testé par diagram-types.test.ts)
+diagram-types.ts format des schémas (vues, dont zone (center, width_m) et local 2:1, joueurs, ballon, objets,
+options 1-4, trajet, cotes, encart ; voir Schémas), validateDiagram / parseDiagram partagés app / scripts,
+viewRegion, viewFrame (cadre d'une vue : 722 × 646, 722 × 542 ou 722 × 361), optionIdOfIndex (option affichée →
+id du schéma), optionLetter (id 1-4 → lettre affichée A-D), bestOptionId (meilleure option d'une question),
+formatMeters / formatDistance (« 1,5 m ») (pur, testé par diagram-types.test.ts)
 json-types.ts contenu des autres colonnes jsonb (questions.options)
-diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
+diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des PNG et du terrain par défaut (722 × 646 ;
+les cadres des vues dessinées : viewFrame de diagram-types.ts)
 db/ une fonction par requête, typée (sessions.ts, dont createSession idempotente (id client, on conflict (id)
 do nothing, puis relecture), getSessionDefaults : dernier module et dernière durée par module, et
 listSessionActivity : jour, module, durée, nom et instant de chaque séance ; answers.ts, dont createAnswer,
@@ -211,14 +220,16 @@ app-stack.tsx / app-stack.web.tsx pile d'écrans animée (micro-interaction g) :
 (animations du système), pile JS (expo-router/js-stack) sur le web (Metro prend le .web.tsx) ; prop rising : routes
 qui montent du bas
 save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
-pitch-placeholder.tsx demi-terrain SVG (lignes pitchLine) affiché quand un exercice n'a pas de schéma
-diagram.tsx schéma dessiné depuis ses données (react-native-svg, cadre 722 × 646, sans animation) : terrain,
-joueurs, flèches de vitesse, ballon, objets, trajet d'un test, options A-D et leurs pastilles, encart score ·
-minute ; états nu / selected / result (prop showAll) ; exporte OptionBadge, la pastille (lettre) d'une option
-dans les réponses du quiz
-diagram-layout.ts géométrie des schémas, sans react-native ni dessin : cadre, terrain, flèches, traits des
-options, places des pastilles et des étiquettes d'objets (règles : voir Schémas) ; pur, testé par
-diagram-layout.test.ts sur les schémas pilotes de supabase/content/diagrams_001.json
+pitch-placeholder.tsx demi-terrain SVG (lignes fieldLine) affiché quand un exercice n'a pas de schéma
+diagram.tsx schéma dessiné depuis ses données (react-native-svg, cadre de sa vue, sans animation) : terrain
+(lignes fieldLine), joueurs, flèches de vitesse, ballon, objets, trajet d'un test, cotes, options A-D (trait, ou
+anneau pointillé d'un hold) et leurs pastilles, encart score · minute ; états repos / selected / result (prop
+showAll), voir Schémas ; exporte OptionBadge, la pastille (lettre) d'une option dans les réponses du quiz
+diagram-layout.ts géométrie des schémas, sans react-native ni dessin : cadre par vue, terrain, flèches, traits des
+options (depuis le joueur, ou depuis le bord de l'anneau d'un hold affiché), anneaux, places des pastilles, cotes
+et étiquettes (règles : voir Schémas) ; états (DiagramState, visibleOptionIds, allStates, describeState) et
+détection des superpositions (findOverlaps, marge CLEARANCE) ; pur, testé par diagram-layout.test.ts sur les
+schémas pilotes de supabase/content/diagrams_001.json (scores lus dans questions_001.json), dans tous leurs états
 stat.tsx chiffre dominant 44 px en police d'affichage, libellé, dénominateur à 40 % et unité en
 secondaire, élément de tête optionnel (flamme)
 duration-value.tsx durée en chiffre dominant (text.number) : « 6 h 40 », « 45 min », unité en secondaire dans le
@@ -245,8 +256,9 @@ PNG du bucket, sinon terrain par défaut ; intertitre, liste (numéros en orange
 scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts : questions depuis questions_NNN.json,
 et leurs schémas depuis diagrams_NNN.json du même numéro ; build-seed-sheets.ts : fiches,
 tests atomiques et sessions depuis sheets_NNN.json, tests_atomic_NNN.json et sessions_NNN.json, validés sans être
-réécrits) ; run-tests.ts : lance chaque *.test.ts de lib/, components/ et scripts/ dans son processus
-(npm run test)
+réécrits) ; diagram-rules.ts : règles de contenu des schémas (chantier 16, voir Schémas), module pur partagé par
+les deux seeds, jamais embarqué dans l'app, testé par diagram-rules.test.ts sur tout supabase/content/ ;
+run-tests.ts : lance chaque *.test.ts de lib/, components/ et scripts/ dans son processus (npm run test)
 supabase/
 migrations/NNN_description.sql
 seed.sql données de démonstration du chantier 1 (UUID en dur) : ne plus relancer, il recréerait du contenu
@@ -487,12 +499,15 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    sur 7 jours, streak) ; séries de 5 questions QCM 4 options (jamais vues, puis dernier
    score ≤ 1, puis les plus anciennes) ; après réponse, affichage du score de l'option
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
-   `answers`, signalement d'une réponse contestable, récap de la série. Question à schéma
-   (chantier 13a, intégration minimale avant la refonte du chantier 18) : le schéma entre la situation et les
-   options, chaque option précédée de la pastille de sa lettre (A-D) ; l'option touchée s'allume sur
-   le schéma pendant l'enregistrement (selected : seule à garder sa pastille), puis la réponse
-   confirmée ne montre que ton choix, dans sa catégorie, et les options à 3 (result) ; les pastilles
-   des réponses prennent les mêmes couleurs.
+   `answers`, signalement d'une réponse contestable, récap de la série. Réponse en deux temps
+   (chantier 16, avancée du chantier 18) : toucher une option la sélectionne (carte en tone quiz ;
+   toucher une autre change la sélection), « Valider » (bouton principal, variante quiz, inactif sans
+   sélection, en cours pendant l'enregistrement) enregistre la réponse (id client, pendingRef), puis
+   la suite inchangée ; même flux sans schéma. Question à schéma : le schéma entre la situation et
+   les options, chaque option précédée de la pastille de sa lettre (A-D) ; au repos le schéma ne
+   dessine aucune option, la sélection dessine la seule option sélectionnée (violet, avec sa
+   pastille), puis la réponse confirmée montre ton choix et la meilleure option, chacune dans la
+   couleur de sa catégorie (result) ; les pastilles des réponses prennent les mêmes couleurs.
 3. **Tests** (onglet ; titre d'écran « Tests » depuis le chantier 10), de haut en bas : bouton
    « Proposer une session » → feuille du bas : la session de `proposeSession` (lib/test-plan.ts :
    famille la moins testée sur 28 jours, jamais testée d'abord, puis la plus anciennement testée ;
@@ -582,66 +597,96 @@ ou du test en cours (même hook `useElapsedLabel`) ne la rafraîchissent chaque 
 (écran au premier plan, app active). Pas de notification, pas de chrono par exercice, pas de
 lib de timer.
 
-## Schémas (chantiers 13a et 13a bis)
+## Schémas (chantiers 13a, 13a bis et 16)
 
 Un schéma est une donnée, jamais une image : format, validation et repères dans
 `lib/diagram-types.ts` (`validateDiagram` liste toutes les erreurs, `parseDiagram` les résume) ;
-`components/diagram-layout.ts` en calcule la géométrie (pure, testée) et `components/diagram.tsx` le
-dessine en SVG selon la DA (Illustration, « Schéma tactique vu du dessus »), cadre 722 × 646, même
-rendu web et natif, aucune animation (flèches fixes).
+`components/diagram-layout.ts` en calcule la géométrie et ses états et détecte les superpositions
+(pure, testée) ; `components/diagram.tsx` le dessine en SVG selon la DA (Illustration, « Schéma
+tactique vu du dessus »), même rendu web et natif, aucune animation (un trait apparaît ou disparaît
+sans transition). Les règles de contenu (`scripts/diagram-rules.ts`) sont vérifiées par les deux seeds
+et par scripts/diagram-rules.test.ts sur tout supabase/content/, jamais par l'app à la lecture : une
+donnée ancienne en base ne casse aucun écran.
 
 - **Où vivent les données** : `questions.diagram` (009), contenu `supabase/content/diagrams_NNN.json`
   (`{ situation, diagram }`, situation = texte exact d'une question de `questions_NNN.json`, même
   numéro), posé par un update idempotent de `seed_questions_NNN.sql` ; `diagram_data` d'un exercice
   (`tests_atomic_NNN.json`, `sheets_NNN.json`), dessiné à la place du PNG `diagram` et du terrain par
-  défaut. Les seeds valident chaque schéma ; l'app le revalide à la lecture (schéma invalide en base :
-  erreur de la liste, comme des options mal formées).
+  défaut. Les seeds valident chaque schéma (format et règles de contenu) ; l'app revalide le format à
+  la lecture (schéma invalide en base : erreur de la liste, comme des options mal formées).
 - **Repère terrain** : 105 × 68 m, x de 0 à 105, y de 0 (touche du haut) à 68. L'équipe qui a le
   ballon attaque vers la droite (but attaqué en x = 105) ; en phase de pressing (eux au ballon,
-  depuis leur but en x = 0), vue `half_left`. Vues : `full` ; `half_right` x ≥ 52,5 ; `half_left`
-  x ≤ 52,5 ; `box_right` x ≥ 80 et 10 ≤ y ≤ 58 (la surface entière, sinon coupée par le ratio) ;
-  `local` (tests) avec `width_m` : x de 0 à width_m, y de 0 à width_m × 646 / 722. Tout point doit
-  être dans le terrain puis dans sa vue. Même échelle en x et en y (vraies distances) : une demi-vue
-  se cale sur son but et montre aussi un peu de l'autre moitié.
+  depuis leur but en x = 0), la vue regarde la moitié gauche. Vues : `full` ; `half_right` x ≥ 52,5 ;
+  `half_left` x ≤ 52,5 ; `box_right` x ≥ 80 et 10 ≤ y ≤ 58 (la surface entière, sinon coupée par le
+  ratio) ; `zone` (quiz, chantier 16) : fenêtre centrée sur `center` { x, y }, large de `width_m` (30 à
+  60 m), haute de width_m × 3/4 (cadre 4:3, 722 × 542), qui peut déborder des lignes du terrain de 3 m
+  au plus ; `local` (tests) avec `width_m` : x de 0 à width_m, y de 0 à width_m / 2 (cadre paysage
+  2:1, 722 × 361, environ 180 pt de haut sur iPhone). Tout point doit être dans le terrain puis dans
+  sa vue. Même échelle en x et en y (vraies distances) ; cadre par vue (`viewFrame`) : les vues de
+  terrain gardent 722 × 646 (données anciennes, toujours valides), une demi-vue se cale sur son but et
+  montre aussi un peu de l'autre moitié ; le contenu de quiz nouveau est en vue zone.
 - **Éléments** : `players` (obligatoire, vide permis) `{ id, team: us | them, number?, x, y, you?,
   ball?, move?: { dx, dy, speed: walk | run | sprint } }`, un seul `you` (us) ; `ball` libre `{ x, y }`
   (un seul ballon, libre ou porté) ; `objects?` `{ type: cone | goal | wall | zone | mannequin, x, y
   (centre), w, h (mètres, goal / wall / zone seulement), label? }` ; `options?` (1 à 4) `{ id: 1-4,
   kind: pass | dribble | run | shot | hold, from? (défaut : le joueur you), to: { x, y } | id de joueur,
   path? }`, hold sur place, sans path ; `path?` (tests) `{ points (2+), style: run | dribble }` ;
-  `context?` `{ score: "2-1" (nous-eux), minute }`. Les id restent 1-4 en données ; à l'écran, une
-  option est une lettre (`optionLetter` : 1 → A … 4 → D), jamais un chiffre (ceux des maillots).
+  `dimensions?` (tests, 0 à 2) `{ from, to, label? }` : cote, étiquette par défaut la distance
+  calculée au format français (« 1,5 m ») ; `context?` `{ score: "2-1" (nous-eux), minute }`. Les id
+  restent 1-4 en données ; à l'écran, une option est une lettre (`optionLetter` : 1 → A … 4 → D),
+  jamais un chiffre (ceux des maillots).
 - **Rendu** (pixels de la DA, schéma de 358 px de large) : nous disque blanc r 11, numéro 12 px gras
   anthracite ; eux anneau gris 2,5 ; toi halo violet ; ballon cerclé collé au porteur ; vitesse
-  9 / 15 / 22 px et 2 / 2,5 / 3,2 ; passe en pointillé, conduite / course / tir en trait plein, hold en
-  arc autour du joueur ; pastille à lettre 14 px gras (disque r 11 cerclé de surface) ; trajet d'un
-  test en blanc, conduite : ballon au départ ; plots orange, objets gris ; encart score · minute en
-  `text.scoreboard`.
+  9 / 15 / 22 px et 2 / 2,5 / 3,2 ; passe en pointillé, conduite / course / tir en trait plein ; hold :
+  anneau pointillé autour du joueur (et de son ballon s'il le porte), juste au-delà du halo, dans la
+  couleur de l'option, pastille accolée ; un trait parti d'un joueur dont le hold est affiché part du
+  bord de l'anneau ; pastille à lettre 14 px gras (disque r 11 cerclé de surface) ; trajet d'un test en
+  blanc, conduite : ballon au départ ; plots orange, objets gris ; cote : trait fin à extrémités
+  marquées, décalé de 20 px du segment mesuré du côté libre (à égalité, à droite du sens from → to),
+  étiquette au-delà du trait d'abord ; lignes du terrain en `colors.fieldLine` ; encart score · minute
+  en `text.scoreboard`.
 - **Placement des pastilles** : à l'extrémité du trait, à la place de la pointe (vers un joueur :
   juste avant la pointe, donc avant le receveur) ; place prise : elle recule le long du trait (pas de
-  4 px), puis s'en écarte perpendiculairement (18, puis 26 px du trait) ; hold : milieu d'un arc de
-  120° autour du joueur, 24 directions. Jamais : un bord de pastille à moins de 2 px d'un joueur (halo
-  compris), d'un ballon ou d'une autre pastille, ni hors du cadre. Si possible : ne couvrir ni le trait
-  d'une autre option, ni une flèche de vitesse, ni le trajet ; l'arc d'un hold ne croise ni trait ni
-  pastille. Options posées une à une dans chacun des 24 ordres, la répartition la moins coûteuse
-  l'emporte ; mêmes places dans tous les états (seules certaines pastilles disparaissent).
-- **Étiquettes d'objets** : sous l'objet, sinon au-dessus, à droite, à gauche (une zone : en son centre
-  d'abord), à la première place libre : sans croiser trait, ligne du terrain ni bord de zone, sans
-  recouvrir joueur, ballon, pastille, objet ni autre étiquette, dans le cadre ; aucune place libre :
-  la moins gênée (longueur de trait traversée, chevauchements).
-- **États** : nu (les quatre options, trait violet à 50 %, pastille violette) ; `selected` (l'option
-  choisie en violet plein avec sa pastille, les autres en trait à 40 % sans pastille) ; `result`
-  (seules la choisie, dans sa catégorie : 3 success · 2 textMuted · 1 danger · 0 error, et les options
-  à 3 en success) ; `result` avec `showAll` (« Voir les autres choix », chantier 18 : les autres aussi,
-  couleur border, lettre secondaire). `OptionBadge` : la même pastille dans les réponses du quiz,
-  pour chacune des quatre options.
+  4 px), puis s'en écarte perpendiculairement (18, puis 26 px du trait) ; hold : accolée à l'anneau,
+  24 directions. Jamais : un bord de pastille à moins de 2 px d'un joueur (halo compris), d'un ballon,
+  d'une autre pastille, du trait ou de l'anneau d'une autre option, d'une flèche de vitesse ou du
+  trajet, ni hors du cadre. Options posées une à une dans chacun des 24 ordres, la répartition la
+  moins coûteuse l'emporte ; mêmes places dans tous les états (seules certaines pastilles sont
+  dessinées, une pastille ne bouge jamais d'un état à l'autre).
+- **Étiquettes d'objets et de cotes** : objet : sous l'objet, sinon au-dessus, à droite, à gauche
+  (une zone : en son centre d'abord) ; cote : au-delà de son trait, sinon en deçà, puis après chaque
+  extrémité ; à la première place libre : sans croiser trait, ligne du terrain, bord de zone ni cote,
+  sans recouvrir joueur, ballon, pastille, objet ni autre étiquette, dans le cadre ; aucune place
+  libre : la moins gênée (longueur de trait traversée, chevauchements).
+- **États** (chantier 16) : repos (joueurs, ballon, flèches de vitesse, encart : aucun trait ni
+  pastille d'option) ; `selected` (la seule option sélectionnée, violet plein, avec sa pastille) ;
+  `result` (ton choix et la meilleure option — score le plus haut, à égalité le plus petit rang
+  d'origine ; ton choix seul s'il est le meilleur, jamais plus de deux traits —, chacune dans la
+  couleur de sa catégorie : 3 success · 2 textMuted · 1 danger · 0 error, avec sa pastille) ; `result`
+  avec `showAll` (« Voir les autres choix », chantier 18, aucun bouton en 16 : toutes les options, les
+  autres couleur border, lettre textMuted). `OptionBadge` : la même pastille dans les réponses du
+  quiz, violette avant la réponse, puis les couleurs du result avec showAll.
+- **Règles de contenu** (scripts/diagram-rules.ts, refusées par les seeds, jamais par l'app) : quiz
+  (schéma avec options) : vue zone ; 6 à 9 joueurs ; destinations deux à deux à 8 m au moins
+  (destination = point visé, joueur visé, ou le joueur lui-même pour un hold) ; deux options du même
+  joueur écartées de 30° au moins (hold exclu). Test (vue local) : aucun joueur ; 2 cotes au plus.
+  Tous : aucune superposition (`findOverlaps`, marge 2 px) dans chaque état (repos, chaque sélection,
+  chaque résultat, tout afficher) : une pastille, un anneau, une étiquette ou une cote ne touche ni un
+  joueur (halo compris), ni le ballon, ni une autre pastille, étiquette, cote ou anneau, ni le trait
+  d'une autre option, ni une flèche de vitesse, ni le trajet, et reste dans le cadre ; deux traits
+  d'option ne se croisent pas hors de leur départ commun ; un trait d'option ne traverse aucun
+  joueur, hors son départ et son receveur ; deux joueurs ne se touchent pas, ni un ballon et un autre
+  joueur ; une flèche de vitesse ne touche aucun autre joueur. Une violation : le seed n'écrit rien et
+  liste chaque violation (schéma, état, éléments en cause, écart en px).
 - **Lien avec les réponses** : id d'une option du schéma = rang de l'option dans `questions.options`,
   à partir de 1 (`optionIdOfIndex`), affiché en lettre (`optionLetter`) ; le mélange des réponses
   (chantier 18) devra garder ce rang d'origine.
-- **/dev/diagrams** : chaque schéma en base dans ses états (nu, option B sélectionnée, réponse au
-  choix C, la même avec tout affiché ; un seul état sans options) et deux démonstrations du format en
-  code ; ouvert seulement par l'URL (sur iPhone, dans Safari : l'app installée n'a pas de barre
-  d'adresse).
+- **/dev/diagrams** : « Dépôt » d'abord (les JSON de supabase/content/ importés dans le bundle, liste
+  REPOSITORY de app/dev/diagrams.tsx : un fichier numéroté nouveau s'y ajoute à la main), puis
+  « Base » ; chaque schéma dans ses états (repos, sélection de B, réponse pour chaque choix, réponse A
+  avec tout affiché ; un seul état pour un test), puis les superpositions calculées ; deux
+  démonstrations du format en code ; ouvert seulement par l'URL (sur iPhone, dans Safari : l'app
+  installée n'a pas de barre d'adresse).
 
 ## Hors périmètre v1 — ne pas proposer, ne pas préparer
 
@@ -669,7 +714,8 @@ screen 28/32, bouton 16/20 700 ; libellés en majuscules (`text.overline`) espac
 Tokens (lib/theme.ts, valeurs de la planche Tokens) : couleurs (bg #101013, surface,
 surface2, surfacePressed, border, text, textMuted #A1A1AB, accent, accentPressed, accentTint,
 onAccent, danger #F05A5C, error, success, successSoft, quiz, quizPressed, quizTint, quizGlow,
-pitchLine (aussi semaine vide ou sous l'objectif de la régularité), scrim = bg à 60 %, voile
+pitchLine (semaine vide ou sous l'objectif de la régularité), fieldLine (lignes du terrain des
+schémas et du terrain par défaut, chantier 16), scrim = bg à 60 %, voile
 sombre seul sous une feuille ; `quizGradient` à part), espacements (xs 4 → xxxl 48), rayons (sm 8,
 md 12 = boutons et champs, lg 16 = cartes, xl 20 = feuilles, pill = puces ; alias card / button /
 chip ; bar 4 = haut des barres de la régularité, DA), dimensions (touch 48, chip 48, button 56,
@@ -737,7 +783,10 @@ et screen 28/32 suivent la DA (titres, pas du texte courant). Contrastes de la D
 surface2), onAccent sur accent 6,6:1 ; `colors.error` (3,6:1) ne porte jamais de texte.
 Schémas : numéros de maillot en 12 px gras (exception de la DA, toujours repris en toutes
 lettres dans la question) ; options en retrait (réponse avec showAll) couleur border
-(décoratif), leur lettre en textMuted reste lisible.
+(décoratif), leur lettre en textMuted reste lisible ; lignes du terrain des schémas et du terrain
+par défaut en `colors.fieldLine` #42424C (1,8:1 sur surface, 1,6:1 sur surface2) au lieu du
+#3A3A44 de la DA (1,4:1 sur surface2), écart assumé du chantier 16 ; `pitchLine` garde #3A3A44
+pour la régularité.
 
 ## Méthode de travail
 
@@ -819,7 +868,8 @@ lettres dans la question) ; options en retrait (réponse avec showAll) couleur b
 - `npm run test` (scripts/run-tests.ts) : chaque fichier `*.test.ts` de lib/, components/ et
   scripts/, dans son processus, tous lancés même après un échec (tests purs, sans framework ;
   depuis la racine du projet : components/diagram-layout.test.ts lit les schémas pilotes de
-  supabase/content/diagrams_001.json). Un seul fichier : `npx tsx lib/errors.test.ts`
+  supabase/content/diagrams_001.json et les scores de questions_001.json, scripts/diagram-rules.test.ts
+  tout supabase/content/). Un seul fichier : `npx tsx lib/errors.test.ts`
 - Erreurs reçues affichées hors `FieldError error=` (aucune ligne attendue ; le texte de l'app
   passe par message=, ses variables ne finissent ni par Error ni par .message) :
   `Get-ChildItem app, components -Recurse -Include *.tsx | Select-String -Pattern 'Erreur : \$\{|FieldError message=\{[^}]*(\.message|[eE]rror|exception)\b(?!\.)' -CaseSensitive`

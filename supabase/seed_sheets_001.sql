@@ -859,6 +859,120 @@ begin
             "equipment": "1 ballon, 8 plots"
           },
           "diagram": null,
+          "diagram_data": {
+            "view": "local",
+            "width_m": 18,
+            "players": [],
+            "objects": [
+              {
+                "type": "cone",
+                "x": 3.5,
+                "y": 4.5
+              },
+              {
+                "type": "cone",
+                "x": 5,
+                "y": 4.5
+              },
+              {
+                "type": "cone",
+                "x": 6.5,
+                "y": 4.5
+              },
+              {
+                "type": "cone",
+                "x": 8,
+                "y": 4.5
+              },
+              {
+                "type": "cone",
+                "x": 9.5,
+                "y": 4.5
+              },
+              {
+                "type": "cone",
+                "x": 11,
+                "y": 4.5
+              },
+              {
+                "type": "cone",
+                "x": 12.5,
+                "y": 4.5
+              },
+              {
+                "type": "cone",
+                "x": 14,
+                "y": 4.5
+              }
+            ],
+            "path": {
+              "points": [
+                {
+                  "x": 1.5,
+                  "y": 4.5
+                },
+                {
+                  "x": 3.5,
+                  "y": 3.8
+                },
+                {
+                  "x": 5,
+                  "y": 5.2
+                },
+                {
+                  "x": 6.5,
+                  "y": 3.8
+                },
+                {
+                  "x": 8,
+                  "y": 5.2
+                },
+                {
+                  "x": 9.5,
+                  "y": 3.8
+                },
+                {
+                  "x": 11,
+                  "y": 5.2
+                },
+                {
+                  "x": 12.5,
+                  "y": 3.8
+                },
+                {
+                  "x": 14,
+                  "y": 5.2
+                },
+                {
+                  "x": 16,
+                  "y": 4.5
+                }
+              ],
+              "style": "dribble"
+            },
+            "dimensions": [
+              {
+                "from": {
+                  "x": 1.5,
+                  "y": 4.5
+                },
+                "to": {
+                  "x": 3.5,
+                  "y": 4.5
+                }
+              },
+              {
+                "from": {
+                  "x": 5,
+                  "y": 4.5
+                },
+                "to": {
+                  "x": 3.5,
+                  "y": 4.5
+                }
+              }
+            ]
+          },
           "measures": [
             {
               "key": "dribble_slalom_libre",
@@ -1262,48 +1376,45 @@ begin
           "diagram": null,
           "diagram_data": {
             "view": "local",
-            "width_m": 30,
-            "players": [
-              {
-                "id": "joueur",
-                "team": "us",
-                "x": 0,
-                "y": 12
-              }
-            ],
+            "width_m": 36,
+            "players": [],
             "objects": [
               {
                 "type": "cone",
-                "x": 0,
-                "y": 15,
-                "label": "0 m"
+                "x": 3,
+                "y": 12
               },
               {
                 "type": "cone",
-                "x": 10,
-                "y": 15,
-                "label": "10 m"
-              },
-              {
-                "type": "cone",
-                "x": 30,
-                "y": 15,
-                "label": "30 m"
+                "x": 33,
+                "y": 12
               }
             ],
             "path": {
               "points": [
                 {
-                  "x": 0,
-                  "y": 12
+                  "x": 3,
+                  "y": 7
                 },
                 {
-                  "x": 30,
-                  "y": 12
+                  "x": 33,
+                  "y": 7
                 }
               ],
               "style": "run"
-            }
+            },
+            "dimensions": [
+              {
+                "from": {
+                  "x": 3,
+                  "y": 12
+                },
+                "to": {
+                  "x": 33,
+                  "y": 12
+                }
+              }
+            ]
           },
           "measures": [
             {

@@ -23,7 +23,10 @@
 // le schéma diffère. Validation : racine { _format facultatif, diagrams non vide } ;
 // entrée aux clés exactement situation, diagram ; situation = texte exact d'une
 // question du fichier apparié, une seule fois ; diagram conforme à
-// validateDiagram (lib/diagram-types.ts) ; aucune chaîne ni clé du schéma ne
+// validateDiagram (lib/diagram-types.ts) et aux règles de contenu de
+// scripts/diagram-rules.ts (chantier 16 : vue zone, 6 à 9 joueurs, destinations
+// et directions distinctes, aucune superposition dans aucun état, avec les
+// scores des options de la question) ; aucune chaîne ni clé du schéma ne
 // contient de caractère de contrôle ni « $$ ». Le jsonb est écrit tel que lu.
 // Un diagrams_NNN.json sans questions_NNN.json est une erreur.
 //
@@ -41,7 +44,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { validateDiagram } from '../lib/diagram-types';
+import { validateDiagram, type OptionScores } from '../lib/diagram-types';
 import {
   isPositionKey,
   isThemeKey,
@@ -51,6 +54,7 @@ import {
   type PositionKey,
   type ThemeKey,
 } from '../lib/quiz-taxonomy';
+import { checkDiagramRules } from './diagram-rules';
 
 const CONTENT_DIR = 'supabase/content';
 const OUTPUT_DIR = 'supabase';
@@ -292,7 +296,7 @@ function validateDiagramContent(
     return { diagrams: [], errors };
   }
 
-  const situations = new Set(questions.map((question) => question.situation));
+  const byInformation = new Map(questions.map((question) => [question.situation, question]));
   // Situation → numéro du premier schéma qui la porte.
   const seen = new Map<string, number>();
   const diagrams: SeedDiagram[] = [];
@@ -306,8 +310,9 @@ function validateDiagramContent(
     const before = errors.length;
     checkUnknownKeys(item, DIAGRAM_KEYS, where, errors);
     const situation = checkText(item.situation, 'situation', where, errors);
+    const question = situation === null ? undefined : byInformation.get(situation);
     if (situation !== null) {
-      if (!situations.has(situation)) {
+      if (question === undefined) {
         errors.push(
           `${where} : situation absente de ${questionsFile} ; attendu le texte exact d'une de ses questions (clé de l'update).`,
         );
@@ -322,8 +327,15 @@ function validateDiagramContent(
     if (item.diagram === undefined) {
       errors.push(`${where} : clé "diagram" absente ; attendu un schéma au format de lib/diagram-types.ts.`);
     } else {
-      for (const message of validateDiagram(item.diagram).errors) {
+      const diagram = validateDiagram(item.diagram);
+      for (const message of diagram.errors) {
         errors.push(`${where}, diagram, ${message}`);
+      }
+      if (diagram.errors.length === 0 && diagram.value !== null && question !== undefined) {
+        // Règles de contenu, dans chaque état de la réponse (scores de la question).
+        for (const message of checkDiagramRules(diagram.value, scoresOf(question))) {
+          errors.push(`${where}, diagram, ${message}`);
+        }
       }
       checkJsonText(item.diagram, 'diagram', where, errors);
     }
@@ -332,6 +344,15 @@ function validateDiagramContent(
     }
   }
   return { diagrams, errors };
+}
+
+/** Scores des 4 options d'une question, par rang (1 à 4) : états de résultat du schéma. */
+function scoresOf(question: SeedQuestion): OptionScores {
+  const score = (index: number): 0 | 1 | 2 | 3 => {
+    const value = question.options[index]?.score;
+    return value === 1 || value === 2 || value === 3 ? value : 0;
+  };
+  return { 1: score(0), 2: score(1), 3: score(2), 4: score(3) };
 }
 
 /**

@@ -52,8 +52,14 @@ export const colors = {
   quizTint: 'rgba(167,139,250,0.14)',
   /** quiz à 22 % → 0 : lueur du haut des écrans quiz (chantier 18), seule lueur de l'app. */
   quizGlow: 'rgba(167,139,250,0.22)',
-  /** Lignes des schémas et du terrain par défaut ; barre d'une semaine vide du graphe de régularité (DA). */
+  /** Barre d'une semaine vide ou sous l'objectif du graphe de régularité (DA : lignes de terrain). */
   pitchLine: '#3A3A44',
+  /**
+   * Lignes du terrain des schémas (sur surface, 1,8:1) et du terrain par défaut
+   * (sur surface2, 1,6:1) : écart assumé à la DA, dont le #3A3A44 tombe à 1,4:1
+   * sur surface2 (chantier 16).
+   */
+  fieldLine: '#42424C',
   /** bg à 60 % : voile sombre derrière une feuille du bas, sans flou. */
   scrim: 'rgba(16,16,19,0.6)',
 } as const;

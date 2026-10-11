@@ -1,6 +1,6 @@
 -- =============================================================================
 -- seed_questions_001.sql : 30 questions du quizz depuis
--- supabase/content/questions_001.json, et 3 schémas depuis
+-- supabase/content/questions_001.json, et 7 schémas depuis
 -- supabase/content/diagrams_001.json.
 --
 -- Fichier généré par scripts/build-seed-questions.ts : ne pas modifier à la
@@ -952,14 +952,19 @@ begin
     (
       'Ailier droit. Ton latéral remonte balle au pied à 40 m du but. Le latéral adverse te marque de près, il y a de l''espace dans son dos.',
       '{
-        "view": "half_right",
+        "view": "zone",
+        "width_m": 44,
+        "center": {
+          "x": 74,
+          "y": 50
+        },
         "players": [
           {
             "id": "us2",
             "team": "us",
             "number": 2,
             "x": 56,
-            "y": 60,
+            "y": 62,
             "ball": true,
             "move": {
               "dx": 1,
@@ -976,32 +981,25 @@ begin
             "you": true
           },
           {
-            "id": "us9",
-            "team": "us",
-            "number": 9,
-            "x": 82,
-            "y": 34
-          },
-          {
             "id": "us8",
             "team": "us",
             "number": 8,
-            "x": 64,
-            "y": 42
+            "x": 63,
+            "y": 44
           },
           {
-            "id": "us11",
+            "id": "us9",
             "team": "us",
-            "number": 11,
-            "x": 74,
-            "y": 8
+            "number": 9,
+            "x": 84,
+            "y": 37
           },
           {
             "id": "them3",
             "team": "them",
             "number": 3,
-            "x": 77,
-            "y": 53,
+            "x": 75,
+            "y": 63,
             "move": {
               "dx": -1,
               "dy": 0,
@@ -1013,35 +1011,14 @@ begin
             "team": "them",
             "number": 4,
             "x": 86,
-            "y": 40
-          },
-          {
-            "id": "them5",
-            "team": "them",
-            "number": 5,
-            "x": 86,
-            "y": 26
+            "y": 44
           },
           {
             "id": "them6",
             "team": "them",
             "number": 6,
-            "x": 70,
-            "y": 38
-          },
-          {
-            "id": "them2",
-            "team": "them",
-            "number": 2,
-            "x": 78,
-            "y": 12
-          },
-          {
-            "id": "them1",
-            "team": "them",
-            "number": 1,
-            "x": 101,
-            "y": 34
+            "x": 68,
+            "y": 40
           }
         ],
         "options": [
@@ -1059,8 +1036,8 @@ begin
             "kind": "run",
             "from": "us7",
             "to": {
-              "x": 94,
-              "y": 62
+              "x": 92,
+              "y": 63
             }
           },
           {
@@ -1068,18 +1045,14 @@ begin
             "kind": "run",
             "from": "us7",
             "to": {
-              "x": 79,
-              "y": 45
+              "x": 80,
+              "y": 46
             }
           },
           {
             "id": 4,
             "kind": "hold",
-            "from": "us7",
-            "to": {
-              "x": 72,
-              "y": 58
-            }
+            "from": "us7"
           }
         ]
       }'::jsonb
@@ -1087,14 +1060,19 @@ begin
     (
       'Faux 9. Ton milieu axial a le ballon face au jeu à 45 m. Les deux centraux adverses te marquent, tes ailiers sont larges.',
       '{
-        "view": "half_right",
+        "view": "zone",
+        "width_m": 44,
+        "center": {
+          "x": 73,
+          "y": 34
+        },
         "players": [
           {
             "id": "us6",
             "team": "us",
             "number": 6,
-            "x": 55,
-            "y": 34,
+            "x": 56,
+            "y": 38,
             "ball": true
           },
           {
@@ -1109,71 +1087,43 @@ begin
             "id": "us7",
             "team": "us",
             "number": 7,
-            "x": 72,
-            "y": 60
+            "x": 73,
+            "y": 49
           },
           {
             "id": "us11",
             "team": "us",
             "number": 11,
-            "x": 72,
-            "y": 8
-          },
-          {
-            "id": "us8",
-            "team": "us",
-            "number": 8,
-            "x": 63,
-            "y": 50
+            "x": 73,
+            "y": 19
           },
           {
             "id": "them4",
             "team": "them",
             "number": 4,
-            "x": 84,
+            "x": 85,
             "y": 28
           },
           {
             "id": "them5",
             "team": "them",
             "number": 5,
-            "x": 84,
+            "x": 85,
             "y": 40
           },
           {
             "id": "them6",
             "team": "them",
             "number": 6,
-            "x": 68,
-            "y": 30
+            "x": 67,
+            "y": 29
           },
           {
             "id": "them8",
             "team": "them",
             "number": 8,
-            "x": 68,
+            "x": 67,
             "y": 42
-          },
-          {
-            "id": "them2",
-            "team": "them",
-            "number": 2,
-            "x": 82,
-            "y": 12
-          },
-          {
-            "id": "them3",
-            "team": "them",
-            "number": 3,
-            "x": 82,
-            "y": 56
-          },
-          {
-            "id": "them1",
-            "team": "them",
-            "number": 1,
-            "x": 101,
-            "y": 34
           }
         ],
         "options": [
@@ -1182,26 +1132,22 @@ begin
             "kind": "run",
             "from": "us9",
             "to": {
-              "x": 74,
-              "y": 35
+              "x": 73,
+              "y": 25
             }
           },
           {
             "id": 2,
             "kind": "hold",
-            "from": "us9",
-            "to": {
-              "x": 80,
-              "y": 34
-            }
+            "from": "us9"
           },
           {
             "id": 3,
             "kind": "run",
             "from": "us9",
             "to": {
-              "x": 95,
-              "y": 30
+              "x": 92,
+              "y": 31
             }
           },
           {
@@ -1209,8 +1155,8 @@ begin
             "kind": "run",
             "from": "us9",
             "to": {
-              "x": 59,
-              "y": 36
+              "x": 61,
+              "y": 40
             }
           }
         ]
@@ -1219,7 +1165,12 @@ begin
     (
       'Ton équipe presse haut. Le gardien adverse passe au central droit, qui reçoit face au jeu. Tu es l''avant-centre, le plus proche.',
       '{
-        "view": "half_left",
+        "view": "zone",
+        "width_m": 40,
+        "center": {
+          "x": 18,
+          "y": 40
+        },
         "players": [
           {
             "id": "them1",
@@ -1232,73 +1183,52 @@ begin
             "id": "them4",
             "team": "them",
             "number": 4,
-            "x": 15,
-            "y": 46,
+            "x": 14,
+            "y": 45,
             "ball": true
           },
           {
             "id": "them5",
             "team": "them",
             "number": 5,
-            "x": 15,
-            "y": 22
+            "x": 14,
+            "y": 28
           },
           {
             "id": "them6",
             "team": "them",
             "number": 6,
-            "x": 28,
-            "y": 34
+            "x": 27,
+            "y": 38
           },
           {
             "id": "them2",
             "team": "them",
             "number": 2,
-            "x": 30,
-            "y": 60
-          },
-          {
-            "id": "them3",
-            "team": "them",
-            "number": 3,
-            "x": 30,
-            "y": 8
+            "x": 27,
+            "y": 54
           },
           {
             "id": "us9",
             "team": "us",
             "number": 9,
             "x": 26,
-            "y": 40,
+            "y": 48,
             "you": true
           },
           {
             "id": "us7",
             "team": "us",
             "number": 7,
-            "x": 33,
-            "y": 12
-          },
-          {
-            "id": "us11",
-            "team": "us",
-            "number": 11,
-            "x": 34,
-            "y": 55
+            "x": 31,
+            "y": 29
           },
           {
             "id": "us8",
             "team": "us",
             "number": 8,
-            "x": 40,
-            "y": 28
-          },
-          {
-            "id": "us6",
-            "team": "us",
-            "number": 6,
-            "x": 44,
-            "y": 42
+            "x": 37,
+            "y": 40
           }
         ],
         "options": [
@@ -1309,12 +1239,12 @@ begin
             "path": [
               {
                 "x": 22,
-                "y": 36
+                "y": 41
               }
             ],
             "to": {
-              "x": 19,
-              "y": 41
+              "x": 16,
+              "y": 37
             }
           },
           {
@@ -1322,26 +1252,449 @@ begin
             "kind": "run",
             "from": "us9",
             "to": {
-              "x": 17,
-              "y": 45
+              "x": 18,
+              "y": 49
             }
           },
           {
             "id": 3,
             "kind": "hold",
-            "from": "us9",
-            "to": {
-              "x": 26,
-              "y": 40
-            }
+            "from": "us9"
           },
           {
             "id": 4,
             "kind": "run",
             "from": "us9",
             "to": {
-              "x": 7,
-              "y": 35
+              "x": 8,
+              "y": 38
+            }
+          }
+        ]
+      }'::jsonb
+    ),
+    (
+      'Tu te retrouves seul face au gardien à 18 m, un défenseur revient à deux mètres derrière toi. Aucun coéquipier mieux placé.',
+      '{
+        "view": "zone",
+        "width_m": 30,
+        "center": {
+          "x": 90,
+          "y": 36
+        },
+        "players": [
+          {
+            "id": "us9",
+            "team": "us",
+            "number": 9,
+            "x": 87,
+            "y": 37,
+            "you": true,
+            "ball": true
+          },
+          {
+            "id": "us7",
+            "team": "us",
+            "number": 7,
+            "x": 78,
+            "y": 26
+          },
+          {
+            "id": "us10",
+            "team": "us",
+            "number": 10,
+            "x": 79,
+            "y": 45
+          },
+          {
+            "id": "them1",
+            "team": "them",
+            "number": 1,
+            "x": 101,
+            "y": 35
+          },
+          {
+            "id": "them4",
+            "team": "them",
+            "number": 4,
+            "x": 83.8,
+            "y": 41.2,
+            "move": {
+              "dx": 1,
+              "dy": 0,
+              "speed": "run"
+            }
+          },
+          {
+            "id": "them5",
+            "team": "them",
+            "number": 5,
+            "x": 80,
+            "y": 33,
+            "move": {
+              "dx": 1,
+              "dy": 0,
+              "speed": "run"
+            }
+          }
+        ],
+        "options": [
+          {
+            "id": 1,
+            "kind": "shot",
+            "from": "us9",
+            "to": {
+              "x": 105,
+              "y": 30.5
+            }
+          },
+          {
+            "id": 2,
+            "kind": "dribble",
+            "from": "us9",
+            "to": {
+              "x": 95,
+              "y": 26
+            }
+          },
+          {
+            "id": 3,
+            "kind": "hold",
+            "from": "us9"
+          },
+          {
+            "id": 4,
+            "kind": "pass",
+            "from": "us9",
+            "to": "us7"
+          }
+        ]
+      }'::jsonb
+    ),
+    (
+      'Faux 9. Tu décroches, tu reçois dos au jeu, et le central adverse t''a suivi jusque dans les pieds.',
+      '{
+        "view": "zone",
+        "width_m": 30,
+        "center": {
+          "x": 70,
+          "y": 36
+        },
+        "players": [
+          {
+            "id": "us9",
+            "team": "us",
+            "number": 9,
+            "x": 70,
+            "y": 36,
+            "you": true,
+            "ball": true
+          },
+          {
+            "id": "us8",
+            "team": "us",
+            "number": 8,
+            "x": 60,
+            "y": 40
+          },
+          {
+            "id": "us11",
+            "team": "us",
+            "number": 11,
+            "x": 70,
+            "y": 27,
+            "move": {
+              "dx": 1,
+              "dy": 0.4,
+              "speed": "sprint"
+            }
+          },
+          {
+            "id": "us7",
+            "team": "us",
+            "number": 7,
+            "x": 71,
+            "y": 47
+          },
+          {
+            "id": "them4",
+            "team": "them",
+            "number": 4,
+            "x": 74.4,
+            "y": 37
+          },
+          {
+            "id": "them5",
+            "team": "them",
+            "number": 5,
+            "x": 79,
+            "y": 28
+          },
+          {
+            "id": "them6",
+            "team": "them",
+            "number": 6,
+            "x": 64,
+            "y": 29
+          },
+          {
+            "id": "them8",
+            "team": "them",
+            "number": 8,
+            "x": 64,
+            "y": 44
+          },
+          {
+            "id": "them2",
+            "team": "them",
+            "number": 2,
+            "x": 80,
+            "y": 46
+          }
+        ],
+        "options": [
+          {
+            "id": 1,
+            "kind": "pass",
+            "from": "us9",
+            "to": "us8"
+          },
+          {
+            "id": 2,
+            "kind": "pass",
+            "from": "us9",
+            "to": "us11"
+          },
+          {
+            "id": 3,
+            "kind": "dribble",
+            "from": "us9",
+            "to": {
+              "x": 77,
+              "y": 32
+            }
+          },
+          {
+            "id": 4,
+            "kind": "hold",
+            "from": "us9"
+          }
+        ]
+      }'::jsonb
+    ),
+    (
+      'Ailier, 1 contre 1 face au latéral adverse à 30 m du but. 70e minute, score 1-1. Ton latéral arrive en soutien dans 3 secondes.',
+      '{
+        "view": "zone",
+        "width_m": 46,
+        "center": {
+          "x": 82,
+          "y": 48
+        },
+        "context": {
+          "score": "1-1",
+          "minute": 70
+        },
+        "players": [
+          {
+            "id": "us7",
+            "team": "us",
+            "number": 7,
+            "x": 76,
+            "y": 58,
+            "you": true,
+            "ball": true
+          },
+          {
+            "id": "us2",
+            "team": "us",
+            "number": 2,
+            "x": 63,
+            "y": 61,
+            "move": {
+              "dx": 1,
+              "dy": 0,
+              "speed": "run"
+            }
+          },
+          {
+            "id": "us8",
+            "team": "us",
+            "number": 8,
+            "x": 68,
+            "y": 42
+          },
+          {
+            "id": "us9",
+            "team": "us",
+            "number": 9,
+            "x": 91,
+            "y": 40
+          },
+          {
+            "id": "them3",
+            "team": "them",
+            "number": 3,
+            "x": 83,
+            "y": 59
+          },
+          {
+            "id": "them4",
+            "team": "them",
+            "number": 4,
+            "x": 88,
+            "y": 45
+          },
+          {
+            "id": "them6",
+            "team": "them",
+            "number": 6,
+            "x": 73,
+            "y": 47
+          }
+        ],
+        "options": [
+          {
+            "id": 1,
+            "kind": "dribble",
+            "from": "us7",
+            "to": {
+              "x": 88,
+              "y": 65
+            }
+          },
+          {
+            "id": 2,
+            "kind": "hold",
+            "from": "us7"
+          },
+          {
+            "id": 3,
+            "kind": "pass",
+            "from": "us7",
+            "to": {
+              "x": 87,
+              "y": 31
+            }
+          },
+          {
+            "id": 4,
+            "kind": "shot",
+            "from": "us7",
+            "to": {
+              "x": 105,
+              "y": 37
+            }
+          }
+        ]
+      }'::jsonb
+    ),
+    (
+      'Ailier gauche. Tu reçois dos au jeu, près de la ligne de touche, un défenseur dans ton dos qui te presse.',
+      '{
+        "view": "zone",
+        "width_m": 40,
+        "center": {
+          "x": 78,
+          "y": 14
+        },
+        "players": [
+          {
+            "id": "us7",
+            "team": "us",
+            "number": 7,
+            "x": 70,
+            "y": 5,
+            "you": true,
+            "ball": true
+          },
+          {
+            "id": "us3",
+            "team": "us",
+            "number": 3,
+            "x": 60,
+            "y": 9,
+            "move": {
+              "dx": 1,
+              "dy": 0,
+              "speed": "walk"
+            }
+          },
+          {
+            "id": "us8",
+            "team": "us",
+            "number": 8,
+            "x": 68,
+            "y": 18
+          },
+          {
+            "id": "them2",
+            "team": "them",
+            "number": 2,
+            "x": 74,
+            "y": 8
+          },
+          {
+            "id": "them3",
+            "team": "them",
+            "number": 3,
+            "x": 80,
+            "y": 16
+          },
+          {
+            "id": "them6",
+            "team": "them",
+            "number": 6,
+            "x": 71,
+            "y": 20
+          },
+          {
+            "id": "them8",
+            "team": "them",
+            "number": 8,
+            "x": 62,
+            "y": 20
+          },
+          {
+            "id": "them5",
+            "team": "them",
+            "number": 5,
+            "x": 88,
+            "y": 14
+          }
+        ],
+        "options": [
+          {
+            "id": 1,
+            "kind": "pass",
+            "from": "us7",
+            "to": "us3"
+          },
+          {
+            "id": 2,
+            "kind": "dribble",
+            "from": "us7",
+            "to": {
+              "x": 71,
+              "y": 12
+            }
+          },
+          {
+            "id": 3,
+            "kind": "dribble",
+            "from": "us7",
+            "to": {
+              "x": 76,
+              "y": 2
+            }
+          },
+          {
+            "id": 4,
+            "kind": "pass",
+            "from": "us7",
+            "to": {
+              "x": 95,
+              "y": 10
             }
           }
         ]
@@ -1353,11 +1706,11 @@ begin
     and q.diagram is distinct from v.diagram;
 
   get diagnostics updated_count = row_count;
-  raise notice 'diagrams_001.json pour % : sur 3 schémas, posés ou mis à jour : %, déjà à jour : %.',
-    uid, updated_count, 3 - updated_count;
+  raise notice 'diagrams_001.json pour % : sur 7 schémas, posés ou mis à jour : %, déjà à jour : %.',
+    uid, updated_count, 7 - updated_count;
 end
 $$;
 
 -- Contrôle (tous utilisateurs confondus) : au moins 30 questions après la
--- première exécution, dont au moins 3 avec un schéma ; inchangé après une seconde.
+-- première exécution, dont au moins 7 avec un schéma ; inchangé après une seconde.
 select count(*) as questions_total, count(diagram) as questions_avec_schema from public.questions;

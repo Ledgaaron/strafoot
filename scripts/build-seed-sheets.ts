@@ -40,7 +40,9 @@
 // toutes les sessions (clé d'idempotence du SQL) ; positions non vide, dans la
 // liste fermée, sans doublon ; duration_min entier positif ; intro au format de
 // validateIntro ; diagram_data d'un exercice, s'il y en a un, au format de
-// lib/diagram-types.ts (validateDiagram, appelé par validateExercises). Aucune
+// lib/diagram-types.ts (validateDiagram, appelé par validateExercises) et
+// conforme aux règles de contenu de scripts/diagram-rules.ts (chantier 16 :
+// aucun joueur en vue local, aucune superposition). Aucune
 // chaîne, valeur ou clé, à toute profondeur (diagram_data
 // compris), ne contient de caractère de contrôle, ni « $$ », qui fermerait le
 // bloc do du SQL, ni le marqueur de l'UUID.
@@ -85,6 +87,7 @@ import {
   type FamilyKey,
   type SkillKey,
 } from '../lib/test-families';
+import { checkDiagramRules } from './diagram-rules';
 
 const CONTENT_DIR = 'supabase/content';
 /** Schémas des exercices : les fichiers à déposer à la main dans le bucket Storage diagrams. */
@@ -437,6 +440,7 @@ function validateReading(
   addSheetErrors(validateIntro(item.intro).errors, where, errors);
   const exercises = validateExercises(item.exercises, 'training');
   addSheetErrors(exercises.errors, where, errors);
+  checkExerciseDiagrams(exercises.value, where, errors);
   checkSqlSafety(item, '', where, errors);
   if (
     errors.length > errorCount ||
@@ -482,6 +486,7 @@ function validateTest(item: unknown, where: string, slugs: Map<string, string>, 
   // Exactement un exercice, au format test : mesures obligatoires.
   const exercises = validateAtomicExercises(item.exercises);
   addSheetErrors(exercises.errors, where, errors);
+  checkExerciseDiagrams(exercises.value, where, errors);
   checkSqlSafety(item, '', where, errors);
   const exercise = exercises.value.at(0);
   if (
@@ -640,6 +645,18 @@ function checkPositiveInteger(value: unknown, field: string, where: string, erro
   }
   errors.push(`${where} : ${fieldError(field, value)} ; attendu un entier positif.`);
   return null;
+}
+
+/** Règles de contenu du schéma de chaque exercice validé (scripts/diagram-rules.ts), sans réponse : un seul état. */
+function checkExerciseDiagrams(exercises: readonly Exercise[], where: string, errors: string[]): void {
+  for (const exercise of exercises) {
+    if (exercise.diagram_data === null) {
+      continue;
+    }
+    for (const message of checkDiagramRules(exercise.diagram_data, null)) {
+      errors.push(`${exerciseWhere(where, exercise)}, diagram_data, ${message}`);
+    }
+  }
 }
 
 /** Erreurs de lib/sheet-types.ts (« intro : … », « exercice 1 « … » : … », « blocks, test 2 : … »), précédées de l'endroit de l'élément. */

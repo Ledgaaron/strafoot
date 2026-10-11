@@ -34,7 +34,7 @@ Strafoot, l'app du joueur sans staff. Utilisateur unique aujourd'hui : moi. Tout
 
 # Socle
 
-## Chantier 14 — Socle : multi-utilisateur et fiabilité `[~]`
+## Chantier 14 — Socle : multi-utilisateur et fiabilité `[X]`
 Statut (11/10) : code fait (contenu partagé, erreurs en français, lectures paginées, séances idempotentes, garde-fou Vercel, CLAUDE.md) ; à faire par moi : compte technique, 010, transfert, vérifications iPhone et 2e compte. Passe à `[x]` après ces vérifications.
 Objectif : tout ce qui sera construit ensuite naît prêt pour plusieurs comptes et pour les stores, sans reprise.
 - [~] Contenu partagé : questions, fiches, tests, sessions et catalogue des mesures lisibles par tous les comptes, jamais modifiables depuis l'app. Propriétaire : un compte technique « contenu », plus mon compte (aujourd'hui, supprimer mon compte effacerait le contenu). Mes réponses, séances et résultats restent liés aux mêmes lignes.
@@ -52,7 +52,7 @@ Objectif : tout ce qui sera construit ensuite naît prêt pour plusieurs comptes
 
 # Phase 1 — Boucle quotidienne
 
-## Chantier 15 — Accueil : boucle quotidienne `[~]` (ex-14, plus séance club)
+## Chantier 15 — Accueil : boucle quotidienne `[X]` (ex-14, plus séance club)
 Statut (11/10) : code fait (011, Accueil, objectifs, suggestion, bande des jours, Régularité, transitions, feuilles sans flou, CLAUDE.md) ; à faire par moi : 011 dans le SQL Editor, régénération de lib/types.ts, vérifications sur iPhone (préversion Vercel) et avec le compte de test. Passe à `[x]` après ces vérifications.
 Objectif : l'Accueil dit quoi faire aujourd'hui et défile ; la flamme ne compte que le travail personnel ; une séance club s'enregistre en un tap ; un objectif relie une mesure à une cible ; les écrans s'ouvrent avec une transition ; les feuilles du bas n'ont plus de flou.
 - [x] Travail personnel = toute séance sauf les modules hors flamme (liste fermée de lib/modules.ts : entraînement club ; le match n'est pas un module, il devient une entité au chantier 22). La flamme d'entraînement et l'objectif hebdomadaire ne comptent que lui ; les séances club restent visibles partout ailleurs (séances du jour, points du calendrier, jours actifs, Profil sauf « semaines à l'objectif »).
@@ -72,15 +72,17 @@ Objectif : l'Accueil dit quoi faire aujourd'hui et défile ; la flamme ne compte
 
 # Phase 2 — Les briques différenciantes
 
-## Chantier 16 — Schémas v2 `[ ]`
+## Chantier 16 — Schémas v2 `[X]`
+Statut (11/10) : code fait (format zone / local 2:1 / cotes, états, anneau de hold, règles de contenu dans les seeds, quiz en deux temps, /dev/diagrams Dépôt + Base, lot pilote de 9 schémas, CLAUDE.md) ; à faire par moi : relecture du lot dans /dev/diagrams (Dépôt) sur la préversion, seeds, vérifications iPhone. Passe à `[x]` après ces vérifications.
 Objectif : aucune superposition par construction, dans le quiz comme dans les tests.
-- [ ] Quiz : aucune flèche au repos (joueurs, ballon, contexte) ; option touchée → sa seule flèche ; après réponse → ton choix et la meilleure, deux flèches au plus ; « Voir les autres choix » → toutes. États prêts pour la réponse en deux temps du chantier 18.
-- [ ] Hold : marqueur discret sur le joueur, plus d'arc.
-- [ ] Vue resserrée (~40 × 30 m) cadrée sur l'action.
-- [ ] Règles de contenu vérifiées par le seed : 6 à 9 joueurs utiles ; destinations des options à 8 m au moins l'une de l'autre, dans des directions distinctes.
-- [ ] Tests : cadre paysage (~2:1, ~180 pt de haut sur iPhone) ; cotes (distance entre deux points, 1 ou 2 par schéma) ; trajet existant (zigzag, ballon au départ). Aucun personnage (DA).
-- [ ] Lot pilote d'environ 10 schémas (banc d'essai, pas du contenu) : quiz en zone dense, pressing, surface ; tests slalom (8 plots à 1,5 m, départ à 2 m) et sprint.
-- [ ] Terrain par défaut plus visible (dette : contraste 1,17:1).
+- [x] Quiz : aucune flèche au repos (joueurs, ballon, contexte) ; option touchée → sa seule flèche ; après réponse → ton choix et la meilleure, deux flèches au plus ; « Voir les autres choix » → toutes (état showAll prêt, bouton au chantier 18).
+- [x] Réponse en deux temps : sélection (sa flèche s'allume) puis « Valider » (avancée du chantier 18).
+- [x] Hold : anneau pointillé autour du joueur, plus d'arc.
+- [x] Vue resserrée (zone de 30 à 60 m, 4:3) cadrée sur l'action.
+- [x] Règles de contenu vérifiées par les seeds : 6 à 9 joueurs utiles ; destinations des options à 8 m au moins l'une de l'autre, dans des directions distinctes ; aucune superposition dans aucun état.
+- [x] Tests : cadre paysage (2:1, ~180 pt de haut sur iPhone) ; cotes (distance entre deux points, 1 ou 2 par schéma) ; trajet existant (zigzag, ballon au départ). Aucun personnage (DA).
+- [x] Lot pilote de 9 schémas (banc d'essai, pas du contenu) : 3 réécrits, 4 nouveaux (surface, zone dense, 1 contre 1 avec encart, dos au jeu ; pressing : seul le pilote réécrit convient), tests slalom (8 plots à 1,5 m, départ à 2 m) et sprint.
+- [x] Terrain par défaut plus visible (token fieldLine, 1,6:1 sur surface2).
 - Critère de fin : aucune superposition sur le lot pilote dans /dev/diagrams, puis sur iPhone. « Parfait » n'est pas un critère.
 
 ## Chantier 17 — Entraînement : l'onglet et l'écran d'un test `[ ]` (ex-10)
@@ -104,7 +106,6 @@ Objectif : choisir quoi faire d'un coup d'œil, comprendre un test sans lire, sa
 ## Chantier 18 — Quiz `[ ]` (ex-13b)
 Objectif : l'écran de la maquette ecran-quiz-apres-reponse.png, et une raison de revenir chaque jour.
 ### La question
-- [ ] Réponse en deux temps : sélection (sa flèche s'allume) puis « Valider ».
 - [ ] Réponses mélangées à l'affichage (rang d'origine conservé pour le schéma).
 - [ ] Catégories : ✓✓ bon choix (vert) · ✓ défendable (gris) · ? faible (rouge) · ✗ erreur (rouge foncé) ; points d'Elo gagnés ou perdus à côté ; plus de « 3/3 ».
 - [ ] Bulle du coach : explication du choix, une phrase en gras et « Plus » qui déroule le détail.

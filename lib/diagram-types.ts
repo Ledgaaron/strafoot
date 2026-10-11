@@ -7,14 +7,19 @@
 // d'écrire le SQL. Seul import : les dimensions du cadre (lib/diagrams.ts) ;
 // le module se charge hors de l'app, avec npx tsx.
 //
-// Repère terrain (vues full, half_right, half_left, box_right) : 105 × 68 m, x de
-// 0 (but de gauche) à 105 (but de droite), y de 0 (touche du haut) à 68. L'équipe
-// qui a le ballon attaque vers la droite : but attaqué en x = 105. En phase de
-// pressing (eux au ballon, partant de leur but en x = 0), vue half_left.
+// Repère terrain (vues full, half_right, half_left, box_right, zone) : 105 × 68 m,
+// x de 0 (but de gauche) à 105 (but de droite), y de 0 (touche du haut) à 68.
+// L'équipe qui a le ballon attaque vers la droite : but attaqué en x = 105. En
+// phase de pressing (eux au ballon, partant de leur but en x = 0), la vue regarde
+// la moitié gauche.
+// Vue zone (quiz, chantier 16) : fenêtre de width_m de large (30 à 60 m) centrée
+// sur center, haute de width_m × 3/4 (cadre 4:3, 722 × 542) ; elle peut déborder
+// des lignes du terrain de 3 m au plus, tout point reste dans le terrain et dans
+// la fenêtre.
 // Repère local (vue local, tests) : mètres depuis le coin haut gauche, x de 0 à
-// width_m, y de 0 à width_m × 646 / 722 (ratio du cadre).
+// width_m, y de 0 à width_m / 2 (cadre paysage 2:1, 722 × 361).
 // Le dessin garde les vraies distances (même échelle en x et en y) ; la vue dit
-// quelle zone doit être visible, le cadre 722 × 646 en montre parfois plus.
+// quelle zone doit être visible, le cadre en montre parfois un peu plus.
 
 import { DIAGRAM_HEIGHT, DIAGRAM_WIDTH } from './diagrams';
 
@@ -23,15 +28,41 @@ export const PITCH_LENGTH = 105;
 export const PITCH_WIDTH = 68;
 /** Ligne médiane. */
 export const HALFWAY_X = PITCH_LENGTH / 2;
+/** Une fenêtre zone peut déborder des lignes du terrain d'autant, en mètres. */
+export const ZONE_OVERFLOW = 3;
+/** Largeur d'une fenêtre zone, en mètres. */
+export const ZONE_WIDTH = { min: 30, max: 60 } as const;
+/** Cotes d'un schéma, au plus. */
+export const MAX_DIMENSIONS = 2;
 
 /**
  * full : tout le terrain ; half_right : x ≥ 52,5 (attaque) ; half_left : x ≤ 52,5
  * (pressing, relance) ; box_right : x ≥ 80 et 10 ≤ y ≤ 58 (la surface de droite et
- * ses abords) ; local : repère d'un test, largeur width_m.
+ * ses abords) ; zone : fenêtre centrée sur center, large de width_m (quiz) ;
+ * local : repère d'un test, largeur width_m, cadre 2:1.
  */
-export type DiagramView = 'full' | 'half_right' | 'half_left' | 'box_right' | 'local';
+export type DiagramView = 'full' | 'half_right' | 'half_left' | 'box_right' | 'zone' | 'local';
 
-export const DIAGRAM_VIEWS: readonly DiagramView[] = ['full', 'half_right', 'half_left', 'box_right', 'local'];
+export const DIAGRAM_VIEWS: readonly DiagramView[] = ['full', 'half_right', 'half_left', 'box_right', 'zone', 'local'];
+
+/** Cadre d'une vue, en pixels (ratio du dessin) : 722 × 646, 722 × 542 (zone, 4:3) ou 722 × 361 (local, 2:1). */
+export type DiagramFrame = { width: number; height: number };
+
+const PITCH_FRAME: DiagramFrame = { width: DIAGRAM_WIDTH, height: DIAGRAM_HEIGHT };
+const ZONE_FRAME: DiagramFrame = { width: DIAGRAM_WIDTH, height: 542 };
+const LOCAL_FRAME: DiagramFrame = { width: DIAGRAM_WIDTH, height: 361 };
+/** Hauteur d'une fenêtre zone : les 3/4 de sa largeur (cadre 4:3). */
+const ZONE_RATIO = 3 / 4;
+/** Hauteur du repère local : la moitié de sa largeur (cadre 2:1). */
+const LOCAL_RATIO = 1 / 2;
+
+/** Cadre d'une vue : les vues de terrain gardent 722 × 646 ; zone 722 × 542 ; local 722 × 361. */
+export function viewFrame(view: DiagramView): DiagramFrame {
+  if (view === 'zone') {
+    return ZONE_FRAME;
+  }
+  return view === 'local' ? LOCAL_FRAME : PITCH_FRAME;
+}
 
 export type Point = { x: number; y: number };
 
@@ -86,7 +117,7 @@ export type OptionLetter = 'A' | 'B' | 'C' | 'D';
 
 const OPTION_LETTERS: Readonly<Record<OptionId, OptionLetter>> = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' };
 
-/** Passe : pointillé. Conduite, course, tir : trait plein. Hold : petit arc sur place. */
+/** Passe : pointillé. Conduite, course, tir : trait plein. Hold : anneau pointillé autour du joueur. */
 export type OptionKind = 'pass' | 'dribble' | 'run' | 'shot' | 'hold';
 
 /** Fin d'une option : un point, ou un joueur (player = son id, x et y = sa position). */
@@ -108,6 +139,13 @@ export type PathStyle = 'run' | 'dribble';
 
 export type DiagramPath = { points: Point[]; style: PathStyle };
 
+/**
+ * Cote (tests) : distance entre deux points, étiquette par défaut la distance
+ * calculée au format français (« 1,5 m ») ; le trait fin, à extrémités marquées,
+ * est décalé du segment mesuré, du côté libre.
+ */
+export type DiagramDimension = { from: Point; to: Point; label: string };
+
 /** Encart en haut à gauche : score (nous–eux) et minute ; l'un des deux au moins. */
 export type DiagramContext = {
   score: { us: number; them: number } | null;
@@ -117,8 +155,10 @@ export type DiagramContext = {
 /** Schéma validé. Clés facultatives du JSON absentes : null, ou [] pour une liste. */
 export type DiagramData = {
   view: DiagramView;
-  /** Largeur du repère local en mètres (vue local) ; null pour une vue de terrain. */
+  /** Largeur de la fenêtre (zone) ou du repère local, en mètres ; null pour une autre vue de terrain. */
   width_m: number | null;
+  /** Centre de la fenêtre d'une vue zone ; null sinon. */
+  center: Point | null;
   context: DiagramContext | null;
   players: DiagramPlayer[];
   /** Ballon libre ; null : pas de ballon libre (il peut être collé à un porteur). */
@@ -126,6 +166,8 @@ export type DiagramData = {
   objects: DiagramObject[];
   options: DiagramOption[];
   path: DiagramPath | null;
+  /** 0 à 2 cotes, étiquette toujours renseignée (calculée à défaut). */
+  dimensions: DiagramDimension[];
 };
 
 /** Score (0 à 3) de chaque option, selon son numéro. */
@@ -137,13 +179,25 @@ export type DiagramResult = { chosen: OptionId; scores: OptionScores };
 /** Lecture validée : la donnée, ou une erreur lisible (jamais d'exception). */
 export type DiagramParseResult = { data: DiagramData; error: null } | { data: null; error: string };
 
-const ROOT_KEYS: readonly string[] = ['view', 'width_m', 'context', 'players', 'ball', 'objects', 'options', 'path'];
+const ROOT_KEYS: readonly string[] = [
+  'view',
+  'width_m',
+  'center',
+  'context',
+  'players',
+  'ball',
+  'objects',
+  'options',
+  'path',
+  'dimensions',
+];
 const CONTEXT_KEYS: readonly string[] = ['score', 'minute'];
 const PLAYER_KEYS: readonly string[] = ['id', 'team', 'number', 'x', 'y', 'you', 'ball', 'move'];
 const MOVE_KEYS: readonly string[] = ['dx', 'dy', 'speed'];
 const OBJECT_KEYS: readonly string[] = ['type', 'x', 'y', 'w', 'h', 'label'];
 const OPTION_KEYS: readonly string[] = ['id', 'kind', 'from', 'to', 'path'];
 const PATH_KEYS: readonly string[] = ['points', 'style'];
+const DIMENSION_KEYS: readonly string[] = ['from', 'to', 'label'];
 const POINT_KEYS: readonly string[] = ['x', 'y'];
 const TEAMS: readonly Team[] = ['us', 'them'];
 const SPEEDS: readonly Speed[] = ['walk', 'run', 'sprint'];
@@ -158,14 +212,14 @@ const PLAYER_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const SCORE_PATTERN = /^(\d{1,2})-(\d{1,2})$/;
 const MAX_NUMBER = 99;
 const MAX_MINUTE = 130;
-/** Une option va quelque part : sa fin est à plus de 0,5 m de son départ. */
+/** Une option (ou une cote) va quelque part : sa fin est à plus de 0,5 m de son départ. */
 const MIN_OPTION_LENGTH = 0.5;
 /** Erreurs affichées à l'écran au plus ; les suivantes sont résumées. */
 const MAX_SHOWN_ERRORS = 5;
 const VALUE_LENGTH = 60;
 
-/** Région de chaque vue de terrain ; local : calculée depuis width_m. */
-const PITCH_REGIONS: Readonly<Record<Exclude<DiagramView, 'local'>, Region>> = {
+/** Région de chaque vue de terrain fixe ; zone et local : calculées depuis center et width_m. */
+const PITCH_REGIONS: Readonly<Record<Exclude<DiagramView, 'local' | 'zone'>, Region>> = {
   full: { xMin: 0, xMax: PITCH_LENGTH, yMin: 0, yMax: PITCH_WIDTH },
   half_right: { xMin: HALFWAY_X, xMax: PITCH_LENGTH, yMin: 0, yMax: PITCH_WIDTH },
   half_left: { xMin: 0, xMax: HALFWAY_X, yMin: 0, yMax: PITCH_WIDTH },
@@ -174,13 +228,23 @@ const PITCH_REGIONS: Readonly<Record<Exclude<DiagramView, 'local'>, Region>> = {
   box_right: { xMin: 80, xMax: PITCH_LENGTH, yMin: 10, yMax: 58 },
 };
 
-/** Zone que la vue doit montrer, où tout élément du schéma doit se trouver. */
-export function viewRegion(view: DiagramView, widthM: number | null): Region {
-  if (view !== 'local') {
-    return PITCH_REGIONS[view];
+/**
+ * Zone que la vue doit montrer (son cadre, en mètres) : la fenêtre d'une vue
+ * zone (qui peut déborder du terrain), le repère d'une vue local, la région
+ * fixe des autres. Tout élément du schéma s'y trouve, et dans le terrain.
+ */
+export function viewRegion(view: DiagramView, widthM: number | null, center: Point | null): Region {
+  if (view === 'local') {
+    const width = widthM ?? 0;
+    return { xMin: 0, xMax: width, yMin: 0, yMax: width * LOCAL_RATIO };
   }
-  const width = widthM ?? 0;
-  return { xMin: 0, xMax: width, yMin: 0, yMax: (width * DIAGRAM_HEIGHT) / DIAGRAM_WIDTH };
+  if (view === 'zone') {
+    const width = widthM ?? 0;
+    const height = width * ZONE_RATIO;
+    const at = center ?? { x: 0, y: 0 };
+    return { xMin: at.x - width / 2, xMax: at.x + width / 2, yMin: at.y - height / 2, yMax: at.y + height / 2 };
+  }
+  return PITCH_REGIONS[view];
 }
 
 /**
@@ -197,6 +261,27 @@ export function optionLetter(id: OptionId): OptionLetter {
   return OPTION_LETTERS[id];
 }
 
+/** Meilleure option d'une question : le score le plus haut ; à égalité, le plus petit rang d'origine. */
+export function bestOptionId(scores: OptionScores): OptionId {
+  let best: OptionId = 1;
+  for (const id of OPTION_IDS) {
+    if (scores[id] > scores[best]) {
+      best = id;
+    }
+  }
+  return best;
+}
+
+/** Nombre en français, au dixième au plus : « 52,5 », « 26,8 », « 2 ». */
+export function formatMeters(value: number): string {
+  return String(Math.round(value * 10) / 10).replace('.', ',');
+}
+
+/** Étiquette par défaut d'une cote : sa longueur, « 1,5 m ». */
+export function formatDistance(from: Point, to: Point): string {
+  return `${formatMeters(Math.hypot(to.x - from.x, to.y - from.y))} m`;
+}
+
 /** Schéma lu en base ; erreur lisible (les 5 premiers problèmes) s'il ne respecte pas le format. */
 export function parseDiagram(value: unknown): DiagramParseResult {
   const { value: diagram, errors } = validateDiagram(value);
@@ -209,14 +294,17 @@ export function parseDiagram(value: unknown): DiagramParseResult {
 /**
  * Schéma et toutes ses erreurs, une par problème, sous la forme « <endroit> :
  * <problème>. » (endroit : « view », « joueur 3 « us7 » », « option 2 », « objet
- * 1 (cone) », « path, point 2 »…). Le schéma ne sert que si `errors` est vide.
- * Règles : racine aux clés de ROOT_KEYS, view et players obligatoires ; width_m
- * pour la vue local seulement (nombre > 0, au plus 105) ; tout point (joueurs,
- * ballon, objets, options, trajet) dans le terrain puis dans la vue (local : dans
- * le repère) ; joueurs d'id uniques, un seul you (us), un seul ballon (porteur ou
- * libre) ; objets goal, wall et zone avec w et h, cone et mannequin sans ;
- * options de 1 à 4, id uniques, from (sinon le joueur you) et to (point ou joueur)
- * existants, hold sur place, sans path ; trajet de 2 points au moins.
+ * 1 (cone) », « path, point 2 », « cote 1 »…). Le schéma ne sert que si `errors`
+ * est vide. Règles : racine aux clés de ROOT_KEYS, view et players obligatoires ;
+ * width_m pour les vues local (nombre > 0, au plus 105) et zone (de 30 à 60)
+ * seulement ; center pour la vue zone seulement, fenêtre dans le terrain à 3 m
+ * près ; tout point (joueurs, ballon, objets, options, trajet, cotes) dans le
+ * terrain puis dans la vue (local : dans le repère) ; joueurs d'id uniques, un
+ * seul you (us), un seul ballon (porteur ou libre) ; objets goal, wall et zone
+ * avec w et h, cone et mannequin sans ; options de 1 à 4, id uniques, from (sinon
+ * le joueur you) et to (point ou joueur) existants, hold sur place, sans path ;
+ * trajet de 2 points au moins ; 0 à 2 cotes { from, to, label? } de plus de
+ * 0,5 m, étiquette non vide ou calculée.
  */
 export function validateDiagram(value: unknown): { value: DiagramData | null; errors: string[] } {
   const errors: string[] = [];
@@ -228,11 +316,12 @@ export function validateDiagram(value: unknown): { value: DiagramData | null; er
 
   const view = checkChoice(value.view, 'view', DIAGRAM_VIEWS, 'schéma', errors);
   const widthM = view === null ? undefined : checkWidth(value.width_m, view, errors);
-  if (view === null || widthM === undefined) {
+  const center = view === null || widthM === undefined ? undefined : checkCenter(value.center, view, widthM, errors);
+  if (view === null || widthM === undefined || center === undefined) {
     // Sans vue lisible, aucun point ne peut être situé : le reste attendrait une correction.
     return { value: null, errors };
   }
-  const area: Area = { view, region: viewRegion(view, widthM) };
+  const area: Area = { view, region: viewRegion(view, widthM, center) };
 
   const context = checkContext(value.context, errors);
   const players = checkPlayers(value.players, area, errors);
@@ -241,6 +330,7 @@ export function validateDiagram(value: unknown): { value: DiagramData | null; er
   const objects = checkObjects(value.objects, area, errors);
   const options = players === null ? null : checkOptions(value.options, players, area, errors);
   const path = value.path === undefined ? null : checkPath(value.path, area, errors);
+  const dimensions = checkDimensions(value.dimensions, area, errors);
 
   if (players !== null) {
     const carriers = players.filter((player) => player.ball).length;
@@ -255,32 +345,88 @@ export function validateDiagram(value: unknown): { value: DiagramData | null; er
     objects === null ||
     options === null ||
     path === undefined ||
+    dimensions === null ||
     errors.length > 0
   ) {
     return { value: null, errors };
   }
-  return { value: { view, width_m: widthM, context, players, ball, objects, options, path }, errors };
+  return { value: { view, width_m: widthM, center, context, players, ball, objects, options, path, dimensions }, errors };
 }
 
 /** Vue d'un schéma et sa région, pour situer chaque point. */
 type Area = { view: DiagramView; region: Region };
 
-/** width_m : obligatoire pour local (nombre > 0, au plus 105), interdit sinon ; undefined si invalide. */
+/**
+ * width_m : obligatoire pour local (nombre > 0, au plus 105) et zone (de 30 à
+ * 60), interdit sinon ; undefined si invalide.
+ */
 function checkWidth(value: unknown, view: DiagramView, errors: string[]): number | null | undefined {
-  if (view !== 'local') {
+  if (view !== 'local' && view !== 'zone') {
     if (value === undefined) {
       return null;
     }
-    errors.push('schéma : width_m ne vaut que pour la vue local ; une vue de terrain a le repère 105 × 68.');
+    errors.push('schéma : width_m ne vaut que pour les vues local et zone ; une autre vue de terrain a le repère 105 × 68.');
     return undefined;
   }
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= PITCH_LENGTH) {
+  const min = view === 'zone' ? ZONE_WIDTH.min : 0;
+  const max = view === 'zone' ? ZONE_WIDTH.max : PITCH_LENGTH;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0 && value >= min && value <= max) {
     return value;
   }
-  errors.push(
-    `schéma : ${fieldError('width_m', value)} ; la vue local demande sa largeur en mètres (nombre > 0, au plus ${PITCH_LENGTH}).`,
-  );
+  const expected =
+    view === 'zone'
+      ? `la vue zone demande la largeur de sa fenêtre en mètres (nombre de ${min} à ${max})`
+      : `la vue local demande sa largeur en mètres (nombre > 0, au plus ${max})`;
+  errors.push(`schéma : ${fieldError('width_m', value)} ; ${expected}.`);
   return undefined;
+}
+
+/**
+ * center : obligatoire pour la vue zone (fenêtre dans le terrain, à ZONE_OVERFLOW
+ * près de chaque côté), interdit sinon ; undefined si invalide.
+ */
+function checkCenter(value: unknown, view: DiagramView, widthM: number | null, errors: string[]): Point | null | undefined {
+  if (view !== 'zone') {
+    if (value === undefined) {
+      return null;
+    }
+    errors.push('schéma : center ne vaut que pour la vue zone (centre de sa fenêtre).');
+    return undefined;
+  }
+  if (value === undefined) {
+    errors.push('schéma : clé "center" absente ; la vue zone demande le centre de sa fenêtre { x, y }, en mètres.');
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    errors.push(`schéma : center ${describeValue(value)} invalide ; attendu un point { x, y }.`);
+    return undefined;
+  }
+  checkUnknownKeys(value, POINT_KEYS, 'center', errors);
+  const x = checkFinite(value.x, 'x', 'center', errors);
+  const y = checkFinite(value.y, 'y', 'center', errors);
+  if (x === null || y === null) {
+    return undefined;
+  }
+  const width = widthM ?? 0;
+  const region = viewRegion('zone', width, { x, y });
+  const allowed: Region = {
+    xMin: -ZONE_OVERFLOW,
+    xMax: PITCH_LENGTH + ZONE_OVERFLOW,
+    yMin: -ZONE_OVERFLOW,
+    yMax: PITCH_WIDTH + ZONE_OVERFLOW,
+  };
+  if (
+    region.xMin < allowed.xMin ||
+    region.xMax > allowed.xMax ||
+    region.yMin < allowed.yMin ||
+    region.yMax > allowed.yMax
+  ) {
+    errors.push(
+      `schéma : fenêtre zone (${describeRegion(region)}) hors du terrain ; elle peut déborder de ${ZONE_OVERFLOW} m au plus (${describeRegion(allowed)}).`,
+    );
+    return undefined;
+  }
+  return { x, y };
 }
 
 /** Absent : null ; sinon { score « 2-1 », minute 1-130 }, l'un des deux au moins ; undefined si invalide. */
@@ -445,19 +591,20 @@ function checkObject(item: unknown, number: number, area: Area, errors: string[]
     errors.push(`${where} : w et h ne valent que pour ${SIZED_OBJECTS.join(', ')} ; un ${objectType} a une taille fixe.`);
     valid = false;
   }
-  let label: string | null = null;
-  if (item.label !== undefined) {
-    if (typeof item.label === 'string' && item.label.trim() !== '') {
-      label = item.label;
-    } else {
-      errors.push(`${where} : ${fieldError('label', item.label)} ; attendu une chaîne non vide.`);
-      valid = false;
-    }
-  }
-  if (!valid || objectType === null || point === null) {
+  const label = item.label === undefined ? null : checkLabel(item.label, where, errors);
+  if (!valid || objectType === null || point === null || label === undefined) {
     return null;
   }
   return { type: objectType, x: point.x, y: point.y, w, h, label };
+}
+
+/** Étiquette : chaîne non vide ; undefined si invalide. */
+function checkLabel(value: unknown, where: string, errors: string[]): string | undefined {
+  if (typeof value === 'string' && value.trim() !== '') {
+    return value;
+  }
+  errors.push(`${where} : ${fieldError('label', value)} ; attendu une chaîne non vide.`);
+  return undefined;
 }
 
 /** Étendue d'un objet : nombre > 0, au plus la longueur du terrain ; null sinon. */
@@ -628,6 +775,51 @@ function checkPath(value: unknown, area: Area, errors: string[]): DiagramPath | 
   return points === null || style === null ? undefined : { points, style };
 }
 
+/** Absent : [] ; sinon 0 à 2 cotes valides ; null s'il y a une erreur. */
+function checkDimensions(value: unknown, area: Area, errors: string[]): DiagramDimension[] | null {
+  if (value === undefined) {
+    return [];
+  }
+  if (!isArray(value) || value.length > MAX_DIMENSIONS) {
+    errors.push(
+      `schéma : ${fieldError('dimensions', value)} ; attendu un tableau de ${MAX_DIMENSIONS} cotes au plus { ${DIMENSION_KEYS.join(', ')} }.`,
+    );
+    return null;
+  }
+  const dimensions: DiagramDimension[] = [];
+  let valid = true;
+  for (const [index, item] of value.entries()) {
+    const dimension = checkDimension(item, index + 1, area, errors);
+    if (dimension === null) {
+      valid = false;
+    } else {
+      dimensions.push(dimension);
+    }
+  }
+  return valid ? dimensions : null;
+}
+
+/** Une cote { from, to, label? } : deux points de la vue à plus de 0,5 m ; étiquette calculée à défaut. */
+function checkDimension(item: unknown, number: number, area: Area, errors: string[]): DiagramDimension | null {
+  const where = `cote ${number}`;
+  if (!isRecord(item)) {
+    errors.push(`${where} : ${describeValue(item)} invalide ; attendu un objet { ${DIMENSION_KEYS.join(', ')} }.`);
+    return null;
+  }
+  checkUnknownKeys(item, DIMENSION_KEYS, where, errors);
+  const from = checkPoint(item.from, `${where}, from`, area, errors);
+  const to = checkPoint(item.to, `${where}, to`, area, errors);
+  const label = item.label === undefined ? null : checkLabel(item.label, where, errors);
+  if (from === null || to === null || label === undefined) {
+    return null;
+  }
+  if (Math.hypot(to.x - from.x, to.y - from.y) <= MIN_OPTION_LENGTH) {
+    errors.push(`${where} : from et to au même endroit ; une cote mesure une distance de plus de ${formatMeters(MIN_OPTION_LENGTH)} m.`);
+    return null;
+  }
+  return { from, to, label: label ?? formatDistance(from, to) };
+}
+
 /** Tableau d'au moins `min` points de la vue ; null sinon. */
 function checkPoints(value: unknown, where: string, min: number, area: Area, errors: string[]): Point[] | null {
   if (!isArray(value) || value.length < min) {
@@ -694,11 +886,6 @@ function isInside(x: number, y: number, region: Region): boolean {
 /** « x de 52,5 à 105, y de 0 à 68 ». */
 function describeRegion(region: Region): string {
   return `x de ${formatMeters(region.xMin)} à ${formatMeters(region.xMax)}, y de ${formatMeters(region.yMin)} à ${formatMeters(region.yMax)}`;
-}
-
-/** Nombre en français, au dixième au plus : « 52,5 », « 26,8 ». */
-function formatMeters(value: number): string {
-  return String(Math.round(value * 10) / 10).replace('.', ',');
 }
 
 /** « joueur 3 « us7 » » : de quoi retrouver le joueur dans le JSON. */

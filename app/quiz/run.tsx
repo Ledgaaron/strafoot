@@ -61,12 +61,13 @@ type RawParam = string | string[] | undefined;
 type ParsedFilter = { filter: QuestionFilter; error: null } | { filter: null; error: string };
 
 /**
- * Étape de la question courante. Le choix et l'id de la réponse sont figés dès
- * le tap ; le résultat et les explications n'apparaissent qu'une fois la réponse
- * confirmée par la base.
+ * Étape de la question courante. Réponse en deux temps (chantier 16) : toucher
+ * une option la sélectionne (le schéma la dessine seule), « Valider » l'envoie ;
+ * le choix et l'id de la réponse sont figés à la validation ; le résultat et les
+ * explications n'apparaissent qu'une fois la réponse confirmée par la base.
  */
 type QuestionPhase =
-  | { step: 'choosing' }
+  | { step: 'choosing'; selectedIndex: number | null }
   | { step: 'saving'; chosenIndex: number; answerId: string }
   | { step: 'saveError'; chosenIndex: number; answerId: string; message: string }
   | {
@@ -171,7 +172,7 @@ export default function QuizRunScreen() {
     const question = run.questions[index];
     pendingRef.current = true;
     updatePhase(run.id, index, { step: 'saving', chosenIndex, answerId });
-    // Enregistrée dès le tap : la streak quiz compte dès la première réponse.
+    // Enregistrée à la validation : la streak quiz compte dès la première réponse.
     const { data, error } = await createAnswer({
       id: answerId,
       question_id: question.id,
@@ -197,17 +198,30 @@ export default function QuizRunScreen() {
     updatePhase(run.id, index, { step: 'answered', chosenIndex, answer: data, flagging: false, flagError: null });
   }
 
-  function chooseOption(chosenIndex: number) {
-    // Garde sur l'état, pas seulement disabled : un second tap, même rapide, est ignoré.
-    if (screen.status !== 'running' || pendingRef.current) {
+  /** Sélection (ou changement de sélection) d'une option : rien n'est envoyé. */
+  function selectOption(selectedIndex: number) {
+    if (screen.status !== 'running') {
       return;
     }
     const { run } = screen;
     if (run.phase.step !== 'choosing') {
       return;
     }
+    updatePhase(run.id, run.scores.length, { step: 'choosing', selectedIndex });
+  }
+
+  /** « Valider » : enregistre l'option sélectionnée. */
+  function validateAnswer() {
+    // Garde sur l'état, pas seulement disabled : un second tap, même rapide, est ignoré.
+    if (screen.status !== 'running' || pendingRef.current) {
+      return;
+    }
+    const { run } = screen;
+    if (run.phase.step !== 'choosing' || run.phase.selectedIndex === null) {
+      return;
+    }
     // Id tiré une seule fois, avant le premier envoi : chaque réessai renverra le même.
-    saveAnswer(run, chosenIndex, randomUuid());
+    saveAnswer(run, run.phase.selectedIndex, randomUuid());
   }
 
   function retrySave() {
@@ -260,7 +274,7 @@ export default function QuizRunScreen() {
     setScreen(
       scores.length === run.questions.length
         ? { status: 'recap', questions: run.questions, scores }
-        : { status: 'running', run: { ...run, scores, phase: { step: 'choosing' } } },
+        : { status: 'running', run: { ...run, scores, phase: { step: 'choosing', selectedIndex: null } } },
     );
     // Contenu entièrement remplacé : lecture depuis le haut, sans défilement animé.
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -274,10 +288,18 @@ export default function QuizRunScreen() {
         : 'Quiz';
 
   // Pied selon l'étape : l'action qui fait avancer la série, sous le pouce, en
-  // violet (quiz). Aucun pendant le choix (les options sont l'action),
-  // l'enregistrement ou le chargement.
+  // violet (quiz) : « Valider » pendant le choix (inactif sans sélection, en
+  // cours pendant l'enregistrement), « Suivant » après la réponse. Aucun pendant
+  // le chargement ni après un échec d'enregistrement (le bouton de réessai est
+  // sous les options).
   let footer: ReactNode = null;
-  if (screen.status === 'running' && screen.run.phase.step === 'answered') {
+  if (screen.status === 'running' && screen.run.phase.step === 'choosing') {
+    footer = (
+      <Button variant="quiz" label="Valider" onPress={validateAnswer} disabled={screen.run.phase.selectedIndex === null} />
+    );
+  } else if (screen.status === 'running' && screen.run.phase.step === 'saving') {
+    footer = <Button variant="quiz" label="Valider" onPress={validateAnswer} loading />;
+  } else if (screen.status === 'running' && screen.run.phase.step === 'answered') {
     const isLast = screen.run.scores.length === screen.run.questions.length - 1;
     footer = (
       <Button
@@ -315,7 +337,7 @@ export default function QuizRunScreen() {
           />
         ) : null}
         {screen.status === 'running' ? (
-          <QuestionStep run={screen.run} onChoose={chooseOption} onRetrySave={retrySave} onToggleFlag={toggleFlag} />
+          <QuestionStep run={screen.run} onSelect={selectOption} onRetrySave={retrySave} onToggleFlag={toggleFlag} />
         ) : null}
         {screen.status === 'recap' ? <RunRecap questions={screen.questions} scores={screen.scores} /> : null}
       </Screen>
@@ -370,7 +392,7 @@ async function loadRun(filter: QuestionFilter): Promise<ScreenState> {
   }
   return {
     status: 'running',
-    run: { id: randomUuid(), questions, scores: [], phase: { step: 'choosing' } },
+    run: { id: randomUuid(), questions, scores: [], phase: { step: 'choosing', selectedIndex: null } },
   };
 }
 
@@ -411,19 +433,22 @@ function formatQuestionMeta(question: EligibleQuestion): string {
 
 type QuestionStepProps = {
   run: Run;
-  onChoose: (chosenIndex: number) => void;
+  onSelect: (selectedIndex: number) => void;
   onRetrySave: () => void;
   onToggleFlag: () => void;
 };
 
-function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStepProps) {
+function QuestionStep({ run, onSelect, onRetrySave, onToggleFlag }: QuestionStepProps) {
   const index = run.scores.length;
   const question = run.questions[index];
   const { phase } = run;
-  // Schéma : l'option choisie s'allume pendant l'enregistrement, puis la réponse
-  // confirmée ne garde que la choisie (couleur de sa catégorie) et les options à 3.
-  const selected =
-    phase.step === 'saving' || phase.step === 'saveError' ? (optionIdOfIndex(phase.chosenIndex) ?? undefined) : undefined;
+  // Option mise en évidence : la sélection pendant le choix, le choix envoyé ensuite.
+  const highlightedIndex =
+    phase.step === 'choosing' ? phase.selectedIndex : phase.step === 'answered' ? null : phase.chosenIndex;
+  // Schéma au repos sans sélection ; la seule option sélectionnée pendant le
+  // choix et l'enregistrement ; puis la réponse confirmée : ton choix et la
+  // meilleure option, dans la couleur de leur catégorie.
+  const selected = highlightedIndex !== null ? (optionIdOfIndex(highlightedIndex) ?? undefined) : undefined;
   const result =
     question.diagram !== null && phase.step === 'answered' ? diagramResult(question.options, phase.chosenIndex) : undefined;
   return (
@@ -450,15 +475,15 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
         />
       ) : (
         <View style={layout.section}>
-          {/* Une fois le choix fait, il reste en évidence (violet) et les autres sont grisées. */}
+          {/* L'option sélectionnée est en évidence (violet) ; toucher une autre change la sélection ; dès l'envoi, les autres sont grisées. */}
           {question.options.map((option, optionIndex) => {
             const id = question.diagram !== null ? optionIdOfIndex(optionIndex) : null;
             return (
               <Card
                 key={optionIndex}
                 tone="quiz"
-                onPress={() => onChoose(optionIndex)}
-                highlighted={phase.step !== 'choosing' && phase.chosenIndex === optionIndex}
+                onPress={() => onSelect(optionIndex)}
+                highlighted={highlightedIndex === optionIndex}
                 disabled={phase.step !== 'choosing'}
                 style={styles.option}
               >
@@ -474,7 +499,6 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
               </Card>
             );
           })}
-          {phase.step === 'saving' ? <Text style={text.meta}>Enregistrement…</Text> : null}
           {phase.step === 'saveError' ? (
             <>
               <FieldError error={phase.message} />
