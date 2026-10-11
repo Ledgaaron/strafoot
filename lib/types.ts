@@ -58,6 +58,57 @@ export type Database = {
           },
         ]
       }
+      goals: {
+        Row: {
+          created_at: string
+          deadline: string
+          id: string
+          retired_at: string | null
+          sheet_id: string
+          start_value: number | null
+          target_value: number
+          test_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          deadline: string
+          id?: string
+          retired_at?: string | null
+          sheet_id: string
+          start_value?: number | null
+          target_value: number
+          test_id: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          deadline?: string
+          id?: string
+          retired_at?: string | null
+          sheet_id?: string
+          start_value?: number | null
+          target_value?: number
+          test_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goals_sheet_id_fkey"
+            columns: ["sheet_id"]
+            isOneToOne: false
+            referencedRelation: "training_sheets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goals_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           birth_date: string | null
@@ -72,6 +123,7 @@ export type Database = {
           secondary_position: string | null
           strong_foot: string | null
           user_id: string
+          weekly_session_goal: number | null
         }
         Insert: {
           birth_date?: string | null
@@ -86,6 +138,7 @@ export type Database = {
           secondary_position?: string | null
           strong_foot?: string | null
           user_id?: string
+          weekly_session_goal?: number | null
         }
         Update: {
           birth_date?: string | null
@@ -100,6 +153,7 @@ export type Database = {
           secondary_position?: string | null
           strong_foot?: string | null
           user_id?: string
+          weekly_session_goal?: number | null
         }
         Relationships: []
       }

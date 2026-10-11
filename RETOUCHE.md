@@ -52,20 +52,21 @@ Objectif : tout ce qui sera construit ensuite naît prêt pour plusieurs comptes
 
 # Phase 1 — Boucle quotidienne
 
-## Chantier 15 — Accueil : boucle quotidienne `[ ]` (ex-14, plus séance club)
-Objectif : l'Accueil dit quoi faire aujourd'hui ; la flamme ne récompense que le travail personnel ; un objectif relie la mesure au travail.
-- [ ] Séance club proposée d'après mes habitudes, sans planning à déclarer : un jour J, « Entraînement club ce soir ? » si une séance club a été enregistrée le même jour de la semaine dans les 14 jours précédents et qu'aucune ne l'est encore ce jour-là ; durée = celle de cette dernière séance ; ✓ l'enregistre en un tap, « Pas ce soir » masque la proposition pour la journée.
-- [ ] Flamme d'entraînement : modules club et match exclus (liste fermée dans lib/modules.ts) ; ces séances restent visibles (séances du jour, calendrier, Profil).
-- [ ] Objectif branché sur une mesure d'un test : départ (dernier résultat), cible, échéance (ex. « Jonglerie pied G : 8 → 20 avant le 30/11 »). 1 à 3 objectifs actifs.
-- [ ] Progression automatique par les résultats ; objectif atteint ; « Échéance dépassée » au lieu d'un J-x négatif.
-- [ ] Objectif hebdomadaire de séances de travail personnel (ex. 3 / semaine).
-- [ ] Carte « Aujourd'hui » en haut de l'Accueil : 1 à 3 actions, chacune lancée en un tap (séance club du soir avec ✓, quiz du jour, test suggéré, objectif).
-- [ ] Règle de suggestion (lib pure, testée) : test d'un objectif actif → test jamais fait → test le plus ancien → si tout a moins de 14 jours, compétence qui a le plus de mesures en recul. Réutilisée au chantier 17 ; la note /99 remplacera le dernier critère au chantier 21.
-- [ ] Bande de la semaine : glisser du doigt pour changer de semaine, en plus des flèches (observation du 11/10), sans dépendance nouvelle.
-- [ ] Accueil : ce qui tient sans défilement, vérifié une fois la carte « Aujourd'hui » posée (observation du 11/10 : le premier réflexe est de faire défiler).
-- [ ] Profil, carte Régularité : objectif hebdomadaire en pointillé, « N/12 semaines à l'objectif » (maquette ecran-profil.png).
-- [ ] Détails UX de l'Accueil : à me donner avant le prompt.
-- À trancher dans le prompt : où créer et modifier un objectif ; sort des colonnes goal / goal_deadline de profiles (006) ; point du calendrier et « jours actifs » pour une séance club (par défaut : inchangés, seule la flamme filtre).
+## Chantier 15 — Accueil : boucle quotidienne `[~]` (ex-14, plus séance club)
+Statut (11/10) : code fait (011, Accueil, objectifs, suggestion, bande des jours, Régularité, transitions, feuilles sans flou, CLAUDE.md) ; à faire par moi : 011 dans le SQL Editor, régénération de lib/types.ts, vérifications sur iPhone (préversion Vercel) et avec le compte de test. Passe à `[x]` après ces vérifications.
+Objectif : l'Accueil dit quoi faire aujourd'hui et défile ; la flamme ne compte que le travail personnel ; une séance club s'enregistre en un tap ; un objectif relie une mesure à une cible ; les écrans s'ouvrent avec une transition ; les feuilles du bas n'ont plus de flou.
+- [x] Travail personnel = toute séance sauf les modules hors flamme (liste fermée de lib/modules.ts : entraînement club ; le match n'est pas un module, il devient une entité au chantier 22). La flamme d'entraînement et l'objectif hebdomadaire ne comptent que lui ; les séances club restent visibles partout ailleurs (séances du jour, points du calendrier, jours actifs, Profil sauf « semaines à l'objectif »).
+- [x] Séance club proposée un jour J : séance club le même jour de la semaine à J-7 ou J-14, aucune à J, proposition pas écartée ce jour-là ; nom et durée de la dernière de ce jour de la semaine (nom automatique refait pour J). ✓ crée la séance (idempotente, vibration, confirmation) ; « Pas ce soir » l'écarte pour la journée, mémorisé sur l'appareil (lib/club-dismissal.ts).
+- [x] Objectifs (table goals, données de l'utilisateur, migration 011) : une mesure d'un test atomique ; départ = dernier résultat à la création (vide si jamais mesuré) ; cible meilleure que le départ (sinon message sous le champ) ; échéance obligatoire, J+42 proposée ; 1 à 3 actifs ; une mesure par objectif actif, tenue aussi en base (index unique partiel, un doublon s'affiche en erreur) ; progression = meilleur résultat depuis la création ; états « J-12 », « Atteint ✓ le 3 nov. », « Échéance dépassée » (jamais de J négatif), « Pas encore mesuré » ; modifier (cible, échéance) ou retirer (données conservées).
+- [x] Objectif hebdomadaire : séances de travail personnel par semaine (lundi → dimanche), de 1 à 7, 3 par défaut (profiles.weekly_session_goal).
+- [x] Règle de suggestion (lib/suggestion.ts, pure, testée) : test d'un objectif actif non atteint pas fait depuis 7 jours (un objectif atteint reste affiché et compte dans la limite de 3, sans déclencher ce critère) → test jamais fait → test le plus ancien s'il date de 14 jours ou plus → test le plus ancien de la compétence qui a le plus de mesures en recul → test le plus ancien ; départage : le plus ancien, puis l'ordre du catalogue. Réutilisée au chantier 17 ; la note /99 remplacera « en recul » au chantier 21.
+- [x] Accueil, de haut en bas, page qui défile et « Nouvelle séance » collé en bas : en-tête (avatar à initiales, le même composant que le Profil) ; flammes ; carte « Aujourd'hui » (club du soir, quiz du jour, test suggéré, ou « Journée faite ») ; bande des jours (continue, 7 visibles, aujourd'hui centré, glissée au doigt jour par jour, ‹ › de 7 jours, titre des mois visibles, 12 semaines en arrière et 14 jours devant, jours à venir inertes, point creux orange les jours de club habituels, légende « Club prévu ») ; séances du jour ; « Cette semaine » (« 2/3 », jours actifs et minutes de travail perso, feuille −/+ de l'objectif) ; « Mes objectifs » (feuilles d'ajout et de détail, état vide, limite de 3) ; « Derniers records » (3 plus récents, vers la courbe).
+- [x] Feuilles du bas : voile sombre seul, expo-blur désinstallé.
+- [x] Profil, carte Régularité : « N/12 semaines à l'objectif », puce Séances en travail personnel avec l'objectif en pointillé et « Objectif : 3 séances » ; Minutes et Tests inchangées.
+- [x] Mouvement g : écran de pile qui glisse depuis la droite, pile session (formulaire de séance) qui monte du bas, onglets en fondu, fermeture symétrique ; motion.screen et courbe de la DA sur le web (pile JS d'expo-router) et pour les onglets ; pile native en natif (animations du système) ; aucune transition avec « Réduire les animations ».
+- [x] En-tête des seeds générés : « écrit seulement par les seeds » (contenu inchangé).
+- Tranché dans le prompt : objectifs créés et modifiés sur l'Accueil (feuilles) ; profiles.goal et goal_deadline laissées telles quelles, inutilisées ; points du calendrier et jours actifs inchangés pour une séance club (seule la flamme filtre).
+- Vérification : checklist iPhone du livrable du chantier 15, puis le compte de test (aucune de mes données ni de mes objectifs).
 
 ---
 
@@ -178,16 +179,14 @@ Objectif : le tableau de bord du joueur, avec des notes que les données justifi
 ---
 
 ## Retouches UX en attente (à intégrer au chantier qui touche la page)
-- Accueil : détails à lister avant le chantier 15.
 - Entraînement : barre de saisie collée en haut quand les mesures sortent de l'écran (idée, si l'écran sans défilement ne suffit pas).
 
 ## Dette technique
-- Échéance d'objectif dépassée → 15.
 - Terrain par défaut très discret (contraste 1,17:1) → 16.
 - Résultats d'un test enregistrés sans id client (doublon possible si la réponse se perd) → 17.
 - États vides sans bouton tant que le contenu vient des seeds → 24.
 - Contenu de démonstration du chantier 1 (3 fiches, 5 questions, 2 tests), public depuis le transfert : à retirer ou masquer → 24.
-- seed.sql contient mon UUID en dur → 24.
+- Compte technique du contenu sous test@gmail.com, adresse qui ne m'appartient pas : le remplacer par un compte à moi (nouveau transfert) → 24.
 - Boîtes Alert natives claires sur Android → 25.
 
 ## Idées non planifiées

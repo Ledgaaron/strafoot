@@ -1,8 +1,11 @@
 // Records des mesures : meilleure valeur selon higher_is_better (le plus grand
-// score, le plus petit chrono), nouveau record à l'enregistrement d'un test, et
+// score, le plus petit chrono), nouveau record à l'enregistrement d'un test,
 // dernier résultat de chaque mesure avec la valeur du précédent (tendances du
-// Profil). Calcul pur, sans dépendance : testé par lib/records.test.ts
+// Profil) et records battus, les plus récents d'abord (Accueil). Calcul pur,
+// sans dépendance native : testé par lib/records.test.ts
 // (npx tsx lib/records.test.ts).
+
+import { timestampMs } from './dates';
 
 /** Dernier résultat d'une mesure et la valeur de celui d'avant. */
 export type MeasureLatest = {
@@ -81,6 +84,52 @@ export function isNewRecord(value: number, previous: number | null, higherIsBett
     return false;
   }
   return isBetter(value, previous, higherIsBetter);
+}
+
+/** Résultat d'une mesure (testId : sa ligne du catalogue tests), pour l'historique des records. */
+export type RecordSource = { testId: string; value: number; date: string; created_at: string };
+
+/** Record battu : le résultat et le record qu'il a battu (previous). */
+export type RecordEvent = RecordSource & { previous: number };
+
+/**
+ * Records battus, du plus récent au plus ancien (jour, puis saisie) : un
+ * résultat strictement meilleur que tous les précédents de sa mesure, dans
+ * l'ordre jour puis saisie ; le premier résultat d'une mesure n'en est pas un,
+ * une égalité non plus. Le sens de chaque mesure vient de higherIsBetterById ;
+ * une mesure absente de la table est ignorée, une valeur non finie écartée.
+ * limit : les plus récents seulement (Accueil : 3).
+ */
+export function recordHistory(
+  results: readonly RecordSource[],
+  higherIsBetterById: ReadonlyMap<string, boolean>,
+  limit?: number,
+): RecordEvent[] {
+  const chronological = results
+    .filter((result) => Number.isFinite(result.value) && higherIsBetterById.has(result.testId))
+    .sort((a, b) => compareEntries(a, b));
+  const best = new Map<string, number>();
+  const events: RecordEvent[] = [];
+  for (const result of chronological) {
+    const higherIsBetter = higherIsBetterById.get(result.testId) ?? true;
+    const previous = best.get(result.testId);
+    if (previous === undefined) {
+      best.set(result.testId, result.value);
+    } else if (isBetter(result.value, previous, higherIsBetter)) {
+      best.set(result.testId, result.value);
+      events.push({ ...result, previous });
+    }
+  }
+  const latestFirst = events.reverse();
+  return limit === undefined ? latestFirst : latestFirst.slice(0, limit);
+}
+
+/** Ordre d'enregistrement : jour, puis instant de saisie. */
+function compareEntries(a: RecordSource, b: RecordSource): number {
+  if (a.date !== b.date) {
+    return a.date < b.date ? -1 : 1;
+  }
+  return timestampMs(a.created_at) - timestampMs(b.created_at);
 }
 
 /** Strictement meilleur : plus grand si higherIsBetter, plus petit sinon (chrono). */

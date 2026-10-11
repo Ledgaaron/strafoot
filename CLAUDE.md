@@ -24,8 +24,9 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - @expo/vector-icons (version du SDK, installée par `npx expo install` : le SDK 57 ne
   l'embarque plus) : Ionicons seulement (onglets, chevrons, coche de confirmation, coche d'une
   puce choisie, ▶ de démarrage, boutons icône, avatar de l'Accueil et du Profil, tuile d'un module,
-  calendrier et chevron des lignes de choix, fermeture d'une feuille, compétence de l'onglet Tests et
-  de la carte Tests du Profil) ; aucune autre lib d'icônes
+  calendrier et chevron des lignes de choix, fermeture et retour d'une feuille, compétence de l'onglet
+  Tests et de la carte Tests du Profil, tuiles de la carte Aujourd'hui, trophée des derniers records) ;
+  aucune autre lib d'icônes
 - expo-font (version du SDK) et @expo-google-fonts/barlow-condensed, installés par
   `npx expo install` (plugin expo-font ajouté dans app.json) : Barlow Condensed 600 et 700,
   seule police custom, chargée par app/_layout.tsx depuis les dossiers par graisse du paquet
@@ -33,12 +34,15 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - expo-haptics (version du SDK, installée par `npx expo install`) : importée seulement par
   lib/haptics.ts : `hapticSuccess` (ligne de mesure validée) et `hapticMedium` (tout
   enregistrement : séance libre, séance déjà faite, « Séance faite », fin de séance
-  chronométrée via `vibrateOnSave`, test seul ou test d'une session, profil) ; rien sur le web,
+  chronométrée via `vibrateOnSave`, test seul ou test d'une session, profil, séance club de la
+  carte Aujourd'hui, objectif hebdomadaire, objectif créé, modifié ou retiré) ; rien sur le web,
   jamais d'erreur
-- expo-blur (version du SDK, installée par `npx expo install`) : BlurView importée seulement par
-  components/bottom-sheet.tsx (voile derrière une feuille du bas) ; flou réel sur le web
-  (backdrop-filter) et iOS, simple voile translucide sur Android (pas de cible de flou) ; un voile
-  `colors.scrim` assombrit dans tous les cas
+- Pas de flou : expo-blur désinstallé au chantier 15 ; une feuille du bas pose un voile sombre seul
+  (`colors.scrim`)
+- Navigation : piles d'expo-router enveloppées par components/app-stack.tsx (pile native) et
+  components/app-stack.web.tsx (pile JS embarquée, `expo-router/js-stack`, choisie par Metro sur le
+  web : la pile native n'y anime rien) ; onglets `expo-router/js-tabs`. Pas de pile JS en natif :
+  elle importerait react-native-gesture-handler (3.3.0 en transitif, SDK 57 = ~2.32.0)
 
 ## Environnement de dev
 
@@ -56,12 +60,14 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 
 app/ routes Expo Router
 _layout.tsx racine : providers, police d'affichage (useFonts) chargée derrière l'écran de chargement,
-veille « Réduire les animations » (watchReduceMotion)
+veille « Réduire les animations » (watchReduceMotion), pile racine animée (AppStack : un écran glisse de
+droite, la pile session monte du bas)
 (auth)/login.tsx
-(tabs)/_layout.tsx, index.tsx (Accueil : en-tête, streaks, carte de la semaine, feuille du mois, séances du jour),
-quiz.tsx, training.tsx (Tests), profile.tsx (Profil : en-tête, feuille Réglages, cartes Régularité, Tests, Quiz,
-Fiches, Volume)
-session/_layout.tsx garde d'auth + pile des écrans de séance (hors onglets)
+(tabs)/_layout.tsx (onglets en fondu), index.tsx (Accueil : en-tête et avatar, flammes, carte Aujourd'hui, bande
+des jours, séances du jour, Cette semaine, Mes objectifs, Derniers records ; feuilles du mois, de l'objectif
+hebdomadaire, d'ajout et de détail d'un objectif), quiz.tsx, training.tsx (Tests), profile.tsx (Profil : en-tête,
+feuille Réglages, cartes Régularité, Tests, Quiz, Fiches, Volume)
+session/_layout.tsx garde d'auth + pile des écrans de séance (hors onglets), qui monte du bas
 session/new.tsx création d'une séance : derniers réglages lus à l'ouverture (getSessionDefaults : dernier module,
 dernières durées ; en échec, valeurs par défaut et message), pré-remplie depuis une fiche (« Séance déjà faite » :
 sheetId, module, nom, durée)
@@ -102,8 +108,10 @@ d'une réponse, d'une séance (pur, testé)
 active-session.ts séance en cours sur l'appareil (clé strafoot.activeSession), union par kind :
 training (fiche, sheetId), test (test seul, sheetId + slug), session (sheetId ou null pour une session
 proposée, slugs des tests, durée prévue, sessionId de la séance créée au 1er test) ; get / start / save /
-clear sans exception ; formatElapsed et elapsedMinutes purs, testés par active-session.test.ts ; seul
-fichier avec lib/supabase.ts à importer AsyncStorage
+clear sans exception ; formatElapsed et elapsedMinutes purs, testés par active-session.test.ts ; avec
+lib/supabase.ts et lib/club-dismissal.ts, seuls fichiers à importer AsyncStorage
+club-dismissal.ts « Pas ce soir » de l'entraînement club proposé (clé strafoot.clubDismissedDay : jour local
+écarté) ; get / save sans exception
 active-session-context.tsx séance en cours partagée (provider monté dans app/_layout.tsx,
 useActiveSession : start, setIndex, updateRun pour une session), navigation vers elle (reprendre :
 fiche, test, test en cours d'une session ; terminer), Alert « séance déjà en cours », confirmation
@@ -115,21 +123,33 @@ theme.ts tokens du design system (couleurs, tailles et interlignes, police d'aff
 rayons, dimensions, styles de texte et de champ, mouvement « motion », thème de navigation) : seule
 source de style avec components/
 dates.ts jours locaux YYYY-MM-DD et libellés, dont relativeDay (« auj. », « hier », « il y a 3 j »,
-puis absolu), semaine (startOfWeek, weekDays, formatWeekRange, formatWeekOf « Semaine du 12 oct. »),
+puis absolu), semaine (startOfWeek, weekDays, formatWeekRange, weekdayOf 0 = dimanche),
 daysBetween (« J-42 »), formatLongDay (« Vendredi 9 octobre »), formatRecentDay (« aujourd’hui »,
-« hier », « mar. 6 oct. »), formatDateLine (« Aujourd’hui · 09/10/2026 ») et formatShortMonth (« Juil. », axe
-de la régularité du Profil) : seul endroit où un jour est calculé ; ces neuf-là testés par dates.test.ts
-modules.ts liste fermée des modules de séance (MODULE_KEYS), icône Ionicons de chaque module (moduleIcon)
+« hier », « mar. 6 oct. »), formatDateLine (« Aujourd’hui · 09/10/2026 »), formatShortMonth (« Juil. », axe
+de la régularité du Profil), formatMonthSpan (« Octobre », « Sept. – oct. » : titre de la bande des jours) et
+timestampMs (instant d'un timestamptz) : seul endroit où un jour est calculé ; testés par dates.test.ts
+modules.ts liste fermée des modules de séance (MODULE_KEYS), icône Ionicons de chaque module (moduleIcon),
+modules hors flamme (NON_PERSONAL_MODULE_KEYS : entraînement club) et isPersonalWork
+personal-work.ts travail personnel : jours de la flamme (activityDays), séances et minutes de la semaine
+(weekWork), objectif hebdomadaire (3 par défaut, de 1 à 7) (pur, testé)
+club.ts entraînement club proposé (J-7 ou J-14, aucun club aujourd'hui, pas écarté ; nom et durée du dernier) et
+jours de club habituels (club des 14 derniers jours, point creux des jours à venir) (pur, testé)
+goals.ts objectifs : progression (meilleur résultat depuis la création), états (J-12, atteint, échéance dépassée,
+pas encore mesuré), cible saisie (meilleure que le départ, barème), échéance J+42 (pur, testé)
+suggestion.ts test suggéré du jour et sa raison (objectif actif non atteint, jamais fait, ancien, en recul, le plus
+ancien ; un objectif atteint reste affiché et compte dans la limite de 3, sans déclencher le premier critère) ;
+partagé avec le chantier 17 (pur, testé)
+day-strip.ts bande des jours de l'Accueil : 12 semaines en arrière, 14 jours devant, centrage (pur, testé)
 training-themes.ts thèmes fermés des fiches de lecture (specifique, recuperation) et thème d'une fiche
 test-families.ts compétences (tir, passe, dribble, jonglerie, physique ; libellé, icône Ionicons) et familles de
 tests (liste fermée FAMILY_KEYS, libellé, compétence), rang d'une famille dans une session (sessionRank)
 test-plan.ts proposeSession (famille la moins testée) et composeSession (famille choisie) : session de l'onglet
 Tests, complétée par la compétence sans jamais reprendre une famille écartée (pur, testé)
 records.ts record d'une mesure selon higher_is_better, isNewRecord, latestByKey (dernier résultat de chaque mesure
-et valeur du précédent) (pur, testé)
-profile-stats.ts calculs du Profil et de ses statistiques : 12 semaines de régularité (minutes, séances, tests ;
-semaines actives), volume du mois, tendance par compétence (mesures en progrès / en recul), détail d'une
-compétence, durées (« 6 h 40 »), ligne d'en-tête, initiales de l'avatar (pur, testé)
+et valeur du précédent), recordHistory (records battus, les plus récents d'abord : Derniers records) (pur, testé)
+profile-stats.ts calculs du Profil et de ses statistiques : 12 semaines de régularité (minutes, séances, séances de
+travail personnel, tests ; semaines à l'objectif), volume du mois, tendance par compétence (mesures en progrès / en
+recul), détail d'une compétence, durées (« 6 h 40 »), ligne d'en-tête, initiales de l'avatar (pur, testé)
 quiz-taxonomy.ts listes fermées du quiz : thèmes, postes, barème
 profile-taxonomy.ts postes du profil (ceux du quiz sans 'tous') et pieds forts
 quiz-select.ts choix des questions d'une série (pur, testé)
@@ -143,16 +163,19 @@ schéma), optionLetter (id 1-4 → lettre affichée A-D) (pur, testé par diagra
 json-types.ts contenu des autres colonnes jsonb (questions.options)
 diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
 db/ une fonction par requête, typée (sessions.ts, dont createSession idempotente (id client, on conflict (id)
-do nothing, puis relecture) et getSessionDefaults : dernier module et dernière durée par module ; answers.ts,
-dont createAnswer, idempotente de même ; questions.ts : listEligibleQuestions (schéma validé),
-listQuestionDiagrams (/dev/diagrams) ; profiles.ts ; training.ts : fiches, countSheets, listTests (tests
-atomiques avec dernière fois, records et dernier résultat de chaque mesure, deux lectures), listSessions,
-getTestBySlug ; test-results.ts, dont listTestCatalog, listCatalogByKeys et listResultValues) ; activity.ts :
-listActivityHistory, jours actifs séances + quiz de tout l'historique en une lecture (Accueil, feuille
-du mois) ; fetch-all.ts : fetchAllRows, toute lecture de liste page par page (range de 1000 lignes, tri
-total terminé par id, arrêt à la première page incomplète, garde-fou de 100 pages ; testé par
-fetch-all.test.ts) ; result.ts : contrat { data, error }, error = message brut, ou message de l'app marqué
-par appMessage
+do nothing, puis relecture), getSessionDefaults : dernier module et dernière durée par module, et
+listSessionActivity : jour, module, durée, nom et instant de chaque séance ; answers.ts, dont createAnswer,
+idempotente de même ; questions.ts : listEligibleQuestions (schéma validé), listQuestionDiagrams
+(/dev/diagrams) ; profiles.ts (dont l'objectif hebdomadaire, par upsertMyProfile) ; goals.ts : objectifs actifs,
+createGoal idempotente de même, updateGoal (cible, échéance), retireGoal (retired_at, ligne conservée) ;
+training.ts : fiches, countSheets, listTests (tests atomiques avec dernière fois, records et dernier résultat de
+chaque mesure, deux lectures), listSessions, getTestBySlug ; test-results.ts, dont listTestCatalog,
+listCatalogByKeys, listResultValues et listResultHistory : tous mes résultats horodatés, records et objectifs de
+l'Accueil) ; activity.ts : listActivityHistory, séances et réponses de tout l'historique en deux lectures (jours
+actifs, jours de travail personnel de la flamme, séances pour le club et la semaine : Accueil, feuille du mois) ;
+fetch-all.ts : fetchAllRows, toute lecture de liste page par page (range de 1000 lignes, tri total terminé par
+id, arrêt à la première page incomplète, garde-fou de 100 pages ; testé par fetch-all.test.ts) ; result.ts :
+contrat { data, error }, error = message brut, ou message de l'app marqué par appMessage
 streak.ts calcul pur, testable, sans dépendance
 types.ts types générés depuis Supabase (npx supabase gen types)
 components/ design system et composants réutilisés par ≥ 2 écrans uniquement
@@ -165,18 +188,28 @@ tone quiz en contexte quiz)
 button.tsx bouton primary / quiz / secondary / danger / text, 56 px, libellé 16/20 700, icône après
 le libellé, états pressé (0,98 et un cran plus sombre), désactivé, loading
 press-scale.ts usePressScale : micro-interaction a, partagée par Card et Button
-icon-button.tsx bouton icône carré de 48 px (flèches, ✓ d'une mesure) ; subtle (sans fond, icône textMuted : ‹ › des
-feuilles, Fermer, engrenage du Profil) et compact (32 px visibles, 48 par hitSlop : ‹ › de la carte de la semaine)
+icon-button.tsx bouton icône carré de 48 px (flèches, ✓ d'une mesure, ✓ de l'entraînement club, − / + de l'objectif
+hebdomadaire) ; subtle (sans fond, icône textMuted : ‹ › des feuilles, retour et Fermer d'une feuille, engrenage du
+Profil) et compact (32 px visibles, 48 par hitSlop : ‹ › de la bande des jours)
 module-icon.tsx tuile d'un module : carré de 48 px surface2, icône Ionicons de lib/modules.ts (carte d'une séance,
-ligne et feuille de choix du module)
+ligne et feuille de choix du module, entraînement club proposé)
+avatar.tsx avatar rond surface2 : initiales du nom affiché, sinon l'icône personne ; le même sur l'Accueil (48 px,
+tappable, vers le Profil) et le Profil (56 px, décoratif)
 day-cell.tsx case d'un jour (numéro, aujourd'hui encadré accent, jour choisi surface2, points entraînement / quiz,
-jour à venir en secondaire ou inerte) et ActivityLegend : les mêmes dans la bande de la semaine et la grille du mois
-bottom-sheet.tsx feuille du bas : Modal transparente, voile flouté (expo-blur, seul import) et assombri (scrim),
-feuille surface aux coins xl qui glisse en motion.screen (micro-interaction f), titre et Fermer, fermeture au tap
-sur le voile ; porte la feuille du mois, le choix du module, la session proposée (une feuille, trois vues :
-proposition, choix d'une famille, session prédéfinie) de l'onglet Tests et les Réglages du Profil
-month-sheet.tsx calendrier du mois dans une BottomSheet (mois ‹ ›, grille de DayCell, légende, historique relu à
-chaque ouverture) ; mode browse (Accueil) ou pick (date d'une séance : jours à venir inertes, mois suivant bloqué)
+point creux orange d'un club prévu, jour à venir en secondaire, inerte, estompé ou non) et ActivityLegend (« Club
+prévu » en option) : les mêmes dans la bande des jours et la grille du mois
+bottom-sheet.tsx feuille du bas : Modal transparente, voile sombre (scrim, sans flou), feuille surface aux coins xl
+qui glisse en motion.screen (micro-interaction f), ‹ de retour (onBack, feuille à plusieurs vues), titre et
+Fermer, fermeture au tap sur le voile ; porte la feuille du mois, le choix du module, la session proposée (une
+feuille, trois vues : proposition, choix d'une famille, session prédéfinie) de l'onglet Tests, les Réglages du
+Profil, l'objectif hebdomadaire et les objectifs de l'Accueil
+month-sheet.tsx MonthCalendar (mois ‹ ›, grille de DayCell, légende ; mode browse : jours à venir inertes et clubs
+prévus, pick : date d'une séance, jours à venir inertes, mois suivant bloqué, deadline : échéance d'un objectif,
+jours à venir seulement, sans points) et MonthSheet, le calendrier en BottomSheet (browse ou pick, historique relu
+à chaque ouverture)
+app-stack.tsx / app-stack.web.tsx pile d'écrans animée (micro-interaction g) : pile native d'expo-router en natif
+(animations du système), pile JS (expo-router/js-stack) sur le web (Metro prend le .web.tsx) ; prop rising : routes
+qui montent du bas
 save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
 pitch-placeholder.tsx demi-terrain SVG (lignes pitchLine) affiché quand un exercice n'a pas de schéma
 diagram.tsx schéma dessiné depuis ses données (react-native-svg, cadre 722 × 646, sans animation) : terrain,
@@ -292,7 +325,7 @@ explicite par user_id : la RLS choisit les lignes (les miennes, et le contenu pu
     jamais le contenu, seuls les seeds et le transfert l'écrivent, en rôle postgres (SQL
     Editor), que la RLS ne concerne pas ;
   - **données de l'utilisateur** : toutes les autres tables (profils, séances, résultats,
-    réponses, auto-évaluations ; demain objectifs, Elo, planning club…) : 4 policies sur
+    réponses, auto-évaluations, objectifs depuis 011 ; demain Elo, planning club…) : 4 policies sur
     `auth.uid() = user_id`.
 - Compte technique « contenu » : compte Supabase Auth créé à la main dans le tableau de bord
   (Add user, « Auto Confirm User »), jamais connecté à l'app, propriétaire de tout le contenu
@@ -304,8 +337,9 @@ explicite par user_id : la RLS choisit les lignes (les miennes, et le contenu pu
   (marqueur `<REMPLACER_PAR_CONTENU_UUID>`, remplacé dans le SQL Editor, jamais commité), après
   010 et le transfert ; ils posent `is_public = true` et refusent un compte qui a des séances,
   réponses ou résultats (le mien, par erreur).
-- Depuis 002, `user_id` a le défaut `auth.uid()` sur les 8 tables, en plus du trigger
-  `set_user_id` (001) qui l'impose à chaque insert : le client n'envoie jamais `user_id`.
+- Depuis 002, `user_id` a le défaut `auth.uid()` sur les 8 tables de 001 (et sur goals depuis
+  011), en plus du trigger `set_user_id` (001, posé aussi sur goals) qui l'impose à chaque
+  insert : le client n'envoie jamais `user_id`.
 - Après chaque migration, régénérer `lib/types.ts`.
 
 ### Tables v1
@@ -315,8 +349,18 @@ explicite par user_id : la RLS choisit les lignes (les miennes, et le contenu pu
   club, club_level (niveau, texte libre court), birth_date ; un profil par utilisateur
   (index unique sur user_id depuis 005) ; depuis 006 : goal (objectif, 140 caractères au
   plus) et goal_deadline (date, échéance de l'objectif), ni affichés ni modifiés par l'app depuis
-  le chantier 12 (données conservées ; objectifs : chantier 15) ; depuis 008 : display_name (nom
-  affiché, 40 caractères au plus, limite posée par l'écran d'édition ; initiales de l'avatar du Profil)
+  le chantier 12 (données conservées ; les objectifs vivent dans goals depuis 011) ; depuis 008 :
+  display_name (nom affiché, 40 caractères au plus, limite posée par l'écran d'édition ; initiales de
+  l'avatar de l'Accueil et du Profil) ; depuis 011 : weekly_session_goal (smallint, CHECK de 1 à 7,
+  null = pas encore réglé, 3 dans l'app : séances de travail personnel visées par semaine)
+- `goals` (011, données de l'utilisateur) : sheet_id → training_sheets (test atomique), test_id →
+  tests (mesure : résultats, courbe), start_value numeric null (dernier résultat à la création, null si
+  jamais mesurée), target_value numeric, deadline date, retired_at timestamptz null (null = actif ; retiré :
+  ligne conservée). Progression, atteint et échéance dépassée calculés par lib/goals.ts ; 1 à 3 objectifs
+  actifs (un objectif atteint en fait partie tant qu'il n'est pas retiré) : règle de l'app ; une mesure par
+  objectif actif : index unique partiel `goals_one_active_per_test` (user_id, test_id) where retired_at is
+  null, en plus de l'app (une mesure qui porte un objectif actif n'est pas proposée) ; un second objectif
+  actif sur la même mesure est refusé par Postgres (23505) et s'affiche par FieldError comme un doublon
 - `sessions` : date, type (`collectif` | `solo` | `match` | `recup` | `test`),
   module text not null default 'seance_libre' (liste fermée = `MODULE_KEYS` de
   `lib/modules.ts`, contrainte `sessions_module_check_v2` depuis 004 ; `test` est réservé à
@@ -367,38 +411,77 @@ Modèle des tests (007, chantier 10) :
   `<slug-batterie>-<n>`, intro = celle de la batterie, montrée en « Règles communes »). Un test ou une
   session retiré des JSON reste en base : le seed ne supprime rien.
 
-Deux streaks calculées côté app, jamais stockées : entraînement (jour avec ≥ 1 séance, tout
-module) et quiz (jour avec ≥ 1 réponse). Courante = jours consécutifs jusqu'à aujourd'hui,
-ou jusqu'à hier si aujourd'hui est vide ; on affiche aussi la meilleure. Logique dans
-`lib/streak.ts`, tests dans `lib/streak.test.ts`.
+Deux streaks calculées côté app, jamais stockées : entraînement (jour avec ≥ 1 séance de
+travail personnel : tout module sauf la liste fermée `NON_PERSONAL_MODULE_KEYS` de
+lib/modules.ts, aujourd'hui l'entraînement club ; le match n'est pas un module, il deviendra
+une entité au chantier 22) et quiz (jour avec ≥ 1 réponse). Les séances club restent visibles
+partout ailleurs (séances du jour, points du calendrier, jours actifs, Profil sauf la
+Régularité à l'objectif). Courante = jours consécutifs jusqu'à aujourd'hui, ou jusqu'à hier si
+aujourd'hui est vide ; on affiche aussi la meilleure. Logique dans `lib/streak.ts` (sur
+l'ensemble de jours reçu), tests dans `lib/streak.test.ts` ; jours de travail personnel :
+`lib/personal-work.ts`.
 
 ## Écrans v1 (figés)
 
 Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
 
-1. **Accueil** (maquette design/maquettes/ecran-accueil.png) : en-tête = date du jour en
-   secondaire (« Vendredi 9 octobre »), « Aujourd’hui » en headline, avatar rond de 48 px (icône
-   personne, aucune donnée) → onglet Profil. Deux cartes de streak tappables (Entraînement →
-   Profil, Quiz → Quiz) : flamme et chiffre courant (text.number), libellé en title, ligne d'état
-   « À faire aujourd’hui » (couleur de la série) tant que rien n'est fait et que la série tient,
-   « ✓ Fait aujourd’hui » (secondaire) sinon, « Série perdue » (secondaire) à 0 ; la flamme est
-   pleine, contour ou grise selon le même état ; après une action qui augmente la série, la
-   flamme se remplit puis le chiffre passe à sa nouvelle valeur ; plus de meilleure ni de
-   compteurs. Carte « Cette semaine » (« Semaine du 12 oct. » hors semaine courante) : « N jours
-   actifs » (séance ou réponse), ‹ › compacts, bande lundi → dimanche (DayCell : numéro en police
-   système, aujourd'hui encadré accent, jour choisi surface2, jours à venir en secondaire, points
-   entraînement / quiz), légende et « Voir le mois » → feuille du mois (MonthSheet, fond flouté) :
-   mois ‹ ›, un jour touché ferme la feuille et place l'Accueil sur sa semaine et lui. « Séances du
-   jour » (« Séances · hier », « Séances · mar. 6 oct. ») : une carte par séance (tuile du module,
-   nom, « module · durée · difficulté », chevron) → édition / suppression ; état vide en texte
-   secondaire. Bouton « Nouvelle séance » → formulaire : module = dernier utilisé (hors test,
-   sinon séance libre) en une ligne, tap → feuille des modules ; date « Aujourd’hui · 09/10/2026 »
-   en une ligne, tap → feuille du mois en mode sélection (jours à venir inertes) ; durée =
-   dernière durée du module choisi, sinon celle du module, suit le module tant qu'elle n'est pas
-   modifiée à la main, chiffre dominant avec −5 / +5 compacts ou saisie de 1 à 600 min ;
-   difficulté optionnelle = 3 si vide, nom auto modifiable, commentaire optionnel. Les derniers
-   réglages sont lus à l'ouverture ; en échec, le formulaire s'ouvre avec les valeurs par défaut
-   et le dit.
+1. **Accueil** (chantier 15, maquette design/maquettes/ecran-accueil.png pour le haut) : la page
+   défile, « Nouvelle séance » reste collé en bas. De haut en bas :
+   - en-tête : date du jour en secondaire (« Vendredi 9 octobre »), « Aujourd’hui » en headline,
+     avatar de 48 px (components/avatar.tsx, le même que le Profil, surface2 : initiales du nom
+     affiché, sinon icône personne) → onglet Profil ;
+   - deux cartes de streak tappables (Entraînement → Profil, Quiz → Quiz) : flamme et chiffre
+     courant (text.number), libellé en title, ligne d'état « À faire aujourd’hui » (couleur de la
+     série) tant que rien n'est fait et que la série tient, « ✓ Fait aujourd’hui » (secondaire)
+     sinon, « Série perdue » (secondaire) à 0 ; la flamme est pleine, contour ou grise selon le
+     même état ; après une action qui augmente la série, la flamme se remplit puis le chiffre passe
+     à sa nouvelle valeur. La flamme d'entraînement ne compte que le travail personnel : une séance
+     club ne la remplit pas ;
+   - carte « Aujourd’hui » (lignes lancées en un tap) : « Entraînement club ce soir ? » (lib/club.ts :
+     séance club à J-7 ou J-14, aucune aujourd'hui, pas écartée ; nom et durée de la dernière de ce
+     jour de la semaine, nom automatique refait pour aujourd'hui), ✓ crée la séance du jour
+     (idempotente, vibration, confirmation), « Pas ce soir » l'écarte pour la journée (sur
+     l'appareil, lib/club-dismissal.ts) ; « Quiz du jour » → onglet Quiz, « ✓ Fait » dès une réponse
+     du jour ; « Test suggéré : titre » et sa raison (lib/suggestion.ts) → écran du test, masquée si
+     un test a été fait aujourd'hui ; rien à proposer : « Journée faite » seule ;
+   - bande des jours (titre : mois visibles, « Octobre », « Sept. – oct. ») : continue, 7 jours
+     visibles, aujourd'hui centré à l'ouverture, glissée au doigt avec aimantation jour par jour
+     (accrochage CSS sur le web, snapToInterval en natif), ‹ › compacts décalent de 7 jours sans
+     animation ; de 12 semaines en arrière à 14 jours devant (plus loin en arrière si un jour plus
+     ancien est choisi dans le mois, pour le centrer) ; DayCell (numéro en police système, aujourd'hui
+     encadré accent, jour choisi surface2, points entraînement / quiz de toute séance), jours à venir
+     inertes avec un point creux orange les jours de club habituels (jours de la semaine ayant une
+     séance club de J-14 à aujourd'hui, jusqu'à J+14) ; légende Entraînement · Quiz · Club prévu et
+     « Voir le mois » → feuille du mois (MonthSheet, voile sombre) : mois ‹ ›, jours à venir inertes,
+     un jour touché ferme la feuille, le choisit et centre la bande sur lui ;
+   - « Séances du jour » (« Séances · hier », « Séances · mar. 6 oct. ») : une carte par séance
+     (tuile du module, nom, « module · durée · difficulté », chevron) → édition / suppression ; état
+     vide en texte secondaire ;
+   - « Cette semaine » (lundi → dimanche) : séances de travail personnel sur l'objectif hebdomadaire
+     en chiffre dominant (« 2/3 »), puis « 4 jours actifs · 1 h 35 de travail perso » (jours avec
+     séance ou réponse, tout module) ; tap → feuille de l'objectif hebdomadaire (− / +, de 1 à 7,
+     3 par défaut, Enregistrer : profiles.weekly_session_goal) ;
+   - « Mes objectifs » : un objectif actif par carte (nom de la mesure et état : « J-12 », « Jour J »,
+     « Atteint ✓ hier » ou « le 3 nov. » en vert, « Échéance dépassée », « Pas encore mesuré » ;
+     « 8 → 20 touches » ou « Cible : 20 touches » sans départ ; barre de progression orange, verte une
+     fois atteint) ; tap → feuille de l'objectif (cible et échéance modifiables, la cible toujours
+     meilleure que le départ, Enregistrer, « Voir la courbe » → app/measure/[testId], « Retirer
+     l’objectif » avec confirmation) ; « Ajouter un objectif » → feuille en étapes : test (par
+     compétence), mesure (dernier résultat, date et record ; étape sautée pour un test à une seule
+     mesure ; une mesure qui porte déjà un objectif actif est inerte), cible (message sous le champ
+     si elle ne bat pas le départ ou dépasse le barème), échéance (J+42 proposée, calendrier des jours
+     à venir), « Créer l’objectif » ; aucun objectif : état vide avec le bouton ; 3 objectifs actifs :
+     le bouton est remplacé par un texte ;
+   - « Derniers records » : les 3 records les plus récents (résultat strictement meilleur que tous
+     les précédents de sa mesure ; le premier n'en est pas un) : nom, date relative, valeur ; tap →
+     courbe de la mesure ; section masquée s'il n'y en a aucun.
+   Bouton « Nouvelle séance » → formulaire : module = dernier utilisé (hors test, sinon séance
+   libre) en une ligne, tap → feuille des modules ; date « Aujourd’hui · 09/10/2026 » en une ligne,
+   tap → feuille du mois en mode sélection (jours à venir inertes) ; durée = dernière durée du module
+   choisi, sinon celle du module, suit le module tant qu'elle n'est pas modifiée à la main, chiffre
+   dominant avec −5 / +5 compacts ou saisie de 1 à 600 min ; difficulté optionnelle = 3 si vide, nom
+   auto modifiable, commentaire optionnel. Les derniers réglages sont lus à l'ouverture ; en échec,
+   le formulaire s'ouvre avec les valeurs par défaut et le dit.
 2. **Quiz** (violet : bouton principal, puces, option choisie) : filtre thème / poste (replié par
    défaut, mémorisé tant que l'app tourne), stats (total, moyenne
    sur 7 jours, streak) ; séries de 5 questions QCM 4 options (jamais vues, puis dernier
@@ -466,13 +549,16 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    la séance déjà créée (ou la crée si aucun test n'a été enregistré, « Abandonner la session »
    restant alors possible). Date d'une séance chronométrée : jour local du démarrage.
 4. **Profil** (tableau de bord, maquette design/maquettes/ecran-profil.png ; un seul titre :
-   l'en-tête) : avatar rond de 56 px (initiales du nom affiché, sinon icône personne), nom affiché
-   (sinon l'email), « poste · club · niveau » en caption (parties absentes omises), engrenage →
-   feuille « Réglages » (« Modifier le profil » ; « Déconnexion », avec confirmation). Cartes, à
-   12 px l'une de l'autre : **Régularité** (12 dernières semaines en barres, la courante à
-   droite, une semaine à 0 en trait gris ; puces Minutes · Séances · Tests, choix mémorisé tant
-   que l'app tourne ; « N/12 semaines actives » (≥ 1 séance) en chiffre dominant ; mois aux
-   extrémités ; ni objectif hebdomadaire ni ligne pointillée avant le chantier 15) ; **Tests**
+   l'en-tête) : avatar de 56 px (components/avatar.tsx, le même que l'Accueil : initiales du nom
+   affiché, sinon icône personne), nom affiché (sinon l'email), « poste · club · niveau » en
+   caption (parties absentes omises), engrenage → feuille « Réglages » (« Modifier le profil » ;
+   « Déconnexion », avec confirmation). Cartes, à 12 px l'une de l'autre : **Régularité** (12
+   dernières semaines en barres, la courante à droite, une semaine à 0 en trait gris ; puces
+   Minutes · Séances · Tests, choix mémorisé tant que l'app tourne ; « N/12 semaines à
+   l’objectif » (séances de travail personnel ≥ objectif hebdomadaire) en chiffre dominant ; mois
+   aux extrémités ; puce Séances : séances de travail personnel, objectif en ligne pointillée,
+   semaine sous l'objectif en barre grise, « Objectif : 3 séances » sous le graphe ; Minutes (toutes
+   les séances) et Tests sans ligne) ; **Tests**
    (étiquette orange) : une ligne par compétence ayant au moins un résultat (icône, libellé,
    « 3 tests faits · dernière fois : hier », « 2 mesures en progrès · 1 en recul » sur le dernier
    résultat de chaque mesure face au précédent, en vert / rouge et toujours en texte), tap →
@@ -483,9 +569,10 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    répondues en chiffre dominant, série et moyenne sur 7 jours, tap → onglet Quiz ; nombre de
    fiches de lecture, tap → leur liste ; **Volume** : durée du mois en chiffre dominant et nombre
    de séances, tap → app/stats/volume (durée, séances et tests sur 30 jours et au total, puis par
-   module). Pas de note /99 (chantier 21) ni d'Elo (chantier 18). Objectif et échéance : ni
-   affichés ni modifiables, données conservées (chantier 15). Édition : nom affiché (40
-   caractères, en premier), postes, pied fort, club, niveau, date de naissance.
+   module). Pas de note /99 (chantier 21) ni d'Elo (chantier 18). profiles.goal et goal_deadline :
+   ni affichés ni modifiables, données conservées (les objectifs sont sur l'Accueil, table goals).
+   Édition : nom affiché (40 caractères, en premier), postes, pied fort, club, niveau, date de
+   naissance.
    Auto-évaluations (grille 64 compétences en jsonb, à migrer depuis l'outil existant) :
    chantier 23.
 
@@ -582,11 +669,12 @@ screen 28/32, bouton 16/20 700 ; libellés en majuscules (`text.overline`) espac
 Tokens (lib/theme.ts, valeurs de la planche Tokens) : couleurs (bg #101013, surface,
 surface2, surfacePressed, border, text, textMuted #A1A1AB, accent, accentPressed, accentTint,
 onAccent, danger #F05A5C, error, success, successSoft, quiz, quizPressed, quizTint, quizGlow,
-pitchLine (aussi semaine vide de la régularité), scrim = bg à 60 % sous une feuille ;
-`quizGradient` à part), espacements (xs 4 → xxxl 48), rayons (sm 8, md 12 = boutons et champs,
-lg 16 = cartes, xl 20 = feuilles, pill = puces ; alias card / button / chip ; bar 4 = haut des
-barres de la régularité, DA), dimensions (touch 48, chip 48, button 56, compactButton 32
-+ hitSlop 8, flame 32, avatar 56, barChart 80, tabBar) et `motion` (press 100, micro 160,
+pitchLine (aussi semaine vide ou sous l'objectif de la régularité), scrim = bg à 60 %, voile
+sombre seul sous une feuille ; `quizGradient` à part), espacements (xs 4 → xxxl 48), rayons (sm 8,
+md 12 = boutons et champs, lg 16 = cartes, xl 20 = feuilles, pill = puces ; alias card / button /
+chip ; bar 4 = haut des barres de la régularité, DA), dimensions (touch 48, chip 48, button 56,
+compactButton 32 + hitSlop 8, flame 32, avatar 56, barChart 80, dot 6 et dotBorder 1,5 (point creux
+d'un club prévu), progressBar 6 (barre d'un objectif), tabBar) et `motion` (press 100, micro 160,
 base 240, screen 320, count 600, courbe cubic-bezier(0.2, 0, 0, 1), pressScale 0,98,
 validateScale 1,03). quizGlow et quizGradient sont définis mais réservés au chantier 18.
 Onglets : Accueil · Tests · Quiz · Profil, libellés 14 px 600, actif en orange. « Quiz » (un
@@ -595,23 +683,33 @@ seul z) dans tout texte affiché ; tables, colonnes, fichiers et routes gardent 
 Mouvement (principes de la DA) : le mouvement confirme une action ; aucun ressort, aucun
 dépassement ; les chiffres acquis ne s'animent pas à l'affichage ; le rouge ne clignote
 jamais ; avec « Réduire les animations » (lib/reduce-motion.ts), seul l'appui reste.
-Uniquement la liste fermée a–f, avec l'API Animated ou LayoutAnimation de React Native,
-jamais Reanimated ni Moti (Reanimated reste installé pour expo-router, jamais importé).
-Valeurs dans `motion` de lib/theme.ts ; tout scrollTo en `animated: false`.
+Uniquement la liste fermée a–g, avec l'API Animated ou LayoutAnimation de React Native, ou
+les options des navigateurs d'expo-router (g), jamais Reanimated ni Moti (Reanimated reste
+installé pour expo-router, jamais importé). Valeurs dans `motion` de lib/theme.ts ; tout
+scrollTo en `animated: false` (le glissement de la bande des jours au doigt n'est pas un scrollTo).
 a. Appui : Card tappable et Button à 0,98 et fond un cran plus sombre, 100 ms
    (components/press-scale.ts) ; Chip, IconButton, lignes et cases : fond un cran plus sombre.
 b. Ligne de mesure validée (saisie d'un test) : teinte successSoft et coche en 160 ms,
    pulsation 1 → 1,03 → 1 en 240 ms avec la courbe de la DA, hapticSuccess.
 c. Enregistrement (séance libre, séance déjà faite, « Séance faite », fin de séance, test,
-   profil) : hapticMedium et SaveToast, qui glisse de 24 px depuis le bas en 240 ms et
+   profil, séance club de la carte Aujourd'hui, objectif hebdomadaire, objectif créé, modifié
+   ou retiré) : hapticMedium et SaveToast, qui glisse de 24 px depuis le bas en 240 ms et
    disparaît après 2 s.
-d. Streak de l'Accueil : uniquement quand elle augmente à la suite d'une action (séance
-   enregistrée, réponse au quiz), la flamme passe de contour à pleine (160 ms) puis le chiffre
-   passe de N à N+1 (160 ms). Jamais d'animation à l'affichage simple de l'Accueil.
+d. Streak de l'Accueil : uniquement quand elle augmente à la suite d'une action (séance de
+   travail personnel enregistrée, réponse au quiz), la flamme passe de contour à pleine
+   (160 ms) puis le chiffre passe de N à N+1 (160 ms). Jamais d'animation à l'affichage simple
+   de l'Accueil.
 e. Quiz : explications déroulées par LayoutAnimation (easeInEaseOut, 240 ms).
-f. Feuille du bas (components/bottom-sheet.tsx : mois, choix du module, date d'une séance) :
-   glisse depuis le bord bas de sa hauteur en motion.screen, le voile flouté apparaît en même
-   temps ; redescend de même à la fermeture.
+f. Feuille du bas (components/bottom-sheet.tsx : mois, choix du module, date d'une séance,
+   objectifs) : glisse depuis le bord bas de sa hauteur en motion.screen, le voile sombre (sans
+   flou) apparaît en même temps ; redescend de même à la fermeture.
+g. Changement d'écran (chantier 15) : un écran de pile s'ouvre en glissant depuis la droite ;
+   la pile session (nouvelle séance, édition, fin de séance) monte depuis le bas ; un changement
+   d'onglet se fait en fondu ; la fermeture est symétrique. motion.screen et la courbe de la DA
+   sur le web (pile JS, components/app-stack.web.tsx) et pour les onglets (js-tabs) ; en natif,
+   pile native d'expo-router (components/app-stack.tsx) : glissements du système, durée
+   motion.screen sur iOS seulement, courbe du système (non réglables sur Android). « Réduire les
+   animations » : aucune transition (animation 'none').
 Les animations propres aux chantiers suivants (décompte de l'Elo, bulle du coach) seront
 autorisées dans leur chantier, avec ces durées.
 
@@ -727,13 +825,14 @@ lettres dans la question) ; options en retrait (réponse avec showAll) couleur b
   `Get-ChildItem app, components -Recurse -Include *.tsx | Select-String -Pattern 'Erreur : \$\{|FieldError message=\{[^}]*(\.message|[eE]rror|exception)\b(?!\.)' -CaseSensitive`
 - Filtre user_id explicite dans lib/db (aucune ligne attendue : la RLS suffit) :
   `Get-ChildItem lib\db -Recurse -Include *.ts | Select-String -Pattern "\.(eq|neq|in|match|filter|or)\('user_id'|user_id:|user_id ?=" -CaseSensitive`
-- Stockage de l'appareil (seulement lib/supabase.ts et lib/active-session.ts attendus) :
+- Stockage de l'appareil (seulement lib/supabase.ts, lib/active-session.ts et lib/club-dismissal.ts
+  attendus) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'async-storage'`
 - Contrôle du design system (aucune ligne attendue) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx -Exclude theme.ts | Select-String -Pattern '#[0-9A-Fa-f]{3,8}\b'`
 - Vibrations (seulement lib/haptics.ts attendu) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'expo-haptics'`
-- Flou (seulement components/bottom-sheet.tsx attendu) :
+- Flou (aucune ligne attendue : expo-blur désinstallé au chantier 15) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'expo-blur'`
 - Animations hors liste (aucune ligne attendue ; `\b` : le token `motion` contient « moti ») :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern '\bmoti\b|react-native-reanimated'`

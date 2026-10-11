@@ -45,6 +45,11 @@ export function dayOfMonth(day: string): number {
   return fromLocalDateString(day).getDate();
 }
 
+/** Jour de la semaine : 0 = dimanche, 1 = lundi … 6 = samedi (comme Date.getDay). */
+export function weekdayOf(day: string): number {
+  return fromLocalDateString(day).getDay();
+}
+
 /** Jour décalé de `days` jours (négatif : dans le passé). */
 export function shiftDay(day: string, days: number): string {
   return toLocalDateString(addDays(fromLocalDateString(day), days));
@@ -222,13 +227,22 @@ export function startOfLocalDayTimestamp(day: string): string {
 
 /** Jour local d'un timestamptz renvoyé par Supabase (« 2026-10-06T21:30:00.123456+00:00 »). */
 export function localDateOfTimestamp(timestamp: string): string {
-  // Au-delà des millisecondes, l'analyse de Date dépend du moteur : on tronque.
-  return toLocalDateString(new Date(timestamp.replace(/(\.\d{3})\d+/, '$1')));
+  return toLocalDateString(new Date(timestampMs(timestamp)));
 }
 
-// Libellés de l'Accueil (en-tête, carte de la semaine, titre des séances du jour),
-// de la ligne de date du formulaire de séance et de l'axe de la régularité du
-// Profil. Testés par dates.test.ts.
+/**
+ * Instant (ms depuis 1970) d'un timestamptz renvoyé par Supabase, pour comparer
+ * deux enregistrements (objectif et résultat, deux séances d'un même jour) ; NaN
+ * s'il est illisible.
+ */
+export function timestampMs(timestamp: string): number {
+  // Au-delà des millisecondes, l'analyse de Date dépend du moteur : on tronque.
+  return Date.parse(timestamp.replace(/(\.\d{3})\d+/, '$1'));
+}
+
+// Libellés de l'Accueil (en-tête, titre de la bande des jours, titre des séances
+// du jour), de la ligne de date du formulaire de séance et de l'axe de la
+// régularité du Profil. Testés par dates.test.ts.
 
 const WEEKDAYS_LONG = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 
@@ -270,9 +284,20 @@ export function formatShortMonth(day: string): string {
   return capitalize(MONTHS_SHORT[fromLocalDateString(day).getMonth()]);
 }
 
-/** « Semaine du 12 oct. » (l'année suit hors de celle de today) : carte de la semaine quand ce n'est pas la semaine courante. */
-export function formatWeekOf(monday: string, today: string): string {
-  const date = fromLocalDateString(monday);
-  const label = `Semaine du ${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`;
-  return date.getFullYear() === fromLocalDateString(today).getFullYear() ? label : `${label} ${date.getFullYear()}`;
+/**
+ * Mois visibles dans la bande des jours de l'Accueil, du jour first au jour
+ * last : « Octobre » sur un seul mois, « Sept. – oct. » sur deux ; l'année suit
+ * hors de celle de today (« Octobre 2025 », « Déc. 2025 – janv. 2026 »).
+ */
+export function formatMonthSpan(first: string, last: string, today: string): string {
+  const start = fromLocalDateString(first);
+  const end = fromLocalDateString(last);
+  const currentYear = fromLocalDateString(today).getFullYear();
+  if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+    const label = capitalize(MONTHS_LONG[start.getMonth()]);
+    return start.getFullYear() === currentYear ? label : `${label} ${start.getFullYear()}`;
+  }
+  const withYear = start.getFullYear() !== currentYear || end.getFullYear() !== currentYear;
+  const part = (date: Date) => `${MONTHS_SHORT[date.getMonth()]}${withYear ? ` ${date.getFullYear()}` : ''}`;
+  return capitalize(`${part(start)} – ${part(end)}`);
 }

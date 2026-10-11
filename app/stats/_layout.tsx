@@ -1,5 +1,6 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect } from 'expo-router';
 
+import { AppStack } from '../../components/app-stack';
 import { useAuth } from '../../lib/auth-context';
 
 export default function StatsLayout() {
@@ -14,5 +15,6 @@ export default function StatsLayout() {
   // /stats/volume (écran statique, prioritaire) et /stats/[skill] (tir, passe…).
   // En-tête natif par défaut (le layout racine masque le sien) : titre posé par
   // l'écran, flèche retour fournie par la pile parente, vers l'onglet Profil.
-  return <Stack />;
+  // Pile animée (micro-interaction g) : glisse depuis la droite, fermeture symétrique.
+  return <AppStack />;
 }

@@ -24,14 +24,21 @@ export type ProfilePatch = {
   birth_date?: string | null;
   /**
    * Objectif, 140 caractères au plus. N'est plus modifié par l'app depuis le
-   * chantier 12 (objectifs : chantier 15) : la valeur en base est conservée.
+   * chantier 12 (objectifs : table goals, chantier 15) : la valeur en base est
+   * conservée.
    */
   goal?: string | null;
   /**
    * Échéance de l'objectif, jour YYYY-MM-DD. N'est plus modifiée par l'app
-   * depuis le chantier 12 (objectifs : chantier 15), comme goal.
+   * depuis le chantier 12, comme goal (les objectifs vivent dans la table goals
+   * depuis le chantier 15).
    */
   goal_deadline?: string | null;
+  /**
+   * Séances de travail personnel visées par semaine, de 1 à 7 (contrainte de
+   * la migration 011) ; null : pas encore réglé, l'app compte 3.
+   */
+  weekly_session_goal?: number | null;
 };
 
 /** Profil de l'utilisateur connecté (la RLS ne laisse voir que le sien), ou null s'il n'en a pas. */

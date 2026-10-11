@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import {
   buildRegularityWeeks,
   buildSkillDetail,
-  countActiveWeeks,
   countTestsSince,
+  countWeeksAtGoal,
   describeTrend,
   formatMinutes,
   initialsOf,
@@ -16,6 +16,7 @@ import {
   regularityStart,
   splitMinutes,
   summarizeSkills,
+  weekMetric,
   type MeasureSource,
   type TestStatsSource,
 } from './profile-stats';
@@ -78,13 +79,14 @@ check('buildRegularityWeeks : 12 semaines, séances et tests rangés par lundi, 
   const weeks = buildRegularityWeeks(
     TODAY,
     [
-      { date: '2026-10-09', duration_min: 45 },
-      { date: '2026-10-05', duration_min: 30 },
+      { date: '2026-10-09', duration_min: 45, module: 'seance_libre' },
+      // Entraînement club : minutes et séances, mais pas travail personnel.
+      { date: '2026-10-05', duration_min: 30, module: 'entrainement_club' },
       // Dimanche 4 oct. : semaine du lundi 28 sept.
-      { date: '2026-10-04', duration_min: 60 },
-      { date: '2026-07-20', duration_min: 20 },
+      { date: '2026-10-04', duration_min: 60, module: 'test' },
+      { date: '2026-07-20', duration_min: 20, module: 'etirements' },
       // Dimanche 19 juil. : avant la première semaine.
-      { date: '2026-07-19', duration_min: 90 },
+      { date: '2026-07-19', duration_min: 90, module: 'seance_libre' },
     ],
     // Deux tests le 8 oct. (deux couples distincts), un le 30 sept., un hors fenêtre.
     ['2026-10-08', '2026-10-08', '2026-09-30', '2026-07-01'],
@@ -92,27 +94,56 @@ check('buildRegularityWeeks : 12 semaines, séances et tests rangés par lundi, 
   assert.equal(weeks.length, 12);
   assert.equal(weeks[0].monday, '2026-07-20');
   assert.equal(weeks[11].monday, '2026-10-05');
-  assert.deepEqual(weeks[11], { monday: '2026-10-05', minutes: 75, sessions: 2, tests: 2 });
-  assert.deepEqual(weeks[10], { monday: '2026-09-28', minutes: 60, sessions: 1, tests: 1 });
-  assert.deepEqual(weeks[0], { monday: '2026-07-20', minutes: 20, sessions: 1, tests: 0 });
+  assert.deepEqual(weeks[11], { monday: '2026-10-05', minutes: 75, sessions: 2, personalSessions: 1, tests: 2 });
+  assert.deepEqual(weeks[10], { monday: '2026-09-28', minutes: 60, sessions: 1, personalSessions: 1, tests: 1 });
+  assert.deepEqual(weeks[0], { monday: '2026-07-20', minutes: 20, sessions: 1, personalSessions: 1, tests: 0 });
   assert.deepEqual(
     weeks.slice(1, 10).map((week) => week.minutes + week.sessions + week.tests),
     [0, 0, 0, 0, 0, 0, 0, 0, 0],
   );
-  assert.equal(countActiveWeeks(weeks), 3);
+  assert.equal(countWeeksAtGoal(weeks, 1), 3);
 });
 
 check('buildRegularityWeeks : passage à l’heure d’hiver (25 oct.) sans décalage de semaine', () => {
-  const weeks = buildRegularityWeeks('2026-10-28', [{ date: '2026-10-26', duration_min: 30 }], ['2026-10-25']);
+  const weeks = buildRegularityWeeks(
+    '2026-10-28',
+    [{ date: '2026-10-26', duration_min: 30, module: 'seance_libre' }],
+    ['2026-10-25'],
+  );
   assert.equal(weeks[11].monday, '2026-10-26');
   assert.equal(weeks[11].sessions, 1);
   assert.equal(weeks[10].monday, '2026-10-19');
   assert.equal(weeks[10].tests, 1);
 });
 
-check('countActiveWeeks : une semaine de tests sans séance ne compte pas', () => {
-  const weeks = buildRegularityWeeks(TODAY, [], ['2026-10-08']);
-  assert.equal(countActiveWeeks(weeks), 0);
+check('countWeeksAtGoal : séances de travail personnel au moins égales à l’objectif', () => {
+  const club = { duration_min: 90, module: 'entrainement_club' };
+  const free = { duration_min: 45, module: 'seance_libre' };
+  const weeks = buildRegularityWeeks(
+    TODAY,
+    [
+      // Semaine du 5 oct. : 3 séances perso, à l'objectif de 3.
+      { ...free, date: '2026-10-05' },
+      { ...free, date: '2026-10-06' },
+      { ...free, date: '2026-10-07' },
+      // Semaine du 28 sept. : 2 perso et 2 club, sous l'objectif de 3.
+      { ...free, date: '2026-09-28' },
+      { ...free, date: '2026-09-29' },
+      { ...club, date: '2026-09-30' },
+      { ...club, date: '2026-10-01' },
+    ],
+    // Une semaine de tests sans séance ne compte pas.
+    ['2026-09-15'],
+  );
+  assert.equal(countWeeksAtGoal(weeks, 3), 1);
+  assert.equal(countWeeksAtGoal(weeks, 2), 2);
+  assert.deepEqual(
+    weeks.slice(10).map((week) => [weekMetric(week, 'minutes'), weekMetric(week, 'sessions'), weekMetric(week, 'tests')]),
+    [
+      [270, 2, 0],
+      [135, 3, 0],
+    ],
+  );
 });
 
 check('monthVolume : du 1er du mois à aujourd’hui', () => {

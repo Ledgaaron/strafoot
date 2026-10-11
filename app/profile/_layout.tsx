@@ -1,5 +1,6 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect } from 'expo-router';
 
+import { AppStack } from '../../components/app-stack';
 import { useAuth } from '../../lib/auth-context';
 
 export default function ProfileLayout() {
@@ -15,5 +16,6 @@ export default function ProfileLayout() {
   // En-tête natif par défaut (le layout racine masque le sien) : titre posé par
   // l'écran d'édition, flèche retour fournie par la pile parente ; Enregistrer est
   // dans le pied de l'écran.
-  return <Stack />;
+  // Pile animée (micro-interaction g) : glisse depuis la droite, fermeture symétrique.
+  return <AppStack />;
 }

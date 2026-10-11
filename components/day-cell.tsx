@@ -8,23 +8,28 @@ export const WEEKDAY_INITIALS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
 type DayCellProps = {
   day: string;
-  /** Initiale du jour de la semaine au-dessus du numéro (bande de la semaine) ; absente dans la grille du mois. */
+  /** Initiale du jour de la semaine au-dessus du numéro (bande des jours) ; absente dans la grille du mois. */
   initial?: string;
   isToday: boolean;
   isSelected: boolean;
-  /** Jour après aujourd'hui : numéro en secondaire ; inerte si la case sert à choisir une date passée. */
+  /** Jour après aujourd'hui : numéro en secondaire. */
   isFuture: boolean;
+  /** Case inerte : jour à venir (bande, calendrier), jour passé (choix d'une échéance). */
   disabled?: boolean;
+  /** Case inerte estompée (choix d'une date) ; par défaut, toute case inerte l'est. */
+  faded?: boolean;
   hasTraining: boolean;
   hasQuiz: boolean;
+  /** Jour à venir de club habituel : point creux orange à la place du point d'entraînement. */
+  clubPlanned?: boolean;
   onPress: () => void;
 };
 
 /**
- * Case d'un jour, la même dans la bande de la semaine (Accueil) et la grille du
+ * Case d'un jour, la même dans la bande des jours (Accueil) et la grille du
  * mois (MonthSheet) : numéro, aujourd'hui encadré accent, jour choisi sur
- * surface2, points entraînement / quiz dessous. Dépend de la largeur de la rangée
- * (flex 1) ; au moins 48 px de haut.
+ * surface2, points entraînement / quiz dessous, point creux d'un club prévu.
+ * Dépend de la largeur de la rangée (flex 1) ; au moins 48 px de haut.
  */
 export function DayCell({
   day,
@@ -33,11 +38,15 @@ export function DayCell({
   isSelected,
   isFuture,
   disabled = false,
+  faded = disabled,
   hasTraining,
   hasQuiz,
+  clubPlanned = false,
   onPress,
 }: DayCellProps) {
-  const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quiz' : ''}`;
+  const label = `${formatShortDay(day)}${hasTraining ? ', entraînement' : ''}${hasQuiz ? ', quiz' : ''}${
+    clubPlanned ? ', club prévu' : ''
+  }`;
   return (
     <Pressable
       role="button"
@@ -51,14 +60,14 @@ export function DayCell({
         isToday && styles.todayCell,
         isSelected && styles.selectedCell,
         pressed && styles.pressedCell,
-        disabled && styles.disabledCell,
+        faded && styles.fadedCell,
       ]}
     >
       {initial !== undefined ? (
         <Text style={[text.meta, isToday && styles.todayInitial]}>{initial}</Text>
       ) : null}
       <Text style={[text.title, text.tabular, isFuture && styles.futureNumber]}>{dayOfMonth(day)}</Text>
-      <ActivityDots hasTraining={hasTraining} hasQuiz={hasQuiz} />
+      <ActivityDots hasTraining={hasTraining} hasQuiz={hasQuiz} clubPlanned={clubPlanned} />
     </Pressable>
   );
 }
@@ -66,19 +75,23 @@ export function DayCell({
 /**
  * Rangée de hauteur fixe : le numéro ne bouge pas quand les points apparaissent.
  * Deux places fixes, entraînement à gauche, quiz à droite (ordre de la légende) :
- * la place double la couleur (orange, violet).
+ * la place double la couleur (orange, violet). Un club prévu occupe la place de
+ * l'entraînement, en creux : il n'a pas encore eu lieu.
  */
-function ActivityDots({ hasTraining, hasQuiz }: { hasTraining: boolean; hasQuiz: boolean }) {
+function ActivityDots({ hasTraining, hasQuiz, clubPlanned }: { hasTraining: boolean; hasQuiz: boolean; clubPlanned: boolean }) {
   return (
     <View style={styles.dots}>
-      <View style={[styles.dot, hasTraining && styles.trainingDot]} />
+      <View style={[styles.dot, hasTraining ? styles.trainingDot : clubPlanned && styles.plannedDot]} />
       <View style={[styles.dot, hasQuiz && styles.quizDot]} />
     </View>
   );
 }
 
-/** Légende des points : entraînement (orange), quiz (violet) ; les mêmes points que les cases. */
-export function ActivityLegend() {
+/**
+ * Légende des points : entraînement (orange), quiz (violet), et le club prévu
+ * (point creux) là où des jours à venir l'affichent ; les mêmes points que les cases.
+ */
+export function ActivityLegend({ clubPlanned = false }: { clubPlanned?: boolean }) {
   return (
     <View style={styles.legend}>
       <View style={styles.legendItem}>
@@ -89,6 +102,12 @@ export function ActivityLegend() {
         <View style={[styles.dot, styles.quizDot]} />
         <Text style={text.meta}>Quiz</Text>
       </View>
+      {clubPlanned ? (
+        <View style={styles.legendItem}>
+          <View style={[styles.dot, styles.plannedDot]} />
+          <Text style={text.meta}>Club prévu</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -115,7 +134,7 @@ const styles = StyleSheet.create({
   pressedCell: {
     backgroundColor: colors.surfacePressed,
   },
-  disabledCell: {
+  fadedCell: {
     opacity: disabledOpacity,
   },
   todayInitial: {
@@ -140,6 +159,11 @@ const styles = StyleSheet.create({
   },
   quizDot: {
     backgroundColor: colors.quiz,
+  },
+  /** Point creux : contour orange, sans fond, dans la même place de 6 px. */
+  plannedDot: {
+    borderWidth: size.dotBorder,
+    borderColor: colors.accent,
   },
   legend: {
     flexDirection: 'row',

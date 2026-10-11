@@ -1,5 +1,6 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect } from 'expo-router';
 
+import { AppStack } from '../../components/app-stack';
 import { useAuth } from '../../lib/auth-context';
 
 export default function SessionLayout() {
@@ -13,5 +14,7 @@ export default function SessionLayout() {
 
   // En-tête natif par défaut (le layout racine masque le sien) : titre et flèche
   // retour fournie par la pile parente ; Enregistrer est dans le pied du formulaire.
-  return <Stack />;
+  // Cette pile monte depuis le bas (rising du layout racine : formulaire de
+  // séance, édition, fin de séance) ; à l'intérieur, un écran glisse de droite.
+  return <AppStack />;
 }

@@ -1,5 +1,6 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect } from 'expo-router';
 
+import { AppStack } from '../../components/app-stack';
 import { useAuth } from '../../lib/auth-context';
 
 export default function TrainingLayout() {
@@ -16,5 +17,6 @@ export default function TrainingLayout() {
   // fiches, ouverte par la carte Fiches du Profil). En-tête natif par défaut (le
   // layout racine masque le sien) : titre posé par l'écran, flèche retour fournie
   // par la pile parente, vers l'onglet d'où la liste a été ouverte.
-  return <Stack />;
+  // Pile animée (micro-interaction g) : glisse depuis la droite, fermeture symétrique.
+  return <AppStack />;
 }

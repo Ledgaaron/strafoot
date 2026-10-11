@@ -3,6 +3,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View, type ScrollView } from 'react-native';
 
+import { Avatar } from '../../components/avatar';
 import { BottomSheet } from '../../components/bottom-sheet';
 import { Button } from '../../components/button';
 import { Card } from '../../components/card';
@@ -19,9 +20,10 @@ import { getQuizStats, listAnswerDays } from '../../lib/db/answers';
 import { getMyProfile } from '../../lib/db/profiles';
 import { listSessions } from '../../lib/db/sessions';
 import { countSheets, listTests } from '../../lib/db/training';
+import { weeklyGoalOf } from '../../lib/personal-work';
 import {
   buildRegularityWeeks,
-  countActiveWeeks,
+  countWeeksAtGoal,
   describeTrend,
   formatMinutes,
   initialsOf,
@@ -30,6 +32,7 @@ import {
   REGULARITY_WEEK_COUNT,
   regularityStart,
   summarizeSkills,
+  weekMetric,
   type RegularityMetric,
   type SkillSummary,
   type TrendPart,
@@ -54,6 +57,8 @@ const HISTORY_START = '2000-01-01';
 const EMPTY_BAR_HEIGHT = spacing.xs;
 /** Barre d'une semaine active : jamais plus basse, même très loin de la plus haute. */
 const MIN_BAR_HEIGHT = spacing.sm;
+/** Tirets de la ligne d'objectif, répartis sur toute la largeur du graphe. */
+const GOAL_DASH_COUNT = 32;
 
 /** Puces du graphe de régularité, dans l'ordre affiché. */
 const METRICS: readonly { key: RegularityMetric; label: string }[] = [
@@ -99,7 +104,10 @@ type SkillRow = {
 /** Séances des 12 semaines et tests : cartes Régularité, Tests et Volume. */
 type TrainingData = {
   weeks: WeekVolume[];
-  activeWeeks: number;
+  /** Séances de travail personnel visées par semaine (profil ; 3 tant qu'il n'est pas réglé). */
+  weeklyGoal: number;
+  /** Semaines dont les séances de travail personnel atteignent l'objectif. */
+  weeksAtGoal: number;
   /** Mois aux extrémités de l'axe : « Juil. », « Oct. ». */
   firstMonth: string;
   lastMonth: string;
@@ -370,11 +378,16 @@ async function loadHeader(): Promise<Loadable<HeaderData>> {
 
 /**
  * Séances des 12 semaines (régularité, volume du mois : la fenêtre couvre tout
- * le mois en cours) et tests avec leurs résultats (barres Tests, carte Tests).
+ * le mois en cours), tests avec leurs résultats (barres Tests, carte Tests) et
+ * objectif hebdomadaire du profil (semaines à l'objectif).
  */
 async function loadTraining(today: string): Promise<Loadable<TrainingData>> {
-  const [sessions, tests] = await Promise.all([listSessions({ from: regularityStart(today), to: today }), listTests()]);
-  const error = joinErrors([sessions.error, tests.error]);
+  const [sessions, tests, profile] = await Promise.all([
+    listSessions({ from: regularityStart(today), to: today }),
+    listTests(),
+    getMyProfile(),
+  ]);
+  const error = joinErrors([sessions.error, tests.error, profile.error]);
   if (error !== null) {
     return { status: 'error', message: error };
   }
@@ -386,11 +399,14 @@ async function loadTraining(today: string): Promise<Loadable<TrainingData>> {
     sessionRows,
     testItems.flatMap((test) => test.resultDates),
   );
+  // Sans profil (jamais enregistré) : l'objectif par défaut.
+  const weeklyGoal = weeklyGoalOf(profile.data?.weekly_session_goal ?? null);
   return {
     status: 'ready',
     data: {
       weeks,
-      activeWeeks: countActiveWeeks(weeks),
+      weeklyGoal,
+      weeksAtGoal: countWeeksAtGoal(weeks, weeklyGoal),
       firstMonth: formatShortMonth(weeks[0].monday),
       lastMonth: formatShortMonth(today),
       skills: summarizeSkills(testItems).map((summary) => toSkillRow(summary, today)),
@@ -476,18 +492,11 @@ type ProfileHeaderProps = {
  */
 function ProfileHeader({ email, header, onRetry, onOpenSettings }: ProfileHeaderProps) {
   const data = header.status === 'ready' ? header.data : null;
-  const initials = initialsOf(data?.displayName ?? null);
   return (
     <View style={layout.section}>
       <View style={styles.header}>
-        {/* Décoratif : le nom, juste à côté, est lu. */}
-        <View aria-hidden style={styles.avatar}>
-          {initials !== null ? (
-            <Text style={text.title}>{initials}</Text>
-          ) : (
-            <Ionicons name="person" size={size.icon} color={colors.textMuted} />
-          )}
-        </View>
+        {/* Décoratif : le nom, juste à côté, est lu. Le même avatar que l'Accueil, en 56 px. */}
+        <Avatar initials={initialsOf(data?.displayName ?? null)} diameter={size.avatar} />
         <View style={styles.headerText}>
           {data === null ? (
             // Tant que le profil n'est pas lu : ni l'email ni le nom, pour ne pas changer de nom sous les yeux.
@@ -536,10 +545,12 @@ type RegularityCardProps = {
 };
 
 /**
- * Régularité : semaines actives (au moins une séance) sur les 12 dernières en
- * chiffre dominant, puis une barre par semaine (la courante à droite) de la
- * grandeur choisie en puces, et les mois aux extrémités. Ni objectif ni repère
- * (chantier 15).
+ * Régularité : semaines à l'objectif (séances de travail personnel au moins
+ * égales à l'objectif hebdomadaire) sur les 12 dernières en chiffre dominant,
+ * puis une barre par semaine (la courante à droite) de la grandeur choisie en
+ * puces, et les mois aux extrémités. Puce Séances : séances de travail
+ * personnel, objectif en pointillé, « Objectif : 3 séances » sous le graphe
+ * (maquette ecran-profil.png).
  */
 function RegularityCard({ state, metric, onChangeMetric, onRetry }: RegularityCardProps) {
   return (
@@ -556,14 +567,16 @@ function RegularityCard({ state, metric, onChangeMetric, onRetry }: RegularityCa
         <>
           <View
             accessible
-            accessibilityLabel={`${formatCount(state.data.activeWeeks, 'semaine active', 'semaines actives')} sur ${REGULARITY_WEEK_COUNT}`}
+            accessibilityLabel={`${formatCount(state.data.weeksAtGoal, 'semaine', 'semaines')} à l’objectif sur ${REGULARITY_WEEK_COUNT}`}
             style={styles.numberRow}
           >
             <Text style={text.number}>
-              {state.data.activeWeeks}
+              {state.data.weeksAtGoal}
               <Text style={text.denominator}>{`/${REGULARITY_WEEK_COUNT}`}</Text>
             </Text>
-            <Text style={text.meta}>{state.data.activeWeeks >= 2 ? 'semaines actives' : 'semaine active'}</Text>
+            <Text style={[text.meta, styles.numberLabel]}>
+              {state.data.weeksAtGoal >= 2 ? 'semaines à l’objectif' : 'semaine à l’objectif'}
+            </Text>
           </View>
           <View style={layout.chipRow}>
             {METRICS.map((entry) => (
@@ -576,9 +589,16 @@ function RegularityCard({ state, metric, onChangeMetric, onRetry }: RegularityCa
               />
             ))}
           </View>
-          <WeekBars weeks={state.data.weeks} metric={metric} />
+          <WeekBars
+            weeks={state.data.weeks}
+            metric={metric}
+            weeklyGoal={metric === 'sessions' ? state.data.weeklyGoal : null}
+          />
           <View style={styles.axis}>
             <Text style={text.meta}>{state.data.firstMonth}</Text>
+            {metric === 'sessions' ? (
+              <Text style={text.meta}>{`Objectif : ${formatCount(state.data.weeklyGoal, 'séance', 'séances')}`}</Text>
+            ) : null}
             <Text style={text.meta}>{state.data.lastMonth}</Text>
           </View>
         </>
@@ -587,18 +607,28 @@ function RegularityCard({ state, metric, onChangeMetric, onRetry }: RegularityCa
   );
 }
 
+type WeekBarsProps = {
+  weeks: readonly WeekVolume[];
+  metric: RegularityMetric;
+  /** Puce Séances : objectif hebdomadaire, en pointillé ; null pour Minutes et Tests (aucune ligne). */
+  weeklyGoal: number | null;
+};
+
 /**
  * Une barre par semaine, de la plus ancienne à la courante, haute en proportion
- * de la plus haute ; une semaine à 0 garde un trait gris. Le libellé
- * d'accessibilité donne les valeurs : le sens ne repose pas sur le dessin seul.
+ * de la plus haute (ou de l'objectif s'il la dépasse) ; une semaine à 0 garde un
+ * trait gris. Avec l'objectif : ligne pointillée à sa hauteur, semaine en
+ * dessous en gris (maquette). Le libellé d'accessibilité donne les valeurs et
+ * l'objectif : le sens ne repose pas sur le dessin seul.
  */
-function WeekBars({ weeks, metric }: { weeks: readonly WeekVolume[]; metric: RegularityMetric }) {
-  const values = weeks.map((week) => week[metric]);
-  const max = Math.max(0, ...values);
-  const label = METRICS.find((entry) => entry.key === metric)?.label ?? '';
-  const summary = `${label} par semaine, de la plus ancienne à la semaine en cours : ${values
+function WeekBars({ weeks, metric, weeklyGoal }: WeekBarsProps) {
+  const values = weeks.map((week) => weekMetric(week, metric));
+  const max = Math.max(0, weeklyGoal ?? 0, ...values);
+  const label = metric === 'sessions' ? 'Séances de travail perso' : METRICS.find((entry) => entry.key === metric)?.label;
+  const goalText = weeklyGoal !== null ? ` Objectif : ${weeklyGoal} par semaine.` : '';
+  const summary = `${label ?? ''} par semaine, de la plus ancienne à la semaine en cours : ${values
     .map((value) => formatMetricValue(metric, value))
-    .join(', ')}.`;
+    .join(', ')}.${goalText}`;
   return (
     <View accessible role="img" accessibilityLabel={summary} style={styles.bars}>
       {weeks.map((week, index) => {
@@ -611,10 +641,19 @@ function WeekBars({ weeks, metric }: { weeks: readonly WeekVolume[]; metric: Reg
               value > 0
                 ? { height: Math.max(MIN_BAR_HEIGHT, (size.barChart * value) / max) }
                 : styles.emptyBar,
+              value > 0 && weeklyGoal !== null && value < weeklyGoal && styles.belowGoalBar,
             ]}
           />
         );
       })}
+      {weeklyGoal !== null && max > 0 ? (
+        // Bornée au haut du graphe : un objectif égal à la plus haute semaine reste dans le cadre.
+        <View style={[styles.goalLine, { bottom: Math.min(size.barChart - size.border, (size.barChart * weeklyGoal) / max) }]}>
+          {Array.from({ length: GOAL_DASH_COUNT }, (_, index) => (
+            <View key={index} style={styles.goalDash} />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -809,15 +848,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  /** Rond de 56 px, surface2, comme celui de l'Accueil en plus grand (maquette). */
-  avatar: {
-    width: size.avatar,
-    height: size.avatar,
-    borderRadius: size.avatar / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface2,
-  },
   headerText: {
     flex: 1,
     gap: spacing.xs,
@@ -854,6 +884,10 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     gap: spacing.sm,
   },
+  /** « semaines à l'objectif » passe à la ligne plutôt que de pousser le chiffre. */
+  numberLabel: {
+    flexShrink: 1,
+  },
   bars: {
     height: size.barChart,
     flexDirection: 'row',
@@ -871,6 +905,24 @@ const styles = StyleSheet.create({
   emptyBar: {
     height: EMPTY_BAR_HEIGHT,
     backgroundColor: colors.pitchLine,
+  },
+  /** Semaine sous l'objectif (puce Séances) : barre grise, comme la maquette. */
+  belowGoalBar: {
+    backgroundColor: colors.pitchLine,
+  },
+  /** Ligne d'objectif : tirets répartis sur toute la largeur, par-dessus les barres. */
+  goalLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: size.border,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    pointerEvents: 'none',
+  },
+  goalDash: {
+    flex: 1,
+    backgroundColor: colors.textMuted,
   },
   axis: {
     flexDirection: 'row',

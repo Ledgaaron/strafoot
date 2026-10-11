@@ -138,32 +138,33 @@ export async function deleteSession(id: string): Promise<DbResult<string>> {
   return { data: id, error: null };
 }
 
+/** Séance lue pour l'activité de l'Accueil : jour, module, durée, nom et instant d'enregistrement. */
+export type ActivitySession = Pick<SessionRow, 'date' | 'module' | 'duration_min' | 'name' | 'created_at'>;
+
 /**
- * Jours distincts (YYYY-MM-DD) ayant au moins une séance entre from et to
- * inclus, du plus récent au plus ancien. PostgREST n'a pas de distinct : une
- * ligne par séance revient, toutes lues page par page.
+ * Séances entre deux jours locaux inclus, réduites à ce que l'Accueil en lit
+ * (jours actifs, flamme du travail personnel, entraînement club proposé,
+ * semaine en cours), les plus récentes d'abord (jour, puis enregistrement).
+ * Une ligne par séance, toutes lues page par page.
  */
-export async function listActiveDays({
+export async function listSessionActivity({
   from,
   to,
 }: {
   from: string;
   to: string;
-}): Promise<DbResult<string[]>> {
-  const { data, error } = await fetchAllRows((first, last) =>
+}): Promise<DbResult<ActivitySession[]>> {
+  return fetchAllRows((first, last) =>
     supabase
       .from('sessions')
-      .select('date')
+      .select('date, module, duration_min, name, created_at')
       .gte('date', from)
       .lte('date', to)
       .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
       .order('id', { ascending: true })
       .range(first, last),
   );
-  if (error !== null) {
-    return { data: null, error };
-  }
-  return { data: [...new Set(data.map((row) => row.date))], error: null };
 }
 
 /** Nombre de séances, éventuellement bornées par jour (bornes incluses). */

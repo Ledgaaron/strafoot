@@ -1,5 +1,6 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect } from 'expo-router';
 
+import { AppStack } from '../../components/app-stack';
 import { useAuth } from '../../lib/auth-context';
 
 export default function QuizLayout() {
@@ -14,5 +15,6 @@ export default function QuizLayout() {
   // /quiz reste l'onglet app/(tabs)/quiz.tsx : cette pile ne porte que /quiz/run.
   // En-tête natif par défaut (le layout racine masque le sien) : titre posé par
   // l'écran de série, flèche retour fournie par la pile parente.
-  return <Stack />;
+  // Pile animée (micro-interaction g) : glisse depuis la droite, fermeture symétrique.
+  return <AppStack />;
 }

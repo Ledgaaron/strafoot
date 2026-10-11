@@ -1,4 +1,3 @@
-import { BlurView } from 'expo-blur';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Animated,
@@ -17,8 +16,6 @@ import { useReduceMotion } from '../lib/reduce-motion';
 import { colors, motion, radius, spacing, text } from '../lib/theme';
 import { IconButton } from './icon-button';
 
-/** Flou du voile, sur 100 : 8 px sur le web (expo-blur : intensité × 0,2), flou natif sur iOS. */
-const BLUR_INTENSITY = 40;
 /** Part de la hauteur de la fenêtre que la feuille ne dépasse pas ; au-delà, son contenu défile. */
 const MAX_HEIGHT_RATIO = 0.9;
 
@@ -30,17 +27,20 @@ type BottomSheetProps = {
    */
   onClose: () => void;
   title: string;
+  /** Présent : flèche ‹ avant le titre, retour à la vue précédente d'une feuille à plusieurs vues. */
+  onBack?: () => void;
   children: ReactNode;
 };
 
 /**
- * Feuille du bas : Modal transparente, voile flouté (expo-blur, seul import de
- * l'app ; sur Android sans cible de flou, simple voile) et assombri (scrim), feuille
+ * Feuille du bas : Modal transparente, voile sombre (scrim, sans flou), feuille
  * sur surface aux coins xl qui glisse depuis le bas en motion.screen avec la courbe
  * de la DA, le voile apparaissant en même temps ; « Réduire les animations » : posée
- * d'emblée. Porte le calendrier du mois (MonthSheet) et le choix du module.
+ * d'emblée. Porte le calendrier du mois (MonthSheet), le choix du module, la
+ * session proposée de l'onglet Tests, les Réglages du Profil, l'objectif
+ * hebdomadaire et les objectifs de l'Accueil.
  */
-export function BottomSheet({ visible, onClose, title, children }: BottomSheetProps) {
+export function BottomSheet({ visible, onClose, title, onBack, children }: BottomSheetProps) {
   const reduceMotion = useReduceMotion();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -118,10 +118,7 @@ export function BottomSheet({ visible, onClose, title, children }: BottomSheetPr
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
       <View style={styles.root}>
-        <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress }]}>
-          <BlurView tint="dark" intensity={BLUR_INTENSITY} style={StyleSheet.absoluteFill} />
-          <View style={[StyleSheet.absoluteFill, styles.scrim]} />
-        </Animated.View>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress }]} />
         {/* Le voile ferme au tap ; le bouton Fermer de l'en-tête porte l'action pour le lecteur d'écran. */}
         <Pressable aria-hidden importantForAccessibility="no" onPress={onClose} style={StyleSheet.absoluteFill} />
         <Animated.View
@@ -136,6 +133,9 @@ export function BottomSheet({ visible, onClose, title, children }: BottomSheetPr
           ]}
         >
           <View style={styles.header}>
+            {onBack !== undefined ? (
+              <IconButton icon="chevron-back" subtle accessibilityLabel="Retour" onPress={onBack} />
+            ) : null}
             <Text role="heading" style={[text.title, styles.title]}>
               {title}
             </Text>
@@ -155,10 +155,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  /** Voile sombre seul : il apparaît avec la feuille et laisse passer les touches au Pressable de fermeture. */
   backdrop: {
     pointerEvents: 'none',
-  },
-  scrim: {
     backgroundColor: colors.scrim,
   },
   sheet: {

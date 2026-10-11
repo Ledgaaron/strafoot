@@ -1,5 +1,6 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect } from 'expo-router';
 
+import { AppStack } from '../../components/app-stack';
 import { useAuth } from '../../lib/auth-context';
 
 export default function SheetLayout() {
@@ -13,5 +14,6 @@ export default function SheetLayout() {
 
   // En-tête natif par défaut (le layout racine masque le sien) : titre posé par
   // l'écran de fiche, flèche retour fournie par la pile parente.
-  return <Stack />;
+  // Pile animée (micro-interaction g) : glisse depuis la droite, fermeture symétrique.
+  return <AppStack />;
 }

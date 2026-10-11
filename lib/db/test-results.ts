@@ -88,6 +88,26 @@ export async function listResultValues(testIds: readonly string[]): Promise<DbRe
   );
 }
 
+/** Résultat daté et horodaté : records battus et progression des objectifs (Accueil). */
+export type ResultEntry = Pick<TestResultRow, 'test_id' | 'value' | 'date' | 'created_at'>;
+
+/**
+ * Tous mes résultats, toutes mesures, du plus ancien au plus récent (jour, puis
+ * saisie) : records battus et progression des objectifs de l'Accueil. Lus page
+ * par page.
+ */
+export async function listResultHistory(): Promise<DbResult<ResultEntry[]>> {
+  return fetchAllRows((first, last) =>
+    supabase
+      .from('test_results')
+      .select('test_id, value, date, created_at')
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+}
+
 /** Une ligne du catalogue par id ; data null sans erreur si elle n'existe pas (ou plus). */
 export async function getTest(id: string): Promise<DbResult<TestRow>> {
   const { data, error } = await supabase.from('tests').select('*').eq('id', id).maybeSingle();

@@ -54,7 +54,7 @@ export const colors = {
   quizGlow: 'rgba(167,139,250,0.22)',
   /** Lignes des schémas et du terrain par défaut ; barre d'une semaine vide du graphe de régularité (DA). */
   pitchLine: '#3A3A44',
-  /** bg à 60 % : voile derrière une feuille du bas, sous le flou (ou seul quand le flou manque). */
+  /** bg à 60 % : voile sombre derrière une feuille du bas, sans flou. */
   scrim: 'rgba(16,16,19,0.6)',
 } as const;
 
@@ -165,6 +165,8 @@ export const size = {
   chipBorder: 1.5,
   /** Point d'activité du calendrier. */
   dot: 6,
+  /** Contour du point creux d'un club prévu (calendrier) : lisible sur 6 px. */
+  dotBorder: 1.5,
   /** Icônes d'interface (chevrons). */
   icon: 24,
   /** Coche d'une puce choisie. */
@@ -189,17 +191,19 @@ export const size = {
   avatar: 56,
   /** Hauteur des barres du graphe de régularité du Profil (DA, carte Régularité) : la plus haute semaine. */
   barChart: 80,
+  /** Épaisseur d'une barre de progression (objectif de l'Accueil). */
+  progressBar: 6,
 } as const;
 
 /** Opacité d'un élément désactivé. */
 export const disabledOpacity = 0.4;
 
 /**
- * Mouvement : liste fermée a–e (CLAUDE.md), API Animated et LayoutAnimation
- * seulement, jamais Reanimated. Le mouvement confirme une action ; les chiffres
- * acquis ne s'animent pas à l'affichage ; le rouge ne clignote jamais ; avec
- * « Réduire les animations » (lib/reduce-motion.ts), seul l'appui reste. Durées
- * en ms, courbe unique, aucun ressort ni dépassement.
+ * Mouvement : liste fermée a–g (CLAUDE.md), API Animated, LayoutAnimation et
+ * options des navigateurs seulement, jamais Reanimated. Le mouvement confirme
+ * une action ; les chiffres acquis ne s'animent pas à l'affichage ; le rouge ne
+ * clignote jamais ; avec « Réduire les animations » (lib/reduce-motion.ts), seul
+ * l'appui reste. Durées en ms, courbe unique, aucun ressort ni dépassement.
  */
 export const motion = {
   /** a. Appui : échelle pressScale et fond un cran plus sombre. */
@@ -208,7 +212,7 @@ export const motion = {
   micro: 160,
   /** b, c, e. Pulsation d'une mesure validée, confirmation d'enregistrement, explications du quiz. */
   base: 240,
-  /** Changement d'écran ; feuille du bas (BottomSheet) : glissement et voile. */
+  /** g. Changement d'écran (pile, onglets) ; f. feuille du bas (BottomSheet) : glissement et voile. */
   screen: 320,
   /** Décompte de l'Elo après réponse (chantier 18), une seule fois. */
   count: 600,

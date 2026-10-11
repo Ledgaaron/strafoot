@@ -3,7 +3,7 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 
-import { bestValue, isNewRecord, latestByKey, recordsByKey } from './records';
+import { bestValue, isNewRecord, latestByKey, recordHistory, recordsByKey, type RecordSource } from './records';
 
 let total = 0;
 let failures = 0;
@@ -148,6 +148,78 @@ check('isNewRecord : valeur non finie, jamais un record', () => {
   assert.equal(isNewRecord(Number.POSITIVE_INFINITY, 8, true), false);
   assert.equal(isNewRecord(Number.NEGATIVE_INFINITY, 1.85, false), false);
   assert.equal(isNewRecord(Number.NaN, 8, true), false);
+});
+
+/** Résultat d'une mesure : catalogue, valeur, jour et heure de saisie. */
+function entry(testId: string, value: number, date: string, time = '18:00:00'): RecordSource {
+  return { testId, value, date, created_at: `${date}T${time}.000000+00:00` };
+}
+
+const SENSES = new Map([
+  ['sprint', false],
+  ['jongles', true],
+]);
+
+check('recordHistory : premier résultat et égalité ne sont pas des records', () => {
+  const records = recordHistory([entry('jongles', 20, '2026-10-01'), entry('jongles', 20, '2026-10-03')], SENSES);
+  assert.deepEqual(records, []);
+});
+
+check('recordHistory : records battus du plus récent au plus ancien, dans le sens de chaque mesure', () => {
+  const records = recordHistory(
+    [
+      entry('sprint', 4.5, '2026-10-01'),
+      entry('jongles', 20, '2026-10-01'),
+      entry('sprint', 4.3, '2026-10-04'),
+      entry('jongles', 18, '2026-10-05'),
+      entry('jongles', 25, '2026-10-08'),
+      entry('sprint', 4.4, '2026-10-09'),
+    ],
+    SENSES,
+  );
+  assert.deepEqual(
+    records.map((record) => [record.testId, record.value, record.previous, record.date]),
+    [
+      ['jongles', 25, 20, '2026-10-08'],
+      ['sprint', 4.3, 4.5, '2026-10-04'],
+    ],
+  );
+});
+
+check('recordHistory : ordre reçu indifférent, même jour départagé par la saisie', () => {
+  const records = recordHistory(
+    [
+      entry('jongles', 30, '2026-10-02', '19:00:00'),
+      entry('jongles', 22, '2026-10-02', '18:00:00'),
+      entry('jongles', 20, '2026-10-01'),
+    ],
+    SENSES,
+  );
+  assert.deepEqual(
+    records.map((record) => [record.value, record.previous]),
+    [
+      [30, 22],
+      [22, 20],
+    ],
+  );
+});
+
+check('recordHistory : limite, mesure inconnue et valeurs non finies écartées', () => {
+  const results = [
+    entry('jongles', 10, '2026-09-01'),
+    entry('jongles', 11, '2026-09-02'),
+    entry('jongles', 12, '2026-09-03'),
+    entry('jongles', 13, '2026-09-04'),
+    entry('jongles', 14, '2026-09-05'),
+    entry('jongles', Number.POSITIVE_INFINITY, '2026-09-06'),
+    entry('inconnue', 1, '2026-09-01'),
+    entry('inconnue', 2, '2026-09-02'),
+  ];
+  assert.deepEqual(
+    recordHistory(results, SENSES, 3).map((record) => record.value),
+    [14, 13, 12],
+  );
+  assert.equal(recordHistory(results, SENSES).length, 4);
 });
 
 if (failures > 0) {

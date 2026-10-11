@@ -2,11 +2,12 @@
 import { BarlowCondensed_600SemiBold } from '@expo-google-fonts/barlow-condensed/600SemiBold';
 import { BarlowCondensed_700Bold } from '@expo-google-fonts/barlow-condensed/700Bold';
 import { useFonts } from 'expo-font';
-import { Stack, ThemeProvider } from 'expo-router';
+import { ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppStack } from '../components/app-stack';
 import { ActiveSessionProvider } from '../lib/active-session-context';
 import { AuthProvider, useAuth } from '../lib/auth-context';
 import { watchReduceMotion } from '../lib/reduce-motion';
@@ -15,6 +16,9 @@ import { colors, navigationTheme } from '../lib/theme';
 // « Réduire les animations » lu dès le lancement : la première confirmation ou
 // la première flamme connaît déjà le réglage.
 watchReduceMotion();
+
+/** Routes de la pile racine qui montent depuis le bas : app/session/ (formulaire de séance). */
+const SESSION_PILES: readonly string[] = ['session'];
 
 export default function RootLayout() {
   return (
@@ -53,7 +57,9 @@ function RootNavigator() {
 
   // Les <Redirect> vivent dans app/(tabs)/_layout.tsx et app/(auth)/login.tsx :
   // Expo Router refuse toute navigation avant que ce navigateur soit monté.
-  return <Stack screenOptions={{ headerShown: false }} />;
+  // Pile animée (micro-interaction g) : un écran glisse depuis la droite, la pile
+  // session (formulaire de séance, édition, fin de séance) monte depuis le bas.
+  return <AppStack headerShown={false} rising={SESSION_PILES} />;
 }
 
 const styles = StyleSheet.create({

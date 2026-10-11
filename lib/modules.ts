@@ -11,8 +11,8 @@ type IoniconName = ComponentProps<typeof Ionicons>['name'];
 // contrainte sessions_module_check_v2 (migration 004) reprend MODULE_KEYS à
 // l'identique : changer la liste demande une nouvelle migration.
 // `test` est réservé aux séances créées par l'enregistrement d'un test : le
-// formulaire de séance libre ne le propose pas. `match` n'est pas un module
-// (chantier ultérieur).
+// formulaire de séance libre ne le propose pas. `match` n'est pas un module :
+// le match deviendra une entité (chantier 22), hors flamme par construction.
 
 export type SessionType = Enums<'session_type'>;
 
@@ -56,6 +56,17 @@ export const SHEET_MODULE_KEY: ModuleKey = 'entrainement_specifique';
 /** Module de la séance créée par l'enregistrement d'un test ; absent du formulaire. */
 export const TEST_MODULE_KEY: ModuleKey = 'test';
 
+/** Module de l'entraînement club, que l'Accueil propose d'enregistrer en un tap les jours habituels. */
+export const CLUB_MODULE_KEY: ModuleKey = 'entrainement_club';
+
+/**
+ * Modules hors flamme : liste fermée des séances qui ne sont pas du travail
+ * personnel. Elles restent visibles partout (séances du jour, points du
+ * calendrier, jours actifs, Profil), mais ne comptent ni pour la flamme
+ * d'entraînement ni pour l'objectif hebdomadaire.
+ */
+export const NON_PERSONAL_MODULE_KEYS: readonly ModuleKey[] = [CLUB_MODULE_KEY];
+
 /** Difficulté enregistrée quand aucune n'est choisie (formulaire, fiche, test). */
 export const DEFAULT_DIFFICULTY = 3;
 
@@ -70,6 +81,14 @@ export function getModule(key: ModuleKey): SessionModule {
     throw new Error(`Module inconnu : ${key}`);
   }
   return found;
+}
+
+/**
+ * Travail personnel : toute séance dont le module n'est pas hors flamme. Une
+ * valeur inconnue lue en base compte comme travail personnel.
+ */
+export function isPersonalWork(module: string): boolean {
+  return !NON_PERSONAL_MODULE_KEYS.some((key) => key === module);
 }
 
 /** Libellé d'une valeur lue en base ; la valeur brute si elle n'est pas dans la liste. */

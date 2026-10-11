@@ -1,7 +1,8 @@
-// Tests de relativeDay, daysBetween, startOfWeek, formatWeekRange et des libellés
-// de l'Accueil, du formulaire et du Profil (formatLongDay, formatRecentDay,
-// formatDateLine, formatWeekOf, formatShortMonth) de lib/dates.ts, sans
-// framework : npx tsx lib/dates.test.ts
+// Tests de relativeDay, daysBetween, startOfWeek, formatWeekRange, weekdayOf,
+// timestampMs et des libellés de l'Accueil, du formulaire et du Profil
+// (formatLongDay, formatRecentDay, formatDateLine, formatShortMonth,
+// formatMonthSpan) de lib/dates.ts, sans framework :
+// npx tsx lib/dates.test.ts
 // TypeScript 6 n'inclut plus @types/node d'office : référence explicite pour node:assert.
 /// <reference types="node" />
 import assert from 'node:assert/strict';
@@ -10,12 +11,14 @@ import {
   daysBetween,
   formatDateLine,
   formatLongDay,
+  formatMonthSpan,
   formatRecentDay,
   formatShortMonth,
-  formatWeekOf,
   formatWeekRange,
   relativeDay,
   startOfWeek,
+  timestampMs,
+  weekdayOf,
 } from './dates';
 
 type Case = { name: string; day: string; today: string; expected: string };
@@ -121,13 +124,41 @@ const valueCases: ValueCase<string | number>[] = [
     run: () => formatDateLine('2025-12-20', '2026-01-05'),
     expected: 'Sam. 20 déc. 2025 · 20/12/2025',
   },
-  // Carte de la semaine, hors semaine courante.
-  { name: 'formatWeekOf : semaine du 12 oct.', run: () => formatWeekOf('2026-10-12', TODAY), expected: 'Semaine du 12 oct.' },
-  { name: 'formatWeekOf : autre année', run: () => formatWeekOf('2025-12-29', TODAY), expected: 'Semaine du 29 déc. 2025' },
   // Extrémités du graphe de régularité du Profil : mois court capitalisé, sans année.
   { name: 'formatShortMonth : juillet', run: () => formatShortMonth('2026-07-20'), expected: 'Juil.' },
   { name: 'formatShortMonth : mai, sans point', run: () => formatShortMonth('2026-05-04'), expected: 'Mai' },
   { name: 'formatShortMonth : décembre d’une autre année', run: () => formatShortMonth('2025-12-29'), expected: 'Déc.' },
+  // Titre de la bande des jours de l'Accueil : mois visibles.
+  { name: 'formatMonthSpan : un seul mois', run: () => formatMonthSpan('2026-10-05', '2026-10-11', TODAY), expected: 'Octobre' },
+  {
+    name: 'formatMonthSpan : deux mois, en court',
+    run: () => formatMonthSpan('2026-09-28', '2026-10-04', TODAY),
+    expected: 'Sept. – oct.',
+  },
+  {
+    name: 'formatMonthSpan : un mois d’une autre année',
+    run: () => formatMonthSpan('2025-12-01', '2025-12-07', TODAY),
+    expected: 'Décembre 2025',
+  },
+  {
+    name: 'formatMonthSpan : à cheval sur deux années',
+    run: () => formatMonthSpan('2026-12-29', '2027-01-04', TODAY),
+    expected: 'Déc. 2026 – janv. 2027',
+  },
+  // Jour de la semaine, comme Date.getDay : 0 dimanche … 6 samedi.
+  { name: 'weekdayOf : mercredi 7 octobre', run: () => weekdayOf(TODAY), expected: 3 },
+  { name: 'weekdayOf : dimanche 11 octobre', run: () => weekdayOf('2026-10-11'), expected: 0 },
+  // Instants d'un timestamptz : microsecondes tronquées, fuseau lu.
+  {
+    name: 'timestampMs : microsecondes tronquées',
+    run: () => timestampMs('2026-10-06T21:30:00.123456+00:00'),
+    expected: Date.UTC(2026, 9, 6, 21, 30, 0, 123),
+  },
+  {
+    name: 'timestampMs : décalage horaire pris en compte',
+    run: () => timestampMs('2026-10-06T23:30:00+02:00'),
+    expected: Date.UTC(2026, 9, 6, 21, 30, 0, 0),
+  },
 ];
 
 let failures = 0;

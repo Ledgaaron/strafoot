@@ -7,6 +7,7 @@
 
 import { monthBounds, monthOf, shiftDay, startOfWeek } from './dates';
 import { describeDelta, type Delta } from './measure-delta';
+import { isPersonalWork } from './modules';
 import type { MeasureLatest } from './records';
 import { getFamily, SKILLS, TEST_FAMILIES, type FamilyKey, type SkillKey } from './test-families';
 
@@ -19,20 +20,37 @@ const MINUTES_PER_HOUR = 60;
 /** Séance lue pour les volumes : son jour local et sa durée. */
 export type SessionVolumeSource = { date: string; duration_min: number };
 
+/** Séance lue pour la régularité : son module dit si elle est du travail personnel (lib/modules.ts). */
+export type RegularitySessionSource = SessionVolumeSource & { module: string };
+
 /** Une semaine du graphe de régularité, du lundi au dimanche. */
 export type WeekVolume = {
   /** Lundi de la semaine (YYYY-MM-DD). */
   monday: string;
-  /** Minutes des séances enregistrées. */
+  /** Minutes des séances enregistrées, tout module. */
   minutes: number;
   /** Séances enregistrées, tout module. */
   sessions: number;
+  /** Séances de travail personnel (hors entraînement club) : barres Séances et objectif hebdomadaire. */
+  personalSessions: number;
   /** Tests passés : couples (test, jour) distincts. */
   tests: number;
 };
 
-/** Grandeur portée par les barres (puces Minutes · Séances · Tests) : un champ de WeekVolume. */
+/** Grandeur portée par les barres (puces Minutes · Séances · Tests). */
 export type RegularityMetric = 'minutes' | 'sessions' | 'tests';
+
+/** Valeur d'une semaine pour la grandeur choisie : minutes de toutes les séances, séances de travail personnel, tests. */
+export function weekMetric(week: WeekVolume, metric: RegularityMetric): number {
+  switch (metric) {
+    case 'minutes':
+      return week.minutes;
+    case 'sessions':
+      return week.personalSessions;
+    case 'tests':
+      return week.tests;
+  }
+}
 
 /** Lundi de la première des REGULARITY_WEEK_COUNT semaines : premier jour à lire. */
 export function regularityStart(today: string): string {
@@ -46,7 +64,7 @@ export function regularityStart(today: string): string {
  */
 export function buildRegularityWeeks(
   today: string,
-  sessions: readonly SessionVolumeSource[],
+  sessions: readonly RegularitySessionSource[],
   testDays: readonly string[],
 ): WeekVolume[] {
   const first = regularityStart(today);
@@ -54,6 +72,7 @@ export function buildRegularityWeeks(
     monday: shiftDay(first, DAYS_PER_WEEK * index),
     minutes: 0,
     sessions: 0,
+    personalSessions: 0,
     tests: 0,
   }));
   const byMonday = new Map(weeks.map((week) => [week.monday, week]));
@@ -62,6 +81,9 @@ export function buildRegularityWeeks(
     if (week !== undefined) {
       week.minutes += session.duration_min;
       week.sessions += 1;
+      if (isPersonalWork(session.module)) {
+        week.personalSessions += 1;
+      }
     }
   }
   for (const day of testDays) {
@@ -73,9 +95,9 @@ export function buildRegularityWeeks(
   return weeks;
 }
 
-/** Semaines actives : au moins une séance, tout module (comme la streak d'entraînement). */
-export function countActiveWeeks(weeks: readonly WeekVolume[]): number {
-  return weeks.filter((week) => week.sessions > 0).length;
+/** Semaines à l'objectif : séances de travail personnel au moins égales à l'objectif hebdomadaire. */
+export function countWeeksAtGoal(weeks: readonly WeekVolume[], weeklyGoal: number): number {
+  return weeks.filter((week) => week.personalSessions >= weeklyGoal).length;
 }
 
 /** Séances et minutes du mois de today, du 1er à today (carte Volume du Profil). */

@@ -880,7 +880,7 @@ function buildSql(
     '-- une ligne qui diffère est mise à jour sur place (même id : séances et',
     "-- résultats liés conservés) ; une ligne identique n'est pas touchée. Chaque",
     '-- ligne écrite est publique (is_public = true) : contenu partagé, lisible par',
-    '-- tout compte connecté, modifiable par le seul compte technique.',
+    '-- tout compte connecté, écrit seulement par les seeds.',
     '-- 1. Catalogue des mesures, sur (user_id, key) ; protocol = « Test',
     "--    <Compétence> — <titre du test> », soit pour les mesures d'avant le",
     "--    découpage la même valeur qu'alors (« titre de la batterie — titre du",

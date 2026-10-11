@@ -1,5 +1,6 @@
-import { Redirect, Stack } from 'expo-router';
+import { Redirect } from 'expo-router';
 
+import { AppStack } from '../../components/app-stack';
 import { useAuth } from '../../lib/auth-context';
 
 export default function TestLayout() {
@@ -13,5 +14,6 @@ export default function TestLayout() {
 
   // En-tête natif par défaut (le layout racine masque le sien) : titre posé par
   // l'écran du test, flèche retour fournie par la pile parente.
-  return <Stack />;
+  // Pile animée (micro-interaction g) : glisse depuis la droite, fermeture symétrique.
+  return <AppStack />;
 }

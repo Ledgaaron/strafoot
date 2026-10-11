@@ -22,7 +22,7 @@
 -- (user_id, situation) ; un schéma n'est posé que sur une question dont le
 -- diagram diffère. Une seconde exécution n'ajoute ni ne modifie rien.
 -- Les questions insérées sont publiques (is_public = true) : contenu partagé,
--- lisible par tout compte connecté, modifiable par le seul compte technique.
+-- lisible par tout compte connecté, écrit seulement par les seeds.
 --
 -- Le trigger set_user_id impose user_id := auth.uid(). Le SQL Editor n'a pas de
 -- JWT (auth.uid() est null) : le bloc simule celui du compte technique, le

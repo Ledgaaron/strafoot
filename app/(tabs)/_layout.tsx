@@ -6,9 +6,17 @@ import type { ColorValue } from 'react-native';
 
 import { ActiveSessionBar } from '../../components/active-session-bar';
 import { useAuth } from '../../lib/auth-context';
-import { colors, fontSize, lineHeight, size } from '../../lib/theme';
+import { useReduceMotion } from '../../lib/reduce-motion';
+import { colors, fontSize, lineHeight, motion, size } from '../../lib/theme';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
+
+/** Changement d'onglet (micro-interaction g) : fondu en motion.screen, courbe de la DA, aucun ressort. */
+const TAB_FADE = {
+  animation: 'fade',
+  transitionSpec: { animation: 'timing', config: { duration: motion.screen, easing: motion.easing } },
+} as const;
+const NO_TAB_ANIMATION = { animation: 'none' } as const;
 
 /** Icône d'onglet : accent si actif, textMuted sinon (couleurs passées par la barre). */
 function tabIcon(name: IconName) {
@@ -19,6 +27,7 @@ function tabIcon(name: IconName) {
 
 export default function TabsLayout() {
   const { session } = useAuth();
+  const reduceMotion = useReduceMotion();
 
   // Le layout racine a déjà attendu la fin du chargement : ici, pas de session = pas connecté.
   if (!session) {
@@ -39,6 +48,9 @@ export default function TabsLayout() {
       screenOptions={{
         // Chaque onglet pose son titre (Screen, 28 px) : pas d'en-tête natif.
         headerShown: false,
+        // Fondu à chaque changement d'onglet, sur le web comme en natif (js-tabs, API Animated) ;
+        // « Réduire les animations » : aucune transition.
+        ...(reduceMotion ? NO_TAB_ANIMATION : TAB_FADE),
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
