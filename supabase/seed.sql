@@ -19,7 +19,7 @@
 
 do $$
 declare
-  uid uuid := '4bf159e0-4b5e-47f7-9cf1-793ccc311a88';
+  uid uuid := '<REMPLACER_PAR_MON_UUID>';
   passes_sheet_id uuid;
   vma_test_id uuid;
   shots_test_id uuid;

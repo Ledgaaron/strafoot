@@ -1,18 +1,4 @@
-// À régénérer via supabase gen types :
-//   npx supabase gen types typescript --project-id <id> > lib/types.ts
-// Contenu produit par @supabase/postgrest-typegen (moteur de supabase gen types)
-// sur supabase/migrations/001_initial_schema.sql, puis aligné à la main sur 002
-// (sessions.module ; user_id facultatif à l'insert grâce au défaut auth.uid()),
-// sur 003 (answers.quiz_run_id, answers.flagged), sur 004
-// (training_sheets.slug, kind, subtitle, intro, pdf_url ; tests.key,
-// higher_is_better ; test_results.session_id), sur 005 (profiles.strong_foot,
-// club_level), sur 006 (profiles.goal, goal_deadline), sur 007
-// (training_sheets.family, blocks), sur 008 (profiles.display_name), sur 009
-// (questions.diagram) et sur 010 (tests.is_public).
-// Ne rien ajouter ici : le fichier est écrasé à chaque génération (types des
-// colonnes jsonb : lib/json-types.ts et lib/sheet-types.ts).
-
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -21,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.18"
+  }
   public: {
     Tables: {
       answers: {
@@ -119,7 +110,7 @@ export type Database = {
           id: string
           is_public: boolean
           level: number | null
-          options: NonNullable<Json>
+          options: Json
           positions: string[]
           situation: string
           source: string | null
@@ -132,7 +123,7 @@ export type Database = {
           id?: string
           is_public?: boolean
           level?: number | null
-          options: NonNullable<Json>
+          options: Json
           positions?: string[]
           situation: string
           source?: string | null
@@ -145,7 +136,7 @@ export type Database = {
           id?: string
           is_public?: boolean
           level?: number | null
-          options?: NonNullable<Json>
+          options?: Json
           positions?: string[]
           situation?: string
           source?: string | null
@@ -158,21 +149,21 @@ export type Database = {
         Row: {
           created_at: string
           date: string
-          grid: NonNullable<Json>
+          grid: Json
           id: string
           user_id: string
         }
         Insert: {
           created_at?: string
           date: string
-          grid: NonNullable<Json>
+          grid: Json
           id?: string
           user_id?: string
         }
         Update: {
           created_at?: string
           date?: string
-          grid?: NonNullable<Json>
+          grid?: Json
           id?: string
           user_id?: string
         }
@@ -317,10 +308,10 @@ export type Database = {
           blocks: string[] | null
           created_at: string
           duration_min: number
-          exercises: NonNullable<Json>
+          exercises: Json
           family: string | null
           id: string
-          intro: NonNullable<Json>
+          intro: Json
           is_public: boolean
           kind: string
           pdf_url: string | null
@@ -335,10 +326,10 @@ export type Database = {
           blocks?: string[] | null
           created_at?: string
           duration_min: number
-          exercises?: NonNullable<Json>
+          exercises?: Json
           family?: string | null
           id?: string
-          intro?: NonNullable<Json>
+          intro?: Json
           is_public?: boolean
           kind?: string
           pdf_url?: string | null
@@ -353,10 +344,10 @@ export type Database = {
           blocks?: string[] | null
           created_at?: string
           duration_min?: number
-          exercises?: NonNullable<Json>
+          exercises?: Json
           family?: string | null
           id?: string
-          intro?: NonNullable<Json>
+          intro?: Json
           is_public?: boolean
           kind?: string
           pdf_url?: string | null
