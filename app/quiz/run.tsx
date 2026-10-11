@@ -35,6 +35,7 @@ import {
 } from '../../lib/quiz-taxonomy';
 import { isReduceMotionEnabled } from '../../lib/reduce-motion';
 import { colors, layout, motion, radius, size, spacing, text } from '../../lib/theme';
+import { randomUuid } from '../../lib/uuid';
 
 const NO_ROW_MESSAGE = 'Supabase n’a renvoyé ni la réponse ni d’erreur.';
 
@@ -101,7 +102,7 @@ export default function QuizRunScreen() {
   // Primitives : dépendances stables de l'effet de chargement.
   const filterTheme = parsed.filter?.theme;
   const filterPosition = parsed.filter?.position;
-  const filterError = parsed.error;
+  const filterProblem = parsed.error;
   const [screen, setScreen] = useState<ScreenState>({ status: 'loading' });
   // Incrémenté par « Réessayer » et « Nouvelle série » : relance le chargement.
   const [loadCount, setLoadCount] = useState(0);
@@ -111,7 +112,7 @@ export default function QuizRunScreen() {
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    if (filterError !== null) {
+    if (filterProblem !== null) {
       return;
     }
     let active = true;
@@ -133,16 +134,16 @@ export default function QuizRunScreen() {
     return () => {
       active = false;
     };
-  }, [filterTheme, filterPosition, filterError, loadCount]);
+  }, [filterTheme, filterPosition, filterProblem, loadCount]);
 
-  if (filterError !== null) {
+  if (filterProblem !== null) {
     // Lien mal formé : réessayer ne changerait rien, seul le retour est proposé.
     return (
       <>
         <Stack.Screen options={{ title: 'Quiz' }} />
         <Screen>
           <View style={layout.section}>
-            <FieldError message={filterError} />
+            <FieldError message={filterProblem} />
             <Button variant="secondary" label="Retour" onPress={leaveRun} />
           </View>
         </Screen>
@@ -302,7 +303,7 @@ export default function QuizRunScreen() {
         {screen.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
         {screen.status === 'error' ? (
           <View style={layout.section}>
-            <FieldError message={`Erreur : ${screen.message}`} />
+            <FieldError error={screen.message} />
             <Button variant="secondary" label="Réessayer" onPress={reload} />
           </View>
         ) : null}
@@ -371,24 +372,6 @@ async function loadRun(filter: QuestionFilter): Promise<ScreenState> {
     status: 'running',
     run: { id: randomUuid(), questions, scores: [], phase: { step: 'choosing' } },
   };
-}
-
-/**
- * UUID v4 d'une série ou d'une réponse. crypto.randomUUID existe sur le web
- * (contexte sécurisé seulement), pas sous Hermes dans Expo Go, qui n'a pas Web
- * Crypto : repli sur Math.random, suffisant pour des identifiants qui ne sont
- * pas des secrets.
- */
-function randomUuid(): string {
-  // Le type DOM déclare crypto.randomUUID toujours présent : test à l'exécution.
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
-    const nibble = Math.floor(Math.random() * 16);
-    // y : variante RFC 4122, bits 10xx (8, 9, a ou b).
-    return (char === 'x' ? nibble : (nibble & 0x3) | 0x8).toString(16);
-  });
 }
 
 /** Retour à l'écran précédent ; sans historique (lien direct, rechargement web) : l'onglet Quiz. */
@@ -494,7 +477,7 @@ function QuestionStep({ run, onChoose, onRetrySave, onToggleFlag }: QuestionStep
           {phase.step === 'saving' ? <Text style={text.meta}>Enregistrement…</Text> : null}
           {phase.step === 'saveError' ? (
             <>
-              <FieldError message={`Erreur : ${phase.message}`} />
+              <FieldError error={phase.message} />
               <Button variant="secondary" label="Réessayer l’enregistrement" onPress={onRetrySave} />
             </>
           ) : null}
@@ -564,7 +547,7 @@ function AnswerReview({ options, phase, lettered, result, onToggleFlag }: Answer
           loading={phase.flagging}
           accessibilityLabel={flagged ? 'Retirer le signalement' : 'Signaler une réponse contestable'}
         />
-        <FieldError message={phase.flagError !== null ? `Erreur : ${phase.flagError}` : null} />
+        <FieldError error={phase.flagError} />
       </View>
     </>
   );

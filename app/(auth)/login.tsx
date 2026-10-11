@@ -5,7 +5,7 @@ import { Text, TextInput, View } from 'react-native';
 import { Button } from '../../components/button';
 import { FieldError } from '../../components/field-error';
 import { Screen } from '../../components/screen';
-import { useAuth } from '../../lib/auth-context';
+import { useAuth, type AuthFailure } from '../../lib/auth-context';
 import { input, inputProps, layout, text } from '../../lib/theme';
 
 export default function LoginScreen() {
@@ -13,7 +13,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AuthFailure | null>(null);
 
   if (session) {
     return <Redirect href="/" />;
@@ -61,8 +61,8 @@ export default function LoginScreen() {
           autoComplete="current-password"
           onSubmitEditing={handleSubmit}
         />
-        {/* Message brut de Supabase Auth, en anglais (« Invalid login credentials ») : préfixe français. */}
-        <FieldError message={error ? `Connexion impossible : ${error}` : null} />
+        {/* Erreur de Supabase Auth traduite (identifiants, réseau…), son message d'origine en détail. */}
+        <FieldError error={error} />
       </View>
     </Screen>
   );

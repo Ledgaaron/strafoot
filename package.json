@@ -35,7 +35,10 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx scripts/run-tests.ts",
+    "check": "npm run typecheck && npm run test"
   },
   "private": true
 }

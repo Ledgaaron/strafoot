@@ -26,9 +26,13 @@ import { useReduceMotion } from '../../lib/reduce-motion';
 import type { Measure } from '../../lib/sheet-types';
 import { familyCaption } from '../../lib/test-families';
 import { colors, input, inputProps, layout, motion, radius, size, spacing, text } from '../../lib/theme';
+import { randomUuid } from '../../lib/uuid';
 
 const NO_SESSION_MESSAGE = 'Supabase n’a renvoyé ni la séance ni d’erreur : vérifier l’Accueil avant de réessayer.';
 const NO_RESULTS_MESSAGE = 'Supabase n’a renvoyé ni les résultats ni d’erreur.';
+/** Séance créée, résultats refusés : le réessai ne recrée pas la séance. */
+const RESULTS_NOT_SAVED_MESSAGE =
+  'Séance enregistrée, résultats non enregistrés : « Réessayer les résultats » ne recrée pas la séance.';
 /** Sous une mesure refusée (✓ ou envoi) ; le message au-dessus du bouton nomme toutes les mesures à compléter. */
 const INVALID_MEASURE_MESSAGE = 'Nombre attendu (virgule ou point).';
 /** Valeur d'une mesure, espaces retirés : des chiffres, avec virgule ou point décimal. */
@@ -56,11 +60,14 @@ type LoadState =
   | { status: 'empty' }
   | { status: 'ready'; loaded: Loaded };
 
-/** Envoi en cours, ou refusé ; invalidKeys : mesures vides ou illisibles, encadrées en rouge. */
+/**
+ * Envoi en cours, ou refusé : texte de l'app (lead : mesures à compléter, résultats en attente), erreur reçue
+ * (brute, traduite à l'affichage) ; invalidKeys : mesures vides ou illisibles, encadrées en rouge.
+ */
 type SaveState =
   | { status: 'idle' }
   | { status: 'saving' }
-  | { status: 'error'; message: string; invalidKeys: ReadonlySet<string> };
+  | { status: 'error'; lead: string | null; error: string | null; invalidKeys: ReadonlySet<string> };
 
 /** Valeur enregistrée d'une mesure ; previousRecord : record battu, null sinon. */
 type SavedValue = { value: number; previousRecord: number | null };
@@ -123,7 +130,7 @@ export default function TestScreen() {
           {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
           {state.status === 'error' ? (
             <View style={layout.section}>
-              <FieldError message={`Erreur : ${state.message}`} />
+              <FieldError error={state.message} />
               <Button variant="secondary" label="Réessayer" onPress={reload} />
             </View>
           ) : null}
@@ -269,9 +276,14 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
   const [savedTest, setSavedTest] = useState<SavedTest | null>(null);
   // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
   const pendingRef = useRef(false);
+  // Id de la séance que crée cet écran (test seul, ou 1er test d'une session), tiré au premier envoi et gardé pour
+  // chaque réessai : la base ignore un second envoi.
+  const sessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const saving = save.status === 'saving';
+  // Envoi refusé : son texte et son erreur, affichés au-dessus du bouton.
+  const failure = save.status === 'error' ? save : null;
   const validatedCount = lines.filter((line) => validated.has(line.measure.key)).length;
   const allValidated = validatedCount === lines.length;
   // Session sans résultat enregistré (ni séance créée, ni résultats en attente de
@@ -304,9 +316,10 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     setValidated((keys) => withoutKey(keys, key));
   }
 
-  function fail(message: string) {
+  /** Envoi refusé : texte de l'app (ou null) et erreur reçue (ou null). */
+  function fail(lead: string | null, error: string | null) {
     pendingRef.current = false;
-    setSave({ status: 'error', message, invalidKeys: NO_KEYS });
+    setSave({ status: 'error', lead, error, invalidKeys: NO_KEYS });
   }
 
   async function submit() {
@@ -326,9 +339,10 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     if (invalid.length > 0) {
       setSave({
         status: 'error',
-        message: `Toutes les mesures sont obligatoires (nombre, virgule ou point). À compléter : ${invalid
+        lead: `Toutes les mesures sont obligatoires (nombre, virgule ou point). À compléter : ${invalid
           .map((measure) => measure.name)
           .join(', ')}.`,
+        error: null,
         invalidKeys: new Set(invalid.map((measure) => measure.key)),
       });
       return;
@@ -349,6 +363,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     let sessionId: string;
     if (pendingSessionId === null) {
       const created = await createSession({
+        id: (sessionIdRef.current ??= randomUuid()),
         date: sessionDate,
         module: TEST_MODULE_KEY,
         type: getModule(TEST_MODULE_KEY).type,
@@ -359,7 +374,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
         sheet_id: test.id,
       });
       if (created.error !== null || created.data === null) {
-        fail(`Erreur : ${created.error ?? NO_SESSION_MESSAGE}`);
+        fail(null, created.error ?? NO_SESSION_MESSAGE);
         return;
       }
       sessionId = created.data.id;
@@ -390,6 +405,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     let sessionId = currentRun.sessionId;
     if (sessionId === null) {
       const created = await createSession({
+        id: (sessionIdRef.current ??= randomUuid()),
         date: sessionDate,
         module: TEST_MODULE_KEY,
         type: getModule(TEST_MODULE_KEY).type,
@@ -400,7 +416,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
         sheet_id: currentRun.sheetId,
       });
       if (created.error !== null || created.data === null) {
-        fail(`Erreur : ${created.error ?? NO_SESSION_MESSAGE}`);
+        fail(null, created.error ?? NO_SESSION_MESSAGE);
         return;
       }
       sessionId = created.data.id;
@@ -431,7 +447,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     const check = await getLatestResults(entries.map((entry) => entry.line.catalogId));
     if (check.error !== null || check.data === null) {
       setResultsPending(true);
-      fail(resultsNotSaved(check.error ?? NO_RESULTS_MESSAGE));
+      fail(RESULTS_NOT_SAVED_MESSAGE, check.error ?? NO_RESULTS_MESSAGE);
       return null;
     }
     const latest = check.data;
@@ -445,7 +461,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
     );
     if (saved.error !== null || saved.data === null) {
       setResultsPending(true);
-      fail(resultsNotSaved(saved.error ?? NO_RESULTS_MESSAGE));
+      fail(RESULTS_NOT_SAVED_MESSAGE, saved.error ?? NO_RESULTS_MESSAGE);
       return false;
     }
     return true;
@@ -510,7 +526,7 @@ function TestReader({ loaded, previousSaved }: TestReaderProps) {
 
   const footer = (
     <>
-      <FieldError message={save.status === 'error' ? save.message : null} />
+      <FieldError message={failure?.lead ?? null} error={failure?.error ?? null} />
       {/* Pourquoi l'envoi attend encore, et ce qu'il reste à valider. */}
       {!allValidated ? (
         <Text style={[text.meta, text.tabular]}>{`Valide chaque mesure avec ✓ : ${validatedCount} / ${lines.length}`}</Text>
@@ -836,9 +852,6 @@ function parseMeasureValue(entry: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function resultsNotSaved(error: string): string {
-  return `Séance enregistrée, résultats non enregistrés : ${error}\n« Réessayer les résultats » ne recrée pas la séance.`;
-}
 
 /** « 1 nouveau record », « 2 nouveaux records ». */
 function formatRecords(count: number): string {

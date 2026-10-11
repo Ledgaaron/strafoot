@@ -1,7 +1,9 @@
 # Strafoot
 
-Outil personnel de suivi d'entraînement football. Un seul utilisateur en v1 (moi).
-Le schéma est multi-utilisateurs (user_id + RLS), les écrans ne le sont pas.
+Outil de suivi d'entraînement football. Un seul utilisateur aujourd'hui (moi), mais tout est
+prêt pour plusieurs comptes : données de l'utilisateur isolées par la RLS (user_id), contenu
+partagé lisible par tout compte connecté et détenu par un compte technique (voir Base de
+données). Inscription et écrans propres à plusieurs comptes : pas encore.
 
 Objectif produit : logger une séance en moins de 15 secondes, répondre à un quiz
 par jour, suivre ma progression (séances, tests physiques/techniques, auto-évaluations).
@@ -13,6 +15,7 @@ par jour, suivre ma progression (séances, tests physiques/techniques, auto-éva
 - @supabase/supabase-js appelé directement depuis le client, aucun backend
 - Supabase Auth email/password ; session persistée via AsyncStorage
 - Postgres via Supabase, RLS activée sur toutes les tables, policies sur `auth.uid() = user_id`
+  (contenu partagé : lecture seule, select `or is_public`, voir Base de données)
 - Pas de lib UI, pas de state manager, pas d'ORM, pas de lib de formulaires en v1
 - react-native-svg (version du SDK, installée par `npx expo install`) : seule lib de dessin,
   importée uniquement dans app/measure/ (courbe d'une mesure), components/pitch-placeholder.tsx
@@ -88,7 +91,14 @@ dev/_layout.tsx garde d'auth ; dev/diagrams.tsx prévisualisation des schémas, 
 sélectionnée, réponse au choix C, la même avec tout affiché (showAll), et deux démonstrations du format en code
 lib/
 supabase.ts client unique
-auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth
+auth-context.tsx session, connexion, déconnexion : seul accès à supabase.auth ; un échec rend l'AuthError
+entière (AuthFailure), que l'écran affiche par FieldError (code lu par describeError)
+errors.ts describeError : toute erreur (message brut de lib/db, AuthError, exception, valeur quelconque) →
+famille (identifiants, email non confirmé, réseau, session expirée, accès refusé, doublon, trop de tentatives,
+inconnue), message français et texte d'origine en détail ; seule traduction des erreurs techniques ;
+appMessage marque un message écrit par l'app (lib/db), affiché tel quel en message principal (pur, testé)
+uuid.ts randomUuid (crypto.randomUUID, sinon repli Math.random sous Hermes) : id client d'une série du quiz,
+d'une réponse, d'une séance (pur, testé)
 active-session.ts séance en cours sur l'appareil (clé strafoot.activeSession), union par kind :
 training (fiche, sheetId), test (test seul, sheetId + slug), session (sheetId ou null pour une session
 proposée, slugs des tests, durée prévue, sessionId de la séance créée au 1er test) ; get / start / save /
@@ -132,13 +142,17 @@ validateDiagram / parseDiagram partagés app / scripts, viewRegion, optionIdOfIn
 schéma), optionLetter (id 1-4 → lettre affichée A-D) (pur, testé par diagram-types.test.ts)
 json-types.ts contenu des autres colonnes jsonb (questions.options)
 diagrams.ts URL publique d'un schéma du bucket diagrams, dimensions des schémas (722 × 646)
-db/ une fonction par requête, typée (sessions.ts, dont getSessionDefaults : dernier module et dernière
-durée par module ; answers.ts ; questions.ts : listEligibleQuestions (schéma validé), listQuestionDiagrams
-(/dev/diagrams) ; profiles.ts ; training.ts : fiches, countSheets, listTests (tests
-atomiques avec dernière fois, records et dernier résultat de chaque mesure, deux requêtes), listSessions,
+db/ une fonction par requête, typée (sessions.ts, dont createSession idempotente (id client, on conflict (id)
+do nothing, puis relecture) et getSessionDefaults : dernier module et dernière durée par module ; answers.ts,
+dont createAnswer, idempotente de même ; questions.ts : listEligibleQuestions (schéma validé),
+listQuestionDiagrams (/dev/diagrams) ; profiles.ts ; training.ts : fiches, countSheets, listTests (tests
+atomiques avec dernière fois, records et dernier résultat de chaque mesure, deux lectures), listSessions,
 getTestBySlug ; test-results.ts, dont listTestCatalog, listCatalogByKeys et listResultValues) ; activity.ts :
 listActivityHistory, jours actifs séances + quiz de tout l'historique en une lecture (Accueil, feuille
-du mois) ; result.ts : contrat { data, error }
+du mois) ; fetch-all.ts : fetchAllRows, toute lecture de liste page par page (range de 1000 lignes, tri
+total terminé par id, arrêt à la première page incomplète, garde-fou de 100 pages ; testé par
+fetch-all.test.ts) ; result.ts : contrat { data, error }, error = message brut, ou message de l'app marqué
+par appMessage
 streak.ts calcul pur, testable, sans dépendance
 types.ts types générés depuis Supabase (npx supabase gen types)
 components/ design system et composants réutilisés par ≥ 2 écrans uniquement
@@ -180,7 +194,9 @@ flame.tsx flamme de série (SVG, silhouette de l'icône « flame » d'Ionicons :
 pointe effilée un peu courbée, langue intérieure évidée) : faite (pleine), à faire (contour), perdue (grise,
 jamais rouge), orange ou violet ; ne s'anime qu'en se remplissant (micro-interaction d)
 empty-state.tsx état vide : ce qui manque, quoi faire, le bouton pour le faire
-field-error.tsx erreur sous un champ ou au-dessus de l'action qui a échoué
+field-error.tsx erreur sous un champ ou au-dessus de l'action qui a échoué : prop message (texte de l'app,
+déjà en français, tel quel) et prop error (erreur reçue, brute : message de describeError, puis texte
+d'origine en secondaire, sélectionnable) ; seul affichage d'une erreur reçue
 session-form.tsx formulaire de séance partagé par session/new et session/[id] : module en une ligne
 (tuile, libellé, tap → feuille des modules), date en une ligne (« Aujourd’hui · 09/10/2026 », tap →
 MonthSheet en mode pick), durée automatique du module (durationDefaults : dernière durée, sinon celle du
@@ -196,11 +212,16 @@ PNG du bucket, sinon terrain par défaut ; intertitre, liste (numéros en orange
 scripts/ générateurs des seeds, lancés avec npx tsx (build-seed-questions.ts : questions depuis questions_NNN.json,
 et leurs schémas depuis diagrams_NNN.json du même numéro ; build-seed-sheets.ts : fiches,
 tests atomiques et sessions depuis sheets_NNN.json, tests_atomic_NNN.json et sessions_NNN.json, validés sans être
-réécrits)
+réécrits) ; run-tests.ts : lance chaque *.test.ts de lib/, components/ et scripts/ dans son processus
+(npm run test)
 supabase/
 migrations/NNN_description.sql
-seed.sql données de démonstration
-seed_questions_NNN.sql, seed_sheets_NNN.sql générés par scripts/ : ne pas modifier à la main
+seed.sql données de démonstration du chantier 1 (UUID en dur) : ne plus relancer, il recréerait du contenu
+privé (3 fiches, 2 tests, 5 questions) sous le compte donné
+seed_questions_NNN.sql, seed_sheets_NNN.sql générés par scripts/ : ne pas modifier à la main ; lancés pour le
+compte technique (voir Base de données)
+transfer_content_owner.sql transfert unique du contenu de mon compte au compte technique (chantier 14) :
+deux marqueurs d'UUID remplacés dans le SQL Editor, idempotent, requêtes de contrôle en fin de fichier
 content/ JSON sources des seeds, édités à la main (questions ; diagrams_NNN.json : schémas des questions de
 questions_NNN.json, { situation, diagram } ; sheets_NNN.json : fiches de lecture ;
 tests_atomic_NNN.json : tests atomiques ; sessions_NNN.json : sessions prédéfinies ; pour ces trois sortes,
@@ -215,7 +236,9 @@ vercel.json déploiement Vercel : build, réécriture SPA, en-têtes de cache
 
 Toute lecture/écriture Supabase passe par `lib/db/`. Aucun appel `supabase.from()` dans
 un écran. Les fonctions de `lib/db/` retournent `{ data, error }` et ne lancent pas
-d'exception.
+d'exception ; error est le message brut (traduit à l'affichage, voir Conventions) ou un message
+écrit par lib/db, marqué par `appMessage` (affiché tel quel). Aucun filtre
+explicite par user_id : la RLS choisit les lignes (les miennes, et le contenu public).
 
 ## Conventions
 
@@ -225,10 +248,27 @@ d'exception.
 - Dates stockées en `date` (séances) ou `timestamptz` (réponses). Jamais de string libre.
   Le jour courant est calculé en heure locale, pas en UTC (sinon une séance à 23h30
   compte pour le lendemain).
+- Interface en français uniquement, sans système de traduction (pas d'i18n).
 - Chaque écran gère explicitement ses états : chargement, vide, erreur, données.
-  Une erreur Supabase s'affiche à l'utilisateur en texte brut, jamais avalée.
-- Pas d'optimisation prématurée : pas de cache, pas de pagination tant que ce n'est
-  pas un problème constaté.
+  Toute erreur reçue (Supabase, Auth, réseau, appareil, exception) s'affiche par
+  `<FieldError error={…} />`, donc traduite par `describeError` (lib/errors.ts) : message
+  français (identifiants invalides, réseau indisponible, session expirée, accès refusé,
+  doublon… ; sinon message générique), texte d'origine en détail, en secondaire : jamais
+  avalée. Le texte écrit par l'app (validation d'un champ, consigne) passe par la prop
+  `message` ; avec les deux, le message de l'app vient d'abord. Un message que lib/db
+  écrit lui-même (« Séance introuvable : rien n'a été supprimé. ») passe par
+  `appMessage` (lib/errors.ts) : affiché tel quel, en message principal, sans message
+  générique ni détail ; une cause technique reconnue l'emporte toujours.
+- Pas d'optimisation prématurée : pas de cache, pas de pagination à l'écran.
+- Lectures complètes : toute lecture de liste de lib/db passe par `fetchAllRows`
+  (lib/db/fetch-all.ts : pages de 1000 lignes par range, tri total terminé par id),
+  jamais plafonnée en silence au « Max rows » de Supabase (1000, à ne jamais baisser) ;
+  seules les lectures bornées (une ligne, `.limit`, quelques keys) s'en passent.
+- Idempotence : toute création (séance, réponse) porte un id tiré côté client
+  (lib/uuid.ts) une fois par enregistrement, avant le premier envoi, puis renvoyé tel quel
+  à chaque réessai : insert … on conflict (id) do nothing, puis relecture ; un second envoi
+  ne crée rien et compte comme un succès. L'écran qui crée garde aussi une garde
+  synchrone (`pendingRef`) contre le double tap.
 
 ## Base de données
 
@@ -241,7 +281,29 @@ d'exception.
   s'arrêter et le proposer avec le SQL complet.
 - Toute table : `id uuid primary key default gen_random_uuid()`, `user_id uuid not null
   references auth.users(id) on delete cascade`, `created_at timestamptz not null default now()`,
-  RLS activée, 4 policies (select/insert/update/delete) sur `auth.uid() = user_id`.
+  RLS activée, 4 policies (select/insert/update/delete) sur `auth.uid() = user_id` (contenu
+  partagé : une seule, select `or is_public`, ci-dessous).
+- Deux sortes de données (depuis 010, chantier 14) ; toute nouvelle table choisit l'une des
+  deux et le dit dans sa migration :
+  - **contenu partagé** : `questions`, `training_sheets` (fiches de lecture, tests atomiques,
+    sessions prédéfinies), `tests` (catalogue des mesures) ; demain bornes /99, principes
+    tactiques… Colonne `is_public` ; une seule policy, en lecture : `auth.uid() = user_id or
+    is_public` (tout compte connecté) ; aucune policy insert, update ni delete : l'app n'écrit
+    jamais le contenu, seuls les seeds et le transfert l'écrivent, en rôle postgres (SQL
+    Editor), que la RLS ne concerne pas ;
+  - **données de l'utilisateur** : toutes les autres tables (profils, séances, résultats,
+    réponses, auto-évaluations ; demain objectifs, Elo, planning club…) : 4 policies sur
+    `auth.uid() = user_id`.
+- Compte technique « contenu » : compte Supabase Auth créé à la main dans le tableau de bord
+  (Add user, « Auto Confirm User »), jamais connecté à l'app, propriétaire de tout le contenu
+  depuis le transfert (supabase/transfer_content_owner.sql : mêmes lignes, mêmes id,
+  is_public = true ; mes réponses, résultats et séances restent liés). Mon compte ne possède
+  plus aucun contenu. Ne jamais supprimer le compte technique : la cascade effacerait le
+  contenu, et avec lui les réponses et résultats de tous les comptes.
+- Seeds (seed_questions_NNN.sql, seed_sheets_NNN.sql) : lancés avec l'UUID du compte technique
+  (marqueur `<REMPLACER_PAR_CONTENU_UUID>`, remplacé dans le SQL Editor, jamais commité), après
+  010 et le transfert ; ils posent `is_public = true` et refusent un compte qui a des séances,
+  réponses ou résultats (le mien, par erreur).
 - Depuis 002, `user_id` a le défaut `auth.uid()` sur les 8 tables, en plus du trigger
   `set_user_id` (001) qui l'impose à chaque insert : le client n'envoie jamais `user_id`.
 - Après chaque migration, régénérer `lib/types.ts`.
@@ -253,7 +315,7 @@ d'exception.
   club, club_level (niveau, texte libre court), birth_date ; un profil par utilisateur
   (index unique sur user_id depuis 005) ; depuis 006 : goal (objectif, 140 caractères au
   plus) et goal_deadline (date, échéance de l'objectif), ni affichés ni modifiés par l'app depuis
-  le chantier 12 (données conservées ; objectifs : chantier 14) ; depuis 008 : display_name (nom
+  le chantier 12 (données conservées ; objectifs : chantier 15) ; depuis 008 : display_name (nom
   affiché, 40 caractères au plus, limite posée par l'écran d'édition ; initiales de l'avatar du Profil)
 - `sessions` : date, type (`collectif` | `solo` | `match` | `recup` | `test`),
   module text not null default 'seance_libre' (liste fermée = `MODULE_KEYS` de
@@ -271,7 +333,8 @@ d'exception.
 - `tests` : catalogue des mesures : name, protocol (« Test <Compétence> — <titre du test> », écrit par le
   seed : même valeur qu'avant le découpage, « titre de la batterie — titre du bloc »), unit ;
   depuis 004 : key (identifiant stable, unique par utilisateur, null pour les 2 tests de
-  démonstration), higher_is_better (false pour les chronos)
+  démonstration, lus par aucun écran), higher_is_better (false pour les chronos) ; depuis 010 :
+  is_public (contenu partagé)
 - `test_results` : test_id, date, value numeric, comment ; depuis 004 : session_id → sessions
   (séance de type test qui a produit le résultat, on delete set null)
 - `questions` : situation, options jsonb (4 × { text, score 0-3, explanation }), theme,
@@ -342,7 +405,7 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    score ≤ 1, puis les plus anciennes) ; après réponse, affichage du score de l'option
    choisie et des 4 explications, jamais « la bonne réponse » ; réponse enregistrée dans
    `answers`, signalement d'une réponse contestable, récap de la série. Question à schéma
-   (chantier 13a, intégration minimale avant la refonte 13b) : le schéma entre la situation et les
+   (chantier 13a, intégration minimale avant la refonte du chantier 18) : le schéma entre la situation et les
    options, chaque option précédée de la pastille de sa lettre (A-D) ; l'option touchée s'allume sur
    le schéma pendant l'enregistrement (selected : seule à garder sa pastille), puis la réponse
    confirmée ne montre que ton choix, dans sa catégorie, et les options à 3 (result) ; les pastilles
@@ -409,7 +472,7 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    12 px l'une de l'autre : **Régularité** (12 dernières semaines en barres, la courante à
    droite, une semaine à 0 en trait gris ; puces Minutes · Séances · Tests, choix mémorisé tant
    que l'app tourne ; « N/12 semaines actives » (≥ 1 séance) en chiffre dominant ; mois aux
-   extrémités ; ni objectif hebdomadaire ni ligne pointillée avant le chantier 14) ; **Tests**
+   extrémités ; ni objectif hebdomadaire ni ligne pointillée avant le chantier 15) ; **Tests**
    (étiquette orange) : une ligne par compétence ayant au moins un résultat (icône, libellé,
    « 3 tests faits · dernière fois : hier », « 2 mesures en progrès · 1 en recul » sur le dernier
    résultat de chaque mesure face au précédent, en vert / rouge et toujours en texte), tap →
@@ -420,11 +483,11 @@ Onglets, dans l'ordre : Accueil · Tests · Quiz · Profil.
    répondues en chiffre dominant, série et moyenne sur 7 jours, tap → onglet Quiz ; nombre de
    fiches de lecture, tap → leur liste ; **Volume** : durée du mois en chiffre dominant et nombre
    de séances, tap → app/stats/volume (durée, séances et tests sur 30 jours et au total, puis par
-   module). Pas de note /99 (chantier 11) ni d'Elo (chantier 13). Objectif et échéance : ni
-   affichés ni modifiables, données conservées (chantier 14). Édition : nom affiché (40
+   module). Pas de note /99 (chantier 21) ni d'Elo (chantier 18). Objectif et échéance : ni
+   affichés ni modifiables, données conservées (chantier 15). Édition : nom affiché (40
    caractères, en premier), postes, pied fort, club, niveau, date de naissance.
    Auto-évaluations (grille 64 compétences en jsonb, à migrer depuis l'outil existant) :
-   chantier 5b.
+   chantier 23.
 
 Séance en cours : chrono = horodatage (startedAt), jamais de timer d'arrière-plan. La durée
 est maintenant − startedAt, recalculée à l'affichage ; le bandeau et l'en-tête de la fiche
@@ -482,12 +545,12 @@ rendu web et natif, aucune animation (flèches fixes).
 - **États** : nu (les quatre options, trait violet à 50 %, pastille violette) ; `selected` (l'option
   choisie en violet plein avec sa pastille, les autres en trait à 40 % sans pastille) ; `result`
   (seules la choisie, dans sa catégorie : 3 success · 2 textMuted · 1 danger · 0 error, et les options
-  à 3 en success) ; `result` avec `showAll` (« Voir les autres choix », 13b : les autres aussi,
+  à 3 en success) ; `result` avec `showAll` (« Voir les autres choix », chantier 18 : les autres aussi,
   couleur border, lettre secondaire). `OptionBadge` : la même pastille dans les réponses du quiz,
   pour chacune des quatre options.
 - **Lien avec les réponses** : id d'une option du schéma = rang de l'option dans `questions.options`,
   à partir de 1 (`optionIdOfIndex`), affiché en lettre (`optionLetter`) ; le mélange des réponses
-  (13b) devra garder ce rang d'origine.
+  (chantier 18) devra garder ce rang d'origine.
 - **/dev/diagrams** : chaque schéma en base dans ses états (nu, option B sélectionnée, réponse au
   choix C, la même avec tout affiché ; un seul état sans options) et deux démonstrations du format en
   code ; ouvert seulement par l'URL (sur iPhone, dans Safari : l'app installée n'a pas de barre
@@ -525,7 +588,7 @@ lg 16 = cartes, xl 20 = feuilles, pill = puces ; alias card / button / chip ; ba
 barres de la régularité, DA), dimensions (touch 48, chip 48, button 56, compactButton 32
 + hitSlop 8, flame 32, avatar 56, barChart 80, tabBar) et `motion` (press 100, micro 160,
 base 240, screen 320, count 600, courbe cubic-bezier(0.2, 0, 0, 1), pressScale 0,98,
-validateScale 1,03). quizGlow et quizGradient sont définis mais réservés au chantier 13.
+validateScale 1,03). quizGlow et quizGradient sont définis mais réservés au chantier 18.
 Onglets : Accueil · Tests · Quiz · Profil, libellés 14 px 600, actif en orange. « Quiz » (un
 seul z) dans tout texte affiché ; tables, colonnes, fichiers et routes gardent leur nom.
 
@@ -573,17 +636,17 @@ Règles UX (figées : tout écran nouveau ou modifié est relu contre cette list
 Écarts assumés. Règle 4 et interlignes : meta 14/20 et body 16/24 la respectent ; title 20/26
 et screen 28/32 suivent la DA (titres, pas du texte courant). Contrastes de la DA sur bg
 #101013 : text 17,3:1, textMuted 7,4:1, accent 6,6:1, quiz 7,0:1, danger 5,7:1 (4,8:1 sur
-surface2), onAccent sur accent 6,6:1 ; `colors.error` (3,6:1) ne porte jamais de texte. Les
-messages bruts de Supabase restent en anglais (erreur jamais avalée). Schémas : numéros de
-maillot en 12 px gras (exception de la DA, toujours repris en toutes lettres dans la question) ;
-options en retrait (réponse avec showAll) couleur border (décoratif), leur lettre en textMuted
-reste lisible.
+surface2), onAccent sur accent 6,6:1 ; `colors.error` (3,6:1) ne porte jamais de texte.
+Schémas : numéros de maillot en 12 px gras (exception de la DA, toujours repris en toutes
+lettres dans la question) ; options en retrait (réponse avec showAll) couleur border
+(décoratif), leur lettre en textMuted reste lisible.
 
 ## Méthode de travail
 
 - Une session = un chantier défini. Avant de coder : résumer la compréhension en
   3-5 lignes, poser les questions bloquantes, attendre validation si une décision
   d'architecture est ambiguë.
+- Numéros de chantier : ceux de RETOUCHE.md (version 2 du 11/10/2026, chantiers 14 à 25).
 - Ne pas modifier des fichiers hors du chantier sans le dire.
 - Fin de chantier, dans cet ordre :
   1. Résumé de ce qui a été fait
@@ -616,7 +679,9 @@ reste lisible.
 
 - Web : export SPA (`expo.web.output = "single"`, metro) déployé par Vercel à chaque push sur
   main (intégration Git). Jamais `vercel deploy` depuis le poste : le CLI enverrait `.env`.
-- vercel.json : build `npx expo export -p web`, sortie `dist`, framework null. Toute route hors
+- vercel.json : build `npm run check && npx expo export -p web` (tsc puis tous les tests : un
+  déploiement cassé ne part pas ; typescript et tsx sont des devDependencies, que Vercel
+  installe), sortie `dist`, framework null. Toute route hors
   `/_expo/` et `/assets/` est réécrite vers `/index.html` (un fichier existant passe avant) ;
   `/_expo/static/*` et `/assets/*` (noms hachés : polices, icônes) en cache immuable d'un an,
   tout le reste en `no-cache`.
@@ -651,14 +716,17 @@ reste lisible.
 ## Commandes
 
 - `npx expo start` puis `w` / `a` (`npx expo start --clear` après l'ajout d'une dépendance)
-- `npx tsc --noEmit` avant chaque fin de chantier, zéro erreur exigée
-- `npx tsx lib/streak.test.ts`, `npx tsx lib/quiz-select.test.ts`,
-  `npx tsx lib/measure-delta.test.ts`, `npx tsx lib/dates.test.ts`,
-  `npx tsx lib/active-session.test.ts`, `npx tsx lib/records.test.ts`,
-  `npx tsx lib/test-plan.test.ts`, `npx tsx lib/profile-stats.test.ts`,
-  `npx tsx lib/diagram-types.test.ts`, `npx tsx components/diagram-layout.test.ts` (lit les schémas
-  pilotes de supabase/content/diagrams_001.json : depuis la racine du projet) (tests purs, sans
-  framework)
+- `npm run check` avant chaque fin de chantier, zéro erreur exigée : `npm run typecheck`
+  (`tsc --noEmit`) puis `npm run test` ; c'est aussi le début du build Vercel
+- `npm run test` (scripts/run-tests.ts) : chaque fichier `*.test.ts` de lib/, components/ et
+  scripts/, dans son processus, tous lancés même après un échec (tests purs, sans framework ;
+  depuis la racine du projet : components/diagram-layout.test.ts lit les schémas pilotes de
+  supabase/content/diagrams_001.json). Un seul fichier : `npx tsx lib/errors.test.ts`
+- Erreurs reçues affichées hors `FieldError error=` (aucune ligne attendue ; le texte de l'app
+  passe par message=, ses variables ne finissent ni par Error ni par .message) :
+  `Get-ChildItem app, components -Recurse -Include *.tsx | Select-String -Pattern 'Erreur : \$\{|FieldError message=\{[^}]*(\.message|[eE]rror|exception)\b(?!\.)' -CaseSensitive`
+- Filtre user_id explicite dans lib/db (aucune ligne attendue : la RLS suffit) :
+  `Get-ChildItem lib\db -Recurse -Include *.ts | Select-String -Pattern "\.(eq|neq|in|match|filter|or)\('user_id'|user_id:|user_id ?=" -CaseSensitive`
 - Stockage de l'appareil (seulement lib/supabase.ts et lib/active-session.ts attendus) :
   `Get-ChildItem app, components, lib -Recurse -Include *.ts, *.tsx | Select-String -Pattern 'async-storage'`
 - Contrôle du design system (aucune ligne attendue) :

@@ -84,7 +84,7 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
   const [loadCount, setLoadCount] = useState(0);
   const activeSession = useActiveSession();
   // Échec de mémorisation au démarrage par ▶ : rien n'a démarré.
-  const [startError, setStartError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<{ lead: string; error: string } | null>(null);
   // Garde synchrone : deux ▶ rapprochés ne démarrent qu'une séance.
   const startingRef = useRef(false);
 
@@ -167,7 +167,7 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
     const error = await activeSession.start({ kind: 'training', sheetId: item.id, title: item.title });
     startingRef.current = false;
     if (error !== null) {
-      setStartError(`« ${item.title} » n’a pas démarré. ${error}`);
+      setStartError({ lead: `« ${item.title} » n’a pas démarré.`, error });
       return;
     }
     router.push({ pathname: '/sheet/[id]', params: { id: item.id } });
@@ -178,11 +178,11 @@ function ThemeSheets({ themeKey }: { themeKey: TrainingThemeKey }) {
       {/* En-tête natif : « Fiches », comme la carte du Profil ; flèche retour vers lui. */}
       <Stack.Screen options={{ title: 'Fiches' }} />
       <Screen>
-        <FieldError message={startError} />
+        {startError !== null ? <FieldError message={startError.lead} error={startError.error} /> : null}
         {listState.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
         {listState.status === 'error' ? (
           <View style={layout.section}>
-            <FieldError message={`Erreur : ${listState.message}`} />
+            <FieldError error={listState.message} />
             <Button variant="secondary" label="Réessayer" onPress={reload} />
           </View>
         ) : null}

@@ -222,7 +222,7 @@ export default function HomeScreen() {
         {summaryState.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {summaryState.status === 'error' ? (
           <>
-            <FieldError message={`Erreur : ${summaryState.message}`} />
+            <FieldError error={summaryState.message} />
             <Button variant="secondary" label="Réessayer" onPress={retrySummary} />
           </>
         ) : null}
@@ -245,7 +245,7 @@ export default function HomeScreen() {
         {shownSessions.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {shownSessions.status === 'error' ? (
           <>
-            <FieldError message={`Erreur : ${shownSessions.message}`} />
+            <FieldError error={shownSessions.message} />
             <Button variant="secondary" label="Réessayer" onPress={retryDaySessions} />
           </>
         ) : null}

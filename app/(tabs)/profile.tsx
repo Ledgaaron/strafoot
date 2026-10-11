@@ -13,7 +13,7 @@ import { FieldError } from '../../components/field-error';
 import { IconButton, type IconName } from '../../components/icon-button';
 import { SaveToast } from '../../components/save-toast';
 import { Screen } from '../../components/screen';
-import { useAuth } from '../../lib/auth-context';
+import { useAuth, type AuthFailure } from '../../lib/auth-context';
 import { formatShortDay, formatShortMonth, localToday, relativeDay } from '../../lib/dates';
 import { getQuizStats, listAnswerDays } from '../../lib/db/answers';
 import { getMyProfile } from '../../lib/db/profiles';
@@ -132,7 +132,7 @@ export default function ProfileScreen() {
   const [metric, setMetric] = useState<RegularityMetric>(lastMetric);
   const [settings, setSettings] = useState<SettingsSheet | null>(null);
   const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [signOutError, setSignOutError] = useState<AuthFailure | null>(null);
   // Carte Tests mise en évidence au retour de « Voir ma progression », le temps de la visite.
   const [testsHighlighted, setTestsHighlighted] = useState(false);
   // Incrémenté à chaque arrivée par « Voir ma progression » : relance la mise en vue.
@@ -312,7 +312,7 @@ export default function ProfileScreen() {
           {email !== null ? <Text style={text.meta}>{`Connecté : ${email}`}</Text> : null}
           {/* L'écran d'édition relit le profil lui-même : proposé même si l'en-tête est en erreur. */}
           <Button variant="secondary" label="Modifier le profil" onPress={editProfile} />
-          <FieldError message={signOutError} />
+          {signOutError !== null ? <FieldError message="Déconnexion impossible." error={signOutError} /> : null}
           <Button variant="danger" label="Déconnexion" loading={signingOut} onPress={confirmSignOut} />
         </BottomSheet>
       ) : null}
@@ -513,16 +513,16 @@ function ProfileHeader({ email, header, onRetry, onOpenSettings }: ProfileHeader
         </View>
         <IconButton icon="settings" subtle accessibilityLabel="Réglages" onPress={onOpenSettings} />
       </View>
-      {header.status === 'error' ? <SectionError message={header.message} onRetry={onRetry} /> : null}
+      {header.status === 'error' ? <SectionError error={header.message} onRetry={onRetry} /> : null}
     </View>
   );
 }
 
 /** Erreur d'une section et son « Réessayer » ; jamais dans une carte tappable (deux cibles l'une dans l'autre). */
-function SectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
+function SectionError({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <>
-      <FieldError message={`Erreur : ${message}`} />
+      <FieldError error={error} />
       <Button variant="secondary" label="Réessayer" onPress={onRetry} />
     </>
   );
@@ -539,7 +539,7 @@ type RegularityCardProps = {
  * Régularité : semaines actives (au moins une séance) sur les 12 dernières en
  * chiffre dominant, puis une barre par semaine (la courante à droite) de la
  * grandeur choisie en puces, et les mois aux extrémités. Ni objectif ni repère
- * (chantier 14).
+ * (chantier 15).
  */
 function RegularityCard({ state, metric, onChangeMetric, onRetry }: RegularityCardProps) {
   return (
@@ -551,7 +551,7 @@ function RegularityCard({ state, metric, onChangeMetric, onRetry }: RegularityCa
         <Text style={text.meta}>{`${REGULARITY_WEEK_COUNT}${NBSP}semaines`}</Text>
       </View>
       {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-      {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+      {state.status === 'error' ? <SectionError error={state.message} onRetry={onRetry} /> : null}
       {state.status === 'ready' ? (
         <>
           <View
@@ -629,7 +629,7 @@ type TestsCardProps = {
 /**
  * Tests, mise en avant (étiquette orange) : une ligne par compétence qui a au
  * moins un résultat, vers ses statistiques (familles, tests, mesures). Pas de
- * note (chantier 11).
+ * note (chantier 21).
  */
 function TestsCard({ state, highlighted, onRetry }: TestsCardProps) {
   return (
@@ -638,7 +638,7 @@ function TestsCard({ state, highlighted, onRetry }: TestsCardProps) {
         Tests
       </Text>
       {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-      {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+      {state.status === 'error' ? <SectionError error={state.message} onRetry={onRetry} /> : null}
       {state.status === 'ready' ? (
         <>
           <FieldError message={state.data.problems.length > 0 ? state.data.problems.join('\n') : null} />
@@ -698,7 +698,7 @@ function QuizCard({ state, onRetry }: { state: Loadable<QuizData>; onRetry: () =
       <Card style={[styles.card, styles.halfCard]}>
         {label}
         {state.status === 'loading' ? <ActivityIndicator color={colors.quiz} /> : null}
-        {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+        {state.status === 'error' ? <SectionError error={state.message} onRetry={onRetry} /> : null}
       </Card>
     );
   }
@@ -735,7 +735,7 @@ function SheetsCard({ state, onRetry }: { state: Loadable<number>; onRetry: () =
       <Card style={[styles.card, styles.halfCard]}>
         {label}
         {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-        {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+        {state.status === 'error' ? <SectionError error={state.message} onRetry={onRetry} /> : null}
       </Card>
     );
   }
@@ -767,7 +767,7 @@ function VolumeCard({ state, onRetry }: { state: Loadable<TrainingData>; onRetry
       <Card style={styles.card}>
         {label}
         {state.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
-        {state.status === 'error' ? <SectionError message={state.message} onRetry={onRetry} /> : null}
+        {state.status === 'error' ? <SectionError error={state.message} onRetry={onRetry} /> : null}
       </Card>
     );
   }

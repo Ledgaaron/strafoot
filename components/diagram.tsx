@@ -90,7 +90,7 @@ type DiagramProps = {
    * à 3 (succès) sont dessinées ; l'emporte sur selected.
    */
   result?: DiagramResult;
-  /** Avec result : les quatre options, les autres en retrait (« Voir les autres choix », chantier 13b). */
+  /** Avec result : les quatre options, les autres en retrait (« Voir les autres choix », chantier 18). */
   showAll?: boolean;
   /** Ce que montre le schéma, pour les lecteurs d'écran ; à défaut, joueurs et options comptés. */
   accessibilityLabel?: string;

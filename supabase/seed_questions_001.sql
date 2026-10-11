@@ -6,11 +6,12 @@
 -- Fichier généré par scripts/build-seed-questions.ts : ne pas modifier à la
 -- main, modifier les JSON puis relancer npx tsx scripts/build-seed-questions.ts.
 --
--- À exécuter dans le SQL Editor APRÈS supabase/migrations/003_quiz.sql et
--- supabase/migrations/009_question_diagrams.sql (colonne diagram).
+-- À exécuter dans le SQL Editor APRÈS supabase/migrations/003_quiz.sql,
+-- supabase/migrations/009_question_diagrams.sql (colonne diagram) et
+-- supabase/transfer_content_owner.sql (contenu au compte technique).
 --
--- 1. Récupère ton UUID : Dashboard Supabase → Authentication → Users →
---    clique sur ton utilisateur → copie « User UID ».
+-- 1. Récupère l’UUID du compte technique « contenu », pas le tien : Dashboard
+--    Supabase → Authentication → Users → clique sur ce compte → copie « User UID ».
 -- 2. Colle tout le fichier dans le SQL Editor, puis remplace par cet UUID le
 --    marqueur entre chevrons de la ligne uid uuid := … (une seule occurrence).
 --    Fais-le dans le SQL Editor, pas dans ce fichier, qui est régénéré.
@@ -20,15 +21,17 @@
 -- Idempotent : l'insert ne porte que sur les questions absentes, repérées par
 -- (user_id, situation) ; un schéma n'est posé que sur une question dont le
 -- diagram diffère. Une seconde exécution n'ajoute ni ne modifie rien.
+-- Les questions insérées sont publiques (is_public = true) : contenu partagé,
+-- lisible par tout compte connecté, modifiable par le seul compte technique.
 --
 -- Le trigger set_user_id impose user_id := auth.uid(). Le SQL Editor n'a pas de
--- JWT (auth.uid() est null) : le bloc simule celui de l'utilisateur, le temps
--- de la transaction uniquement. L'insert n'envoie donc jamais user_id.
+-- JWT (auth.uid() est null) : le bloc simule celui du compte technique, le
+-- temps de la transaction uniquement. L'insert n'envoie donc jamais user_id.
 -- =============================================================================
 
 do $$
 declare
-  uid uuid := '<REMPLACER_PAR_MON_UUID>';
+  uid uuid := '<REMPLACER_PAR_CONTENU_UUID>';
   inserted_count integer;
   updated_count integer;
 begin
@@ -45,11 +48,20 @@ begin
     raise exception 'Simulation du JWT inopérante : auth.uid() = %, attendu %.', auth.uid(), uid;
   end if;
 
+  -- Compte technique seulement : des séances, réponses ou résultats à son nom
+  -- trahissent un compte qui joue (le tien) ; le contenu s’y doublerait.
+  if exists (select 1 from public.sessions where user_id = uid)
+    or exists (select 1 from public.answers where user_id = uid)
+    or exists (select 1 from public.test_results where user_id = uid)
+  then
+    raise exception 'Le compte % a des séances, réponses ou résultats : ce n’est pas le compte technique « contenu ». Rien n’est appliqué.', uid;
+  end if;
+
   -- ---------------------------------------------------------------------------
   -- Questions : 4 options { text, score 0-3, explanation } (clé : situation)
   -- ---------------------------------------------------------------------------
   insert into public.questions (situation, options, theme, positions, level, source, is_public)
-  select v.situation, v.options, v.theme, v.positions, v.level, v.source, false
+  select v.situation, v.options, v.theme, v.positions, v.level, v.source, true
   from (values
     (
       'Ailier droit. Ton latéral remonte balle au pied à 40 m du but. Le latéral adverse te marque de près, il y a de l''espace dans son dos.',

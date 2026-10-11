@@ -1,7 +1,9 @@
 import { localDateOfTimestamp, localToday, shiftDay, startOfLocalDayTimestamp } from '../dates';
+import { appMessage } from '../errors';
 import { THEME_KEYS } from '../quiz-taxonomy';
 import { supabase } from '../supabase';
 import type { Tables } from '../types';
+import { fetchAllRows } from './fetch-all';
 import type { DbResult } from './result';
 
 export type AnswerRow = Tables<'answers'>;
@@ -46,7 +48,8 @@ const RECENT_DAY_COUNT = 7;
 /**
  * Jours locaux distincts (YYYY-MM-DD) ayant au moins une réponse entre from et
  * to inclus, du plus récent au plus ancien. answered_at est un timestamptz : les
- * bornes sont les minuits locaux de from et du lendemain de to.
+ * bornes sont les minuits locaux de from et du lendemain de to. Une ligne par
+ * réponse revient, toutes lues page par page.
  */
 export async function listAnswerDays({
   from,
@@ -55,14 +58,18 @@ export async function listAnswerDays({
   from: string;
   to: string;
 }): Promise<DbResult<string[]>> {
-  const { data, error } = await supabase
-    .from('answers')
-    .select('answered_at')
-    .gte('answered_at', startOfLocalDayTimestamp(from))
-    .lt('answered_at', startOfLocalDayTimestamp(shiftDay(to, 1)))
-    .order('answered_at', { ascending: false });
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) =>
+    supabase
+      .from('answers')
+      .select('answered_at')
+      .gte('answered_at', startOfLocalDayTimestamp(from))
+      .lt('answered_at', startOfLocalDayTimestamp(shiftDay(to, 1)))
+      .order('answered_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+  if (error !== null) {
+    return { data: null, error };
   }
   return { data: [...new Set(data.map((row) => localDateOfTimestamp(row.answered_at)))], error: null };
 }
@@ -90,7 +97,7 @@ export async function createAnswer(input: AnswerInput): Promise<DbResult<AnswerR
     return { data: null, error: existing.error.message };
   }
   if (!existing.data) {
-    return { data: null, error: 'Réponse introuvable après envoi : enregistrement non confirmé.' };
+    return { data: null, error: appMessage('Réponse introuvable après envoi : enregistrement non confirmé.') };
   }
   return { data: existing.data, error: null };
 }
@@ -107,37 +114,48 @@ export async function flagAnswer(id: string, flagged: boolean): Promise<DbResult
     return { data: null, error: error.message };
   }
   if (!data) {
-    return { data: null, error: 'Réponse introuvable : signalement non enregistré.' };
+    return { data: null, error: appMessage('Réponse introuvable : signalement non enregistré.') };
   }
   return { data, error: null };
 }
 
 /**
- * Statistiques du quiz. total est exact ; byTheme porte sur les réponses lues,
- * dans la limite du max rows du projet (1000 par défaut, les plus récentes).
+ * Statistiques du quiz : total exact (compté), moyenne récente et thèmes sur
+ * toutes les réponses, lues page par page.
  */
 export async function getQuizStats(): Promise<DbResult<QuizStats>> {
   const recentStart = startOfLocalDayTimestamp(shiftDay(localToday(), -(RECENT_DAY_COUNT - 1)));
   const [counted, recent, all] = await Promise.all([
     // GET + limit(1) plutôt que head: true : en HEAD, une erreur arrive sans message.
     supabase.from('answers').select('id', { count: 'exact' }).limit(1),
-    supabase.from('answers').select('score').gte('answered_at', recentStart),
-    supabase
-      .from('answers')
-      .select('score, questions(theme)')
-      .order('answered_at', { ascending: false }),
+    fetchAllRows((first, last) =>
+      supabase
+        .from('answers')
+        .select('score')
+        .gte('answered_at', recentStart)
+        .order('id', { ascending: true })
+        .range(first, last),
+    ),
+    fetchAllRows((first, last) =>
+      supabase
+        .from('answers')
+        .select('score, questions(theme)')
+        .order('answered_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(first, last),
+    ),
   ]);
   if (counted.error) {
     return { data: null, error: counted.error.message };
   }
   if (counted.count === null) {
-    return { data: null, error: 'Supabase n’a pas renvoyé le nombre de réponses.' };
+    return { data: null, error: appMessage('Supabase n’a pas renvoyé le nombre de réponses.') };
   }
-  if (recent.error) {
-    return { data: null, error: recent.error.message };
+  if (recent.error !== null) {
+    return { data: null, error: recent.error };
   }
-  if (all.error) {
-    return { data: null, error: all.error.message };
+  if (all.error !== null) {
+    return { data: null, error: all.error };
   }
 
   const totals = new Map<string, { count: number; sum: number }>();

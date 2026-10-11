@@ -185,7 +185,7 @@ export function viewRegion(view: DiagramView, widthM: number | null): Region {
 
 /**
  * Option affichée ↔ option du schéma : id = rang de l'option dans questions.options
- * (jsonb), à partir de 1. Le mélange des réponses (chantier 13b) devra garder ce
+ * (jsonb), à partir de 1. Le mélange des réponses (chantier 18) devra garder ce
  * rang d'origine. null hors de 0 à 3.
  */
 export function optionIdOfIndex(index: number): OptionId | null {

@@ -1,5 +1,5 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator } from 'react-native';
 
 import { Screen } from '../../components/screen';
@@ -16,6 +16,7 @@ import { createSession, getSessionDefaults, type SessionDefaults, type SessionIn
 import { hapticMedium } from '../../lib/haptics';
 import { buildSessionName, getModule, isModuleKey, TEST_MODULE_KEY } from '../../lib/modules';
 import { colors } from '../../lib/theme';
+import { randomUuid } from '../../lib/uuid';
 
 /**
  * Posés par « Séance déjà faite » sur la présentation d'une fiche
@@ -48,6 +49,10 @@ export default function NewSessionScreen() {
   const [defaultsState, setDefaultsState] = useState<DefaultsState>({ status: 'loading' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
+  const pendingRef = useRef(false);
+  // Id de la séance, tiré au premier envoi et gardé pour chaque réessai : la base ignore un second envoi.
+  const sessionIdRef = useRef<string | null>(null);
   const title = sheetId !== null ? 'Séance déjà faite' : 'Nouvelle séance';
 
   useEffect(() => {
@@ -68,30 +73,34 @@ export default function NewSessionScreen() {
   }, []);
 
   async function handleSubmit(result: SessionFormResult) {
-    if (submitting) {
+    if (pendingRef.current) {
       return;
     }
+    pendingRef.current = true;
+    sessionIdRef.current ??= randomUuid();
     setSubmitting(true);
     setError(null);
     // Jamais de user_id : la base le tire du JWT. sheet_id seulement pour une fiche.
-    const input: SessionInput = { ...result, type: getModule(result.module).type };
+    const input: SessionInput = { ...result, id: sessionIdRef.current, type: getModule(result.module).type };
     if (sheetId !== null) {
       input.sheet_id = sheetId;
     }
     const { data, error: createError } = await createSession(input);
     if (createError) {
+      pendingRef.current = false;
       setError(createError);
       setSubmitting(false);
       return;
     }
     if (!data) {
+      pendingRef.current = false;
       setError(
         'Supabase n’a renvoyé ni la séance ni d’erreur : vérifier l’Accueil avant de réessayer.',
       );
       setSubmitting(false);
       return;
     }
-    // submitting reste vrai : l'écran se ferme, pas de second envoi possible.
+    // pendingRef et submitting restent vrais : l'écran se ferme, pas de second envoi possible.
     hapticMedium();
     const savedTitle = data.name ?? result.name;
     if (sheetId !== null) {
@@ -124,7 +133,7 @@ export default function NewSessionScreen() {
       durationDefaults={defaults?.lastDurationByModule}
       warning={
         defaultsState.status === 'error'
-          ? `Derniers réglages non lus, valeurs par défaut proposées : ${defaultsState.message}`
+          ? { lead: 'Derniers réglages non lus : valeurs par défaut proposées.', error: defaultsState.message }
           : null
       }
       submitting={submitting}

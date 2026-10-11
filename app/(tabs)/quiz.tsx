@@ -212,7 +212,7 @@ export default function QuizScreen() {
         {statsState.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {statsState.status === 'error' ? (
           <>
-            <FieldError message={`Erreur : ${statsState.message}`} />
+            <FieldError error={statsState.message} />
             <Button variant="secondary" label="Réessayer" onPress={retryStats} />
           </>
         ) : null}
@@ -279,7 +279,7 @@ export default function QuizScreen() {
         {shownEligible.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {shownEligible.status === 'error' ? (
           <>
-            <FieldError message={`Erreur : ${shownEligible.message}`} />
+            <FieldError error={shownEligible.message} />
             <Button variant="secondary" label="Réessayer" onPress={retryEligible} />
           </>
         ) : null}

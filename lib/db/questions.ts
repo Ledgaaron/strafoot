@@ -1,8 +1,10 @@
 import { parseDiagram, type DiagramData } from '../diagram-types';
+import { appMessage } from '../errors';
 import type { QuestionOption } from '../json-types';
 import { ALL_POSITIONS, type PositionKey, type ThemeKey } from '../quiz-taxonomy';
 import { supabase } from '../supabase';
 import type { Json, Tables } from '../types';
+import { fetchAllRows } from './fetch-all';
 import type { DbResult } from './result';
 
 export type QuestionRow = Tables<'questions'>;
@@ -38,35 +40,40 @@ const OPTION_COUNT = 4;
 /**
  * Questions éligibles au filtre, dans l'ordre de création, chacune avec sa
  * dernière réponse. Thème : égalité exacte. Poste : les questions de ce poste et
- * celles marquées 'tous' ; sans poste, toutes. Deux requêtes, jointure ici.
- * Les réponses sont lues de la plus récente à la plus ancienne, dans la limite
- * du max rows du projet (1000 par défaut) : une question répondue seulement
- * avant les 1000 dernières réponses passerait pour jamais vue.
+ * celles marquées 'tous' ; sans poste, toutes. Deux lectures, chacune page par
+ * page, jointure ici. Questions : les miennes et le contenu public (RLS) ;
+ * réponses : toutes, de la plus récente à la plus ancienne.
  */
 export async function listEligibleQuestions({
   theme,
   position,
 }: QuestionFilter = {}): Promise<DbResult<EligibleQuestion[]>> {
-  let questionQuery = supabase.from('questions').select('*');
-  if (theme) {
-    questionQuery = questionQuery.eq('theme', theme);
-  }
-  if (position && position !== ALL_POSITIONS) {
-    // && en SQL : positions contient le poste choisi ou 'tous'.
-    questionQuery = questionQuery.overlaps('positions', [position, ALL_POSITIONS]);
-  }
   const [questions, answers] = await Promise.all([
-    questionQuery.order('created_at', { ascending: true }),
-    supabase
-      .from('answers')
-      .select('question_id, score, answered_at')
-      .order('answered_at', { ascending: false }),
+    fetchAllRows((first, last) => {
+      let query = supabase.from('questions').select('*');
+      if (theme) {
+        query = query.eq('theme', theme);
+      }
+      if (position && position !== ALL_POSITIONS) {
+        // && en SQL : positions contient le poste choisi ou 'tous'.
+        query = query.overlaps('positions', [position, ALL_POSITIONS]);
+      }
+      return query.order('created_at', { ascending: true }).order('id', { ascending: true }).range(first, last);
+    }),
+    fetchAllRows((first, last) =>
+      supabase
+        .from('answers')
+        .select('question_id, score, answered_at')
+        .order('answered_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(first, last),
+    ),
   ]);
-  if (questions.error) {
-    return { data: null, error: questions.error.message };
+  if (questions.error !== null) {
+    return { data: null, error: questions.error };
   }
-  if (answers.error) {
-    return { data: null, error: answers.error.message };
+  if (answers.error !== null) {
+    return { data: null, error: answers.error };
   }
 
   const lastAnswers = new Map<string, { answeredAt: string; score: number }>();
@@ -83,7 +90,9 @@ export async function listEligibleQuestions({
     if (!options) {
       return {
         data: null,
-        error: `Question ${question.id} : options mal formées (attendu ${OPTION_COUNT} × { text, score 0-3, explanation }).`,
+        error: appMessage(
+          `Question ${question.id} : options mal formées (attendu ${OPTION_COUNT} × { text, score 0-3, explanation }).`,
+        ),
       };
     }
     // Colonne absente tant que la migration 009 n'est pas exécutée : undefined, pas de schéma.
@@ -92,7 +101,7 @@ export async function listEligibleQuestions({
     if (rawDiagram !== null && rawDiagram !== undefined) {
       const parsed = parseDiagram(rawDiagram);
       if (parsed.error !== null) {
-        return { data: null, error: `Question ${question.id} : schéma invalide en base.\n${parsed.error}` };
+        return { data: null, error: appMessage(`Question ${question.id} : schéma invalide en base.\n${parsed.error}`) };
       }
       diagram = parsed.data;
     }
@@ -113,13 +122,17 @@ export async function listEligibleQuestions({
  * l'écran de prévisualisation le valide question par question.
  */
 export async function listQuestionDiagrams(): Promise<DbResult<QuestionDiagramRow[]>> {
-  const { data, error } = await supabase
-    .from('questions')
-    .select('id, situation, options, diagram')
-    .not('diagram', 'is', null)
-    .order('created_at', { ascending: true });
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) =>
+    supabase
+      .from('questions')
+      .select('id, situation, options, diagram')
+      .not('diagram', 'is', null)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+  if (error !== null) {
+    return { data: null, error };
   }
   const rows: QuestionDiagramRow[] = [];
   for (const question of data) {
@@ -127,7 +140,9 @@ export async function listQuestionDiagrams(): Promise<DbResult<QuestionDiagramRo
     if (!options) {
       return {
         data: null,
-        error: `Question ${question.id} : options mal formées (attendu ${OPTION_COUNT} × { text, score 0-3, explanation }).`,
+        error: appMessage(
+          `Question ${question.id} : options mal formées (attendu ${OPTION_COUNT} × { text, score 0-3, explanation }).`,
+        ),
       };
     }
     rows.push({ id: question.id, situation: question.situation, options, diagram: question.diagram });

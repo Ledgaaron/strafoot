@@ -11,10 +11,11 @@
 -- relancer npx tsx scripts/build-seed-sheets.ts.
 --
 -- À exécuter dans le SQL Editor APRÈS
--- supabase/migrations/007_tests_atomic.sql : 007 d'abord, puis ce fichier.
+-- supabase/migrations/010_shared_content.sql (tests.is_public) et
+-- supabase/transfer_content_owner.sql (contenu au compte technique).
 --
--- 1. Récupère ton UUID : Dashboard Supabase → Authentication → Users →
---    clique sur ton utilisateur → copie « User UID ».
+-- 1. Récupère l’UUID du compte technique « contenu », pas le tien : Dashboard
+--    Supabase → Authentication → Users → clique sur ce compte → copie « User UID ».
 -- 2. Colle tout le fichier dans le SQL Editor, puis remplace par cet UUID le
 --    marqueur entre chevrons de la ligne uid uuid := … (une seule occurrence).
 --    Fais-le dans le SQL Editor, pas dans ce fichier, qui est régénéré.
@@ -23,7 +24,9 @@
 --
 -- Trois parties, chacune en upsert idempotent : une ligne absente est insérée ;
 -- une ligne qui diffère est mise à jour sur place (même id : séances et
--- résultats liés conservés) ; une ligne identique n'est pas touchée.
+-- résultats liés conservés) ; une ligne identique n'est pas touchée. Chaque
+-- ligne écrite est publique (is_public = true) : contenu partagé, lisible par
+-- tout compte connecté, modifiable par le seul compte technique.
 -- 1. Catalogue des mesures, sur (user_id, key) ; protocol = « Test
 --    <Compétence> — <titre du test> », soit pour les mesures d'avant le
 --    découpage la même valeur qu'alors (« titre de la batterie — titre du
@@ -38,18 +41,18 @@
 --    blocs d'une batterie restent stockés, sans être lus.
 -- Une seconde exécution ne change rien. Aucune ligne supprimée (un élément
 -- retiré des JSON reste en base) ; test_results n'est pas touchée (comptée
--- avant et après, en fin de bloc).
+-- avant et après, tous comptes confondus, en fin de bloc).
 -- Les schémas (champ diagram) sont des fichiers du bucket Storage diagrams,
 -- déposés à la main : ce fichier ne les crée pas.
 --
 -- Le trigger set_user_id impose user_id := auth.uid(). Le SQL Editor n'a pas de
--- JWT (auth.uid() est null) : le bloc simule celui de l'utilisateur, le temps
--- de la transaction uniquement. Les inserts n'envoient donc jamais user_id.
+-- JWT (auth.uid() est null) : le bloc simule celui du compte technique, le
+-- temps de la transaction uniquement. Les inserts n'envoient donc jamais user_id.
 -- =============================================================================
 
 do $$
 declare
-  uid uuid := '<REMPLACER_PAR_MON_UUID>';
+  uid uuid := '<REMPLACER_PAR_CONTENU_UUID>';
   existing_count integer;
   changed_count integer;
   results_before integer;
@@ -68,8 +71,17 @@ begin
     raise exception 'Simulation du JWT inopérante : auth.uid() = %, attendu %.', auth.uid(), uid;
   end if;
 
-  -- Résultats de l'utilisateur : le seed n'y touche pas (recomptés en fin de bloc).
-  select count(*) into results_before from public.test_results r where r.user_id = uid;
+  -- Compte technique seulement : des séances, réponses ou résultats à son nom
+  -- trahissent un compte qui joue (le tien) ; le contenu s’y doublerait.
+  if exists (select 1 from public.sessions where user_id = uid)
+    or exists (select 1 from public.answers where user_id = uid)
+    or exists (select 1 from public.test_results where user_id = uid)
+  then
+    raise exception 'Le compte % a des séances, réponses ou résultats : ce n’est pas le compte technique « contenu ». Rien n’est appliqué.', uid;
+  end if;
+
+  -- Résultats de tous les comptes : le seed n'y touche pas (recomptés en fin de bloc).
+  select count(*) into results_before from public.test_results;
 
   -- ---------------------------------------------------------------------------
   -- 1. Catalogue des mesures (clé : key) ; protocol = Test <Compétence> —
@@ -104,8 +116,8 @@ begin
       'phys_6min_distance'
     );
 
-  insert into public.tests (key, name, unit, higher_is_better, protocol)
-  select v.key, v.name, v.unit, v.higher_is_better, v.protocol
+  insert into public.tests (key, name, unit, higher_is_better, protocol, is_public)
+  select v.key, v.name, v.unit, v.higher_is_better, v.protocol, true
   from (values
     ('tir_precision_droit', 'Précision arrêt — pied droit', 'pts /30', true, 'Test Tir — Précision à l''arrêt'),
     ('tir_precision_gauche', 'Précision arrêt — pied gauche', 'pts /30', true, 'Test Tir — Précision à l''arrêt'),
@@ -135,9 +147,11 @@ begin
   set name = excluded.name,
       unit = excluded.unit,
       higher_is_better = excluded.higher_is_better,
-      protocol = excluded.protocol
-  where (tests.name, tests.unit, tests.higher_is_better, tests.protocol)
-    is distinct from (excluded.name, excluded.unit, excluded.higher_is_better, excluded.protocol);
+      protocol = excluded.protocol,
+      is_public = excluded.is_public
+  where (tests.name, tests.unit, tests.higher_is_better, tests.protocol, tests.is_public)
+    is distinct from (excluded.name, excluded.unit, excluded.higher_is_better, excluded.protocol,
+                      excluded.is_public);
 
   -- Lignes insérées ou mises à jour ; une ligne identique au JSON ne compte pas.
   get diagnostics changed_count = row_count;
@@ -180,7 +194,7 @@ begin
   insert into public.training_sheets
     (slug, kind, title, subtitle, positions, skill, family, duration_min, intro, exercises, blocks, is_public)
   select v.slug, v.kind, v.title, v.subtitle, v.positions, v.skill, v.family, v.duration_min, v.intro,
-         v.exercises, v.blocks, false
+         v.exercises, v.blocks, true
   from (values
     (
       'bo-tir-finition-surface',
@@ -1463,13 +1477,14 @@ begin
       duration_min = excluded.duration_min,
       intro = excluded.intro,
       exercises = excluded.exercises,
-      blocks = excluded.blocks
+      blocks = excluded.blocks,
+      is_public = excluded.is_public
   where (training_sheets.kind, training_sheets.title, training_sheets.subtitle, training_sheets.positions,
          training_sheets.skill, training_sheets.family, training_sheets.duration_min, training_sheets.intro,
-         training_sheets.exercises, training_sheets.blocks)
+         training_sheets.exercises, training_sheets.blocks, training_sheets.is_public)
     is distinct from (excluded.kind, excluded.title, excluded.subtitle, excluded.positions,
                       excluded.skill, excluded.family, excluded.duration_min, excluded.intro,
-                      excluded.exercises, excluded.blocks);
+                      excluded.exercises, excluded.blocks, excluded.is_public);
 
   get diagnostics changed_count = row_count;
   raise notice 'Fiches et tests atomiques pour % : sur 20, insérées : %, mises à jour : %, inchangées : %.',
@@ -1481,8 +1496,8 @@ begin
   -- ---------------------------------------------------------------------------
   -- 3. Sessions (clé : slug) ; blocks = slugs de leurs tests, duration_min =
   --    somme de leurs durées. Mise à jour limitée à kind, title, skill, family,
-  --    duration_min et blocks : exercises, intro, subtitle et positions de la
-  --    batterie déjà en base sont gardés tels quels.
+  --    duration_min, blocks et is_public : exercises, intro, subtitle et
+  --    positions de la batterie déjà en base sont gardés tels quels.
   -- ---------------------------------------------------------------------------
   select count(*) into existing_count
   from public.training_sheets s
@@ -1497,7 +1512,7 @@ begin
 
   insert into public.training_sheets
     (slug, kind, title, positions, skill, family, duration_min, blocks, is_public)
-  select v.slug, 'session', v.title, array['tous'], v.skill, null::text, v.duration_min, v.blocks, false
+  select v.slug, 'session', v.title, array['tous'], v.skill, null::text, v.duration_min, v.blocks, true
   from (values
     ('test-tir', 'Test Tir', 'tir', 28, array['test-tir-1', 'test-tir-2', 'test-tir-3']),
     ('test-passe', 'Test Passe', 'passe', 30, array['test-passe-1', 'test-passe-2', 'test-passe-3']),
@@ -1511,11 +1526,12 @@ begin
       skill = excluded.skill,
       family = excluded.family,
       duration_min = excluded.duration_min,
-      blocks = excluded.blocks
+      blocks = excluded.blocks,
+      is_public = excluded.is_public
   where (training_sheets.kind, training_sheets.title, training_sheets.skill, training_sheets.family,
-         training_sheets.duration_min, training_sheets.blocks)
+         training_sheets.duration_min, training_sheets.blocks, training_sheets.is_public)
     is distinct from (excluded.kind, excluded.title, excluded.skill, excluded.family,
-                      excluded.duration_min, excluded.blocks);
+                      excluded.duration_min, excluded.blocks, excluded.is_public);
 
   get diagnostics changed_count = row_count;
   raise notice 'Sessions pour % : sur 5, insérées : %, mises à jour : %, inchangées : %.',
@@ -1524,17 +1540,18 @@ begin
     changed_count - (5 - existing_count),
     existing_count - (changed_count - (5 - existing_count));
 
-  select count(*) into results_after from public.test_results r where r.user_id = uid;
+  select count(*) into results_after from public.test_results;
   if results_after <> results_before then
-    raise exception 'Résultats de tests pour % : % avant, % après ; rien n’est appliqué.',
-      uid, results_before, results_after;
+    raise exception 'Résultats de tests (tous comptes) : % avant, % après ; rien n’est appliqué.',
+      results_before, results_after;
   end if;
-  raise notice 'Résultats de tests pour % : %, inchangés.', uid, results_after;
+  raise notice 'Résultats de tests (tous comptes) : %, inchangés.', results_after;
 end
 $$;
 
--- Contrôle (tous utilisateurs confondus). Attendu après seed.sql, 007 et une
--- première exécution, inchangé après une seconde :
+-- Contrôle (tous propriétaires confondus ; les lignes de démonstration de
+-- seed.sql appartiennent au compte technique depuis le transfert). Attendu
+-- après une première exécution, inchangé après une seconde :
 --   training_sheets · training 5 (3 de démonstration + 2),
 --   training_sheets · test 18, training_sheets · session 5,
 --   tests 25 (2 de démonstration + 23),

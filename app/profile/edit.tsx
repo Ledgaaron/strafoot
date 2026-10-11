@@ -93,7 +93,7 @@ export default function EditProfileScreen() {
           {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
           {state.status === 'error' ? (
             <View style={layout.section}>
-              <FieldError message={`Erreur : ${state.message}`} />
+              <FieldError error={state.message} />
               <Button variant="secondary" label="Réessayer" onPress={reload} />
             </View>
           ) : null}
@@ -168,8 +168,8 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
   const [birthDate, setBirthDate] = useState(initialValues.birthDate);
   const [saving, setSaving] = useState(false);
   // Erreurs de validation, chacune sous son champ, effacées dès que le champ change.
-  const [mainPositionError, setMainPositionError] = useState<string | null>(null);
-  const [birthDateError, setBirthDateError] = useState<string | null>(null);
+  const [mainPositionProblem, setMainPositionProblem] = useState<string | null>(null);
+  const [birthDateProblem, setBirthDateProblem] = useState<string | null>(null);
   // Refus de Supabase, au-dessus d'Enregistrer.
   const [saveError, setSaveError] = useState<string | null>(null);
   // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
@@ -177,18 +177,18 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
 
   // Un champ en erreur peut être hors de l'écran : le pied, toujours visible, les résume.
   const invalidFields: string[] = [];
-  if (mainPositionError !== null) {
+  if (mainPositionProblem !== null) {
     invalidFields.push('poste principal');
   }
-  if (birthDateError !== null) {
+  if (birthDateProblem !== null) {
     invalidFields.push('date de naissance');
   }
-  const footerError = invalidFields.length > 0 ? `À corriger : ${invalidFields.join(', ')}.` : saveError;
+  const invalidSummary = invalidFields.length > 0 ? `À corriger : ${invalidFields.join(', ')}.` : null;
 
   function selectMainPosition(key: ProfilePositionKey) {
     // Choix obligatoire : retaper la puce choisie ne la désélectionne pas.
     setMainPosition(key);
-    setMainPositionError(null);
+    setMainPositionProblem(null);
     // Le secondaire devenu principal se vide : jamais deux fois le même poste.
     setSecondaryPosition((current) => (current === key ? null : current));
   }
@@ -203,7 +203,7 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
 
   function changeBirthDate(value: string) {
     setBirthDate(value);
-    setBirthDateError(null);
+    setBirthDateProblem(null);
   }
 
   async function handleSubmit() {
@@ -213,8 +213,8 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
     // Validation avant tout envoi : tous les problèmes d'un coup, chacun sous son champ.
     const today = localToday();
     const birth = readBirthDate(birthDate, today);
-    setMainPositionError(mainPosition === null ? MISSING_MAIN_POSITION_MESSAGE : null);
-    setBirthDateError(birth.valid ? null : INVALID_BIRTH_DATE_MESSAGE);
+    setMainPositionProblem(mainPosition === null ? MISSING_MAIN_POSITION_MESSAGE : null);
+    setBirthDateProblem(birth.valid ? null : INVALID_BIRTH_DATE_MESSAGE);
     // Le refus précédent de Supabase ne vaut plus : nouvel essai ou champs à corriger.
     setSaveError(null);
     if (mainPosition === null || !birth.valid) {
@@ -225,7 +225,7 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
     setSaving(true);
     // Jamais de user_id : la base le tire du JWT. Ni goal ni goal_deadline : une
     // clé absente n'est pas modifiée, l'objectif déjà en base est donc conservé
-    // (objectifs : chantier 14).
+    // (objectifs : chantier 15).
     const { data, error } = await upsertMyProfile({
       display_name: displayName.trim() || null,
       main_position: mainPosition,
@@ -255,7 +255,7 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
       <Screen
         footer={
           <>
-            <FieldError message={footerError} />
+            <FieldError message={invalidSummary} error={invalidSummary === null ? saveError : null} />
             <Button label="Enregistrer" onPress={handleSubmit} loading={saving} />
           </>
         }
@@ -293,7 +293,7 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
               />
             ))}
           </View>
-          <FieldError message={mainPositionError} />
+          <FieldError message={mainPositionProblem} />
         </View>
 
         <View style={layout.section}>
@@ -363,14 +363,14 @@ function ProfileForm({ initialValues }: ProfileFormProps) {
           {/* Clavier par défaut : le pavé numérique n'a pas de « / ». */}
           <TextInput
             {...inputProps}
-            style={[input.field, birthDateError !== null && input.invalid]}
+            style={[input.field, birthDateProblem !== null && input.invalid]}
             value={birthDate}
             onChangeText={changeBirthDate}
             maxLength={NUMERIC_DAY_MAX_LENGTH}
             placeholder="JJ/MM/AAAA"
             accessibilityLabel="Date de naissance"
           />
-          <FieldError message={birthDateError} />
+          <FieldError message={birthDateProblem} />
         </View>
       </Screen>
     </>

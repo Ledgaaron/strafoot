@@ -1,6 +1,8 @@
+import { appMessage } from '../errors';
 import { isModuleKey, MODULE_KEYS, TEST_MODULE_KEY, type ModuleKey, type SessionType } from '../modules';
 import { supabase } from '../supabase';
 import type { Tables } from '../types';
+import { fetchAllRows } from './fetch-all';
 import type { DbResult } from './result';
 
 export type SessionRow = Tables<'sessions'>;
@@ -10,6 +12,12 @@ export type SessionRow = Tables<'sessions'>;
  * auth.uid() en base et trigger set_user_id).
  */
 export type SessionInput = {
+  /**
+   * Uuid tiré côté client (lib/uuid.ts) une seule fois par séance à
+   * enregistrer, avant le premier envoi, puis renvoyé tel quel à chaque
+   * réessai : un second envoi du même id ne crée pas de doublon.
+   */
+  id: string;
   date: string;
   module: ModuleKey;
   type: SessionType;
@@ -21,8 +29,8 @@ export type SessionInput = {
   sheet_id?: string | null;
 };
 
-/** Champs modifiables d'une séance existante. */
-export type SessionPatch = Partial<SessionInput>;
+/** Champs modifiables d'une séance existante (l'id ne change jamais). */
+export type SessionPatch = Partial<Omit<SessionInput, 'id'>>;
 
 /** Volume d'un module : nombre de séances et minutes cumulées. */
 export type ModuleVolume = {
@@ -40,24 +48,30 @@ export async function listSessions({
   from: string;
   to: string;
 }): Promise<DbResult<SessionRow[]>> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('*')
-    .gte('date', from)
-    .lte('date', to)
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
-  return { data, error: error?.message ?? null };
+  return fetchAllRows((first, last) =>
+    supabase
+      .from('sessions')
+      .select('*')
+      .gte('date', from)
+      .lte('date', to)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
 }
 
 /** Séances d'un jour local (YYYY-MM-DD), dans l'ordre de saisie. */
 export async function listSessionsForDay(date: string): Promise<DbResult<SessionRow[]>> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('*')
-    .eq('date', date)
-    .order('created_at', { ascending: true });
-  return { data, error: error?.message ?? null };
+  return fetchAllRows((first, last) =>
+    supabase
+      .from('sessions')
+      .select('*')
+      .eq('date', date)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
 }
 
 /** Une séance par id, ou null si elle n'existe pas (ou plus). */
@@ -66,9 +80,33 @@ export async function getSession(id: string): Promise<DbResult<SessionRow>> {
   return { data, error: error?.message ?? null };
 }
 
+/**
+ * Crée une séance sans jamais la doubler : insert … on conflict (id) do
+ * nothing. Un second envoi du même id (double tap, réessai après une
+ * confirmation perdue) ne crée rien : la séance déjà enregistrée est relue et
+ * renvoyée, comme un succès. Renvoie toujours une ligne lue en base, seule
+ * confirmation de l'enregistrement.
+ */
 export async function createSession(input: SessionInput): Promise<DbResult<SessionRow>> {
-  const { data, error } = await supabase.from('sessions').insert(input).select().single();
-  return { data, error: error?.message ?? null };
+  const { data, error } = await supabase
+    .from('sessions')
+    .upsert(input, { onConflict: 'id', ignoreDuplicates: true })
+    .select();
+  if (error) {
+    return { data: null, error: error.message };
+  }
+  // Ligne insérée : renvoyée par l'insert. Conflit ignoré : tableau vide.
+  if (data.length > 0) {
+    return { data: data[0], error: null };
+  }
+  const existing = await supabase.from('sessions').select('*').eq('id', input.id).maybeSingle();
+  if (existing.error) {
+    return { data: null, error: existing.error.message };
+  }
+  if (!existing.data) {
+    return { data: null, error: appMessage('Séance introuvable après envoi : enregistrement non confirmé.') };
+  }
+  return { data: existing.data, error: null };
 }
 
 export async function updateSession(id: string, patch: SessionPatch): Promise<DbResult<SessionRow>> {
@@ -82,7 +120,7 @@ export async function updateSession(id: string, patch: SessionPatch): Promise<Db
     return { data: null, error: error.message };
   }
   if (!data) {
-    return { data: null, error: 'Séance introuvable : aucune modification enregistrée.' };
+    return { data: null, error: appMessage('Séance introuvable : aucune modification enregistrée.') };
   }
   return { data, error: null };
 }
@@ -95,7 +133,7 @@ export async function deleteSession(id: string): Promise<DbResult<string>> {
     return { data: null, error: error.message };
   }
   if (data.length === 0) {
-    return { data: null, error: 'Séance introuvable : rien n’a été supprimé.' };
+    return { data: null, error: appMessage('Séance introuvable : rien n’a été supprimé.') };
   }
   return { data: id, error: null };
 }
@@ -103,7 +141,7 @@ export async function deleteSession(id: string): Promise<DbResult<string>> {
 /**
  * Jours distincts (YYYY-MM-DD) ayant au moins une séance entre from et to
  * inclus, du plus récent au plus ancien. PostgREST n'a pas de distinct : une
- * ligne par séance revient, dans la limite du max rows du projet (1000 par défaut).
+ * ligne par séance revient, toutes lues page par page.
  */
 export async function listActiveDays({
   from,
@@ -112,14 +150,18 @@ export async function listActiveDays({
   from: string;
   to: string;
 }): Promise<DbResult<string[]>> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('date')
-    .gte('date', from)
-    .lte('date', to)
-    .order('date', { ascending: false });
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) =>
+    supabase
+      .from('sessions')
+      .select('date')
+      .gte('date', from)
+      .lte('date', to)
+      .order('date', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+  if (error !== null) {
+    return { data: null, error };
   }
   return { data: [...new Set(data.map((row) => row.date))], error: null };
 }
@@ -145,7 +187,7 @@ export async function countSessions({
     return { data: null, error: error.message };
   }
   if (count === null) {
-    return { data: null, error: 'Supabase n’a pas renvoyé le nombre de séances.' };
+    return { data: null, error: appMessage('Supabase n’a pas renvoyé le nombre de séances.') };
   }
   return { data: count, error: null };
 }
@@ -154,8 +196,8 @@ export async function countSessions({
  * Séances et minutes par module, éventuellement bornées par jour (bornes
  * incluses) : un élément par module ayant au moins une séance, dans l'ordre de
  * MODULES (modules inconnus à la fin). Les agrégats PostgREST étant désactivés
- * par défaut sur Supabase, une ligne par séance revient, dans la limite du max
- * rows du projet (1000 par défaut).
+ * par défaut sur Supabase, une ligne par séance revient, toutes lues page par
+ * page.
  */
 export async function countByModule({
   from,
@@ -164,16 +206,18 @@ export async function countByModule({
   from?: string;
   to?: string;
 } = {}): Promise<DbResult<ModuleVolume[]>> {
-  let query = supabase.from('sessions').select('module, duration_min');
-  if (from) {
-    query = query.gte('date', from);
-  }
-  if (to) {
-    query = query.lte('date', to);
-  }
-  const { data, error } = await query;
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) => {
+    let query = supabase.from('sessions').select('module, duration_min');
+    if (from) {
+      query = query.gte('date', from);
+    }
+    if (to) {
+      query = query.lte('date', to);
+    }
+    return query.order('id', { ascending: true }).range(first, last);
+  });
+  if (error !== null) {
+    return { data: null, error };
   }
   const volumes = new Map<string, ModuleVolume>();
   for (const row of data) {
@@ -203,15 +247,19 @@ export type SessionDefaults = {
 /**
  * Dernier module et dernières durées, dans l'ordre d'enregistrement (created_at),
  * pas de date : la séance saisie en dernier donne le réglage. Une ligne par
- * séance revient, dans la limite du max rows du projet (1000 par défaut).
+ * séance revient, toutes lues page par page.
  */
 export async function getSessionDefaults(): Promise<DbResult<SessionDefaults>> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('module, duration_min')
-    .order('created_at', { ascending: false });
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) =>
+    supabase
+      .from('sessions')
+      .select('module, duration_min')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+  if (error !== null) {
+    return { data: null, error };
   }
   let lastModule: ModuleKey | null = null;
   const lastDurationByModule: Partial<Record<ModuleKey, number>> = {};

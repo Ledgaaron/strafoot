@@ -1,5 +1,7 @@
+import { appMessage } from '../errors';
 import { supabase } from '../supabase';
 import type { Tables } from '../types';
+import { fetchAllRows } from './fetch-all';
 import type { DbResult } from './result';
 
 /** Ligne du catalogue : une mesure (key renseignée) ou un test de démonstration (key null). */
@@ -33,13 +35,27 @@ export type TestResultInput = {
   comment?: string | null;
 };
 
-/** Catalogue des tests (une ligne par mesure), par nom : id de la courbe de chaque mesure (statistiques d'une compétence). */
+/**
+ * Catalogue des tests (une ligne par mesure), par nom : id de la courbe de
+ * chaque mesure (statistiques d'une compétence). Contenu public et mes lignes
+ * (RLS), lus page par page.
+ */
 export async function listTestCatalog(): Promise<DbResult<TestRow[]>> {
-  const { data, error } = await supabase.from('tests').select('*').order('name', { ascending: true });
-  return { data, error: error?.message ?? null };
+  return fetchAllRows((first, last) =>
+    supabase
+      .from('tests')
+      .select('*')
+      .order('name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
 }
 
-/** Lignes du catalogue des mesures demandées, par key ; une key absente du catalogue n'a pas de ligne. */
+/**
+ * Lignes du catalogue des mesures demandées, par key ; une key absente du
+ * catalogue n'a pas de ligne. Lecture bornée par ses keys (les 1 à 3 mesures
+ * d'un test) : pas de pagination.
+ */
 export async function listCatalogByKeys(keys: readonly string[]): Promise<DbResult<TestRow[]>> {
   if (keys.length === 0) {
     return { data: [], error: null };
@@ -53,20 +69,23 @@ export type ResultValue = Pick<TestResultRow, 'test_id' | 'value' | 'date' | 'se
 
 /**
  * Tous les résultats des lignes du catalogue demandées, du plus récent au plus
- * ancien (jour, puis saisie) : dernier résultat et record d'une mesure. Dans la
- * limite du max rows du projet (1000 par défaut).
+ * ancien (jour, puis saisie) : dernier résultat et record d'une mesure. Lus page
+ * par page.
  */
 export async function listResultValues(testIds: readonly string[]): Promise<DbResult<ResultValue[]>> {
   if (testIds.length === 0) {
     return { data: [], error: null };
   }
-  const { data, error } = await supabase
-    .from('test_results')
-    .select('test_id, value, date, session_id')
-    .in('test_id', [...testIds])
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
-  return { data, error: error?.message ?? null };
+  return fetchAllRows((first, last) =>
+    supabase
+      .from('test_results')
+      .select('test_id, value, date, session_id')
+      .in('test_id', [...testIds])
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
 }
 
 /** Une ligne du catalogue par id ; data null sans erreur si elle n'existe pas (ou plus). */
@@ -78,8 +97,7 @@ export async function getTest(id: string): Promise<DbResult<TestRow>> {
 /**
  * Dernier résultat de chaque test demandé (test_id → résultat) : jour le plus
  * récent, puis saisie la plus récente. Un test sans résultat est absent.
- * Résultats lus du plus récent au plus ancien, dans la limite du max rows du
- * projet (1000 par défaut).
+ * Résultats lus du plus récent au plus ancien, tous, page par page.
  */
 export async function getLatestResults(
   testIds: readonly string[],
@@ -87,14 +105,18 @@ export async function getLatestResults(
   if (testIds.length === 0) {
     return { data: new Map(), error: null };
   }
-  const { data, error } = await supabase
-    .from('test_results')
-    .select('test_id, value, date, session_id')
-    .in('test_id', testIds)
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) =>
+    supabase
+      .from('test_results')
+      .select('test_id, value, date, session_id')
+      .in('test_id', [...testIds])
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+  if (error !== null) {
+    return { data: null, error };
   }
   const latest = new Map<string, LatestResult>();
   for (const row of data) {
@@ -120,7 +142,7 @@ export async function createTestResults(
   if (data.length !== rows.length) {
     return {
       data: null,
-      error: `Résultats non confirmés : ${data.length} renvoyés par Supabase sur ${rows.length} envoyés.`,
+      error: appMessage(`Résultats non confirmés : ${data.length} renvoyés par Supabase sur ${rows.length} envoyés.`),
     };
   }
   return { data, error: null };
@@ -128,16 +150,20 @@ export async function createTestResults(
 
 /**
  * Résultats d'un test, du plus récent au plus ancien (jour, puis saisie), avec
- * le commentaire de leur séance d'origine : historique d'une mesure du Profil.
+ * le commentaire de leur séance d'origine : historique d'une mesure du Profil,
+ * lu page par page.
  */
 export async function listResultsForTest(testId: string): Promise<DbResult<TestResultWithSession[]>> {
-  const { data, error } = await supabase
-    .from('test_results')
-    .select('*, session:sessions(comment)')
-    .eq('test_id', testId)
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
-  return { data, error: error?.message ?? null };
+  return fetchAllRows((first, last) =>
+    supabase
+      .from('test_results')
+      .select('*, session:sessions(comment)')
+      .eq('test_id', testId)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
 }
 
 /** Supprime un résultat (erreur de saisie) ; renvoie son id. La séance liée n'est pas touchée. */
@@ -148,7 +174,7 @@ export async function deleteTestResult(id: string): Promise<DbResult<string>> {
     return { data: null, error: error.message };
   }
   if (data.length === 0) {
-    return { data: null, error: 'Résultat introuvable : rien n’a été supprimé.' };
+    return { data: null, error: appMessage('Résultat introuvable : rien n’a été supprimé.') };
   }
   return { data: id, error: null };
 }

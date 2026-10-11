@@ -71,13 +71,17 @@ type SessionFormProps = {
   initialValues: SessionFormValues;
   /** Durée automatique de chaque module : sa dernière durée enregistrée, sinon celle du module. */
   durationDefaults?: DurationDefaults;
-  /** Au-dessus des champs : la lecture des derniers réglages a échoué, la séance reste saisissable. */
-  warning?: string | null;
+  /**
+   * Au-dessus des champs : la lecture des derniers réglages a échoué, la séance
+   * reste saisissable. lead : ce que cela change ; error : l'erreur brute,
+   * traduite par FieldError.
+   */
+  warning?: { lead: string; error: string } | null;
   /** Enregistrement en cours : indicateur sur Enregistrer. */
   submitting: boolean;
   /** Autre requête de l'écran en cours (suppression) : Enregistrer seulement désactivé. */
   disabled?: boolean;
-  /** Affichée au-dessus d'Enregistrer : erreur d'enregistrement, ou de l'autre requête. */
+  /** Affichée au-dessus d'Enregistrer, traduite par FieldError : erreur brute d'enregistrement, ou de l'autre requête. */
   error: string | null;
   onSubmit: (result: SessionFormResult) => void;
   /** Dans le pied, sous Enregistrer (bouton Supprimer de l'édition). */
@@ -228,13 +232,13 @@ export function SessionForm({
         footer={
           <>
             {/* Le champ en erreur peut être hors de l'écran : le pied, toujours visible, le dit. */}
-            <FieldError message={invalidSubmit ? INVALID_FORM_MESSAGE : error} />
+            <FieldError message={invalidSubmit ? INVALID_FORM_MESSAGE : null} error={invalidSubmit ? null : error} />
             <Button label="Enregistrer" onPress={handleSubmit} loading={submitting} disabled={disabled} />
             {footer}
           </>
         }
       >
-        <FieldError message={warning} />
+        {warning ? <FieldError message={warning.lead} error={warning.error} /> : null}
 
         <View style={layout.section}>
           <Text style={text.overline}>Module</Text>

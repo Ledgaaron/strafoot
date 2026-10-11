@@ -134,7 +134,7 @@ export function MonthSheet({ visible, onClose, onPickDay, today, selectedDay, an
       {activity.status === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
       {activity.status === 'error' ? (
         <>
-          <FieldError message={`Erreur : ${activity.message}`} />
+          <FieldError error={activity.message} />
           <Button variant="secondary" label="Réessayer" onPress={retry} />
         </>
       ) : null}

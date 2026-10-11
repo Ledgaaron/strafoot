@@ -24,12 +24,12 @@ export type ProfilePatch = {
   birth_date?: string | null;
   /**
    * Objectif, 140 caractères au plus. N'est plus modifié par l'app depuis le
-   * chantier 12 (objectifs : chantier 14) : la valeur en base est conservée.
+   * chantier 12 (objectifs : chantier 15) : la valeur en base est conservée.
    */
   goal?: string | null;
   /**
    * Échéance de l'objectif, jour YYYY-MM-DD. N'est plus modifiée par l'app
-   * depuis le chantier 12 (objectifs : chantier 14), comme goal.
+   * depuis le chantier 12 (objectifs : chantier 15), comme goal.
    */
   goal_deadline?: string | null;
 };

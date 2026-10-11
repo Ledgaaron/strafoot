@@ -1,3 +1,4 @@
+import { appMessage } from '../errors';
 import { latestByKey, recordsByKey, type MeasureLatest } from '../records';
 import {
   parseAtomicExercise,
@@ -10,6 +11,7 @@ import {
 import { supabase } from '../supabase';
 import { getFamily, isFamilyKey, type FamilyKey, type SkillKey } from '../test-families';
 import type { Tables } from '../types';
+import { fetchAllRows } from './fetch-all';
 import type { DbResult } from './result';
 
 export type SheetRow = Tables<'training_sheets'>;
@@ -64,15 +66,19 @@ const SEED_HINT = 'Exécuter supabase/migrations/007_tests_atomic.sql puis supab
 
 /**
  * Fiches de lecture (kind 'training'), tests atomiques (kind 'test') ou sessions
- * (kind 'session'), par titre. Lignes brutes : exercises n'est pas validé ici.
+ * (kind 'session'), par titre : les miennes et le contenu public (RLS). Lignes
+ * brutes : exercises n'est pas validé ici.
  */
 export async function listSheets({ kind }: { kind: SheetKind }): Promise<DbResult<SheetRow[]>> {
-  const { data, error } = await supabase
-    .from('training_sheets')
-    .select('*')
-    .eq('kind', kind)
-    .order('title', { ascending: true });
-  return { data, error: error?.message ?? null };
+  return fetchAllRows((first, last) =>
+    supabase
+      .from('training_sheets')
+      .select('*')
+      .eq('kind', kind)
+      .order('title', { ascending: true })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
 }
 
 /** Nombre de fiches d'un kind (carte Fiches du Profil : fiches de lecture). */
@@ -87,7 +93,7 @@ export async function countSheets({ kind }: { kind: SheetKind }): Promise<DbResu
     return { data: null, error: error.message };
   }
   if (count === null) {
-    return { data: null, error: 'Supabase n’a pas renvoyé le nombre de fiches.' };
+    return { data: null, error: appMessage('Supabase n’a pas renvoyé le nombre de fiches.') };
   }
   return { data: count, error: null };
 }
@@ -108,16 +114,18 @@ export async function getSheet(id: string): Promise<DbResult<Sheet>> {
   if (data.kind !== 'training') {
     return {
       data: null,
-      error: `« ${data.title} » n’est pas une fiche de lecture (kind « ${data.kind} ») : l’ouvrir depuis l’onglet Tests.`,
+      error: appMessage(
+        `« ${data.title} » n’est pas une fiche de lecture (kind « ${data.kind} ») : l’ouvrir depuis l’onglet Tests.`,
+      ),
     };
   }
   const intro = parseIntro(data.intro);
   if (intro.error !== null) {
-    return { data: null, error: `Fiche « ${data.title} » : intro invalide en base.\n${intro.error}` };
+    return { data: null, error: appMessage(`Fiche « ${data.title} » : intro invalide en base.\n${intro.error}`) };
   }
   const exercises = parseExercises(data.exercises, 'training');
   if (exercises.error !== null) {
-    return { data: null, error: `Fiche « ${data.title} » : exercices invalides en base.\n${exercises.error}` };
+    return { data: null, error: appMessage(`Fiche « ${data.title} » : exercices invalides en base.\n${exercises.error}`) };
   }
   return { data: { ...data, kind: 'training', intro: intro.data, exercises: exercises.data }, error: null };
 }
@@ -125,23 +133,34 @@ export async function getSheet(id: string): Promise<DbResult<Sheet>> {
 /**
  * Tests atomiques de l'onglet Tests et des statistiques du Profil, par slug
  * (ordre du contenu : batterie puis bloc), avec leur dernière fois, le record et
- * le dernier résultat de chaque mesure : deux requêtes, les tests puis tous les
- * résultats avec la key de leur mesure. Un test hors format est écarté et dit
- * dans problems. Résultats lus dans la limite du max rows du projet (1000 par
- * défaut).
+ * le dernier résultat de chaque mesure : deux lectures, chacune page par page,
+ * les tests puis tous les résultats avec la key de leur mesure. Un test hors
+ * format est écarté et dit dans problems.
  */
 export async function listTests(): Promise<DbResult<Listing<TestSummary>>> {
   const [sheets, results] = await Promise.all([
-    supabase.from('training_sheets').select('*').eq('kind', 'test').order('slug', { ascending: true }),
-    supabase
-      .from('test_results')
-      .select('value, date, test:tests(key)')
-      .order('date', { ascending: false })
-      .order('created_at', { ascending: false }),
+    fetchAllRows((first, last) =>
+      supabase
+        .from('training_sheets')
+        .select('*')
+        .eq('kind', 'test')
+        .order('slug', { ascending: true })
+        .order('id', { ascending: true })
+        .range(first, last),
+    ),
+    fetchAllRows((first, last) =>
+      supabase
+        .from('test_results')
+        .select('value, date, test:tests(key)')
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(first, last),
+    ),
   ]);
-  if (sheets.error || results.error) {
-    const messages = [sheets.error?.message, results.error?.message].filter((message) => message !== undefined);
-    // Une même panne (réseau, session expirée) remonte souvent sur les deux requêtes.
+  if (sheets.error !== null || results.error !== null) {
+    const messages = [sheets.error, results.error].filter((message) => message !== null);
+    // Une même panne (réseau, session expirée) remonte souvent sur les deux lectures.
     return { data: null, error: [...new Set(messages)].join('\n') };
   }
   // Résultats par key de mesure ; ceux d'un test de démonstration (key null) ne servent à aucun test atomique.
@@ -192,18 +211,22 @@ export async function getTestBySlug(slug: string): Promise<DbResult<AtomicTest>>
     return { data: null, error: null };
   }
   const parsed = toAtomicTest(data);
-  return parsed.error !== null ? { data: null, error: `${parsed.error}\n${SEED_HINT}` } : parsed;
+  return parsed.error !== null ? { data: null, error: appMessage(`${parsed.error}\n${SEED_HINT}`) } : parsed;
 }
 
 /** Sessions prédéfinies, par titre ; une session hors format est écartée et dite dans problems. */
 export async function listSessions(): Promise<DbResult<Listing<TestSessionSheet>>> {
-  const { data, error } = await supabase
-    .from('training_sheets')
-    .select('id, title, skill, duration_min, blocks')
-    .eq('kind', 'session')
-    .order('title', { ascending: true });
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) =>
+    supabase
+      .from('training_sheets')
+      .select('id, title, skill, duration_min, blocks')
+      .eq('kind', 'session')
+      .order('title', { ascending: true })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+  if (error !== null) {
+    return { data: null, error };
   }
   const items: TestSessionSheet[] = [];
   const problems: string[] = [];
@@ -287,18 +310,21 @@ export async function getLastSessionForSheet(sheetId: string): Promise<DbResult<
 
 /**
  * Jour de la dernière séance liée à chaque fiche ou test (sheet_id → YYYY-MM-DD),
- * en une requête pour toute la liste de l'onglet. Une fiche sans séance est
- * absente. Séances lues de la plus récente à la plus ancienne, dans la limite du
- * max rows du projet (1000 par défaut).
+ * pour toute la liste de l'onglet. Une fiche sans séance est absente. Séances
+ * lues de la plus récente à la plus ancienne, toutes, page par page.
  */
 export async function listLastSessionDates(): Promise<DbResult<ReadonlyMap<string, string>>> {
-  const { data, error } = await supabase
-    .from('sessions')
-    .select('sheet_id, date')
-    .not('sheet_id', 'is', null)
-    .order('date', { ascending: false });
-  if (error) {
-    return { data: null, error: error.message };
+  const { data, error } = await fetchAllRows((first, last) =>
+    supabase
+      .from('sessions')
+      .select('sheet_id, date')
+      .not('sheet_id', 'is', null)
+      .order('date', { ascending: false })
+      .order('id', { ascending: true })
+      .range(first, last),
+  );
+  if (error !== null) {
+    return { data: null, error };
   }
   const lastDates = new Map<string, string>();
   for (const row of data) {

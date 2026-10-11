@@ -9,6 +9,8 @@ import { FieldError } from './field-error';
 
 /** Rafraîchissement du chrono affiché. */
 const TICK_MS = 1000;
+/** Relecture, mémorisation ou effacement de la séance en cours refusés : le détail suit, en secondaire. */
+const STORAGE_ERROR_MESSAGE = 'Séance en cours : mémoire de l’appareil en échec.';
 
 /**
  * Au-dessus de la barre d'onglets (prop tabBar de app/(tabs)/_layout.tsx), sur
@@ -22,11 +24,11 @@ export function ActiveSessionBar() {
       {error !== null ? (
         <Pressable
           role="button"
-          accessibilityLabel={`${error} Toucher pour masquer.`}
+          accessibilityLabel={`${STORAGE_ERROR_MESSAGE} Toucher pour masquer.`}
           onPress={dismissError}
           style={({ pressed }) => [styles.error, pressed && styles.errorPressed]}
         >
-          <FieldError message={error} />
+          <FieldError message={STORAGE_ERROR_MESSAGE} error={error} />
           <Text style={text.meta}>Toucher pour masquer.</Text>
         </Pressable>
       ) : null}

@@ -33,12 +33,13 @@ import { createSession, updateSession } from '../../lib/db/sessions';
 import { getSheetDuration } from '../../lib/db/training';
 import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY, TEST_MODULE_KEY } from '../../lib/modules';
 import { colors, layout, spacing, text } from '../../lib/theme';
+import { randomUuid } from '../../lib/uuid';
 
 const TITLE = 'Terminer la séance';
 const NO_SESSION_MESSAGE = 'Supabase n’a renvoyé ni la séance ni d’erreur : vérifier l’Accueil avant de réessayer.';
 /** Même message que le pied du formulaire de séance. */
 const INVALID_DURATION_MESSAGE = 'À corriger : durée.';
-const SHEET_GONE_MESSAGE = 'Durée de la fiche non lue : la fiche n’existe plus.';
+const SHEET_GONE_MESSAGE = 'La fiche n’existe plus.';
 
 const MINUTE_MS = 60 * 1000;
 /**
@@ -129,6 +130,9 @@ function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }
   const [error, setError] = useState<string | null>(null);
   // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
   const pendingRef = useRef(false);
+  // Id de la séance créée ici (fiche, ou session sans test enregistré), tiré au premier envoi et gardé pour chaque
+  // réessai : la base ignore un second envoi.
+  const sessionIdRef = useRef<string | null>(null);
   // Séance oubliée, durée de la fiche pas encore lue : ni durée affichée ni
   // enregistrement, aucune valeur fausse ne passe.
   const durationLoading = forgotten && sheetDuration.status === 'loading';
@@ -151,7 +155,7 @@ function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }
         return;
       }
       if (loadError !== null) {
-        setSheetDuration({ status: 'error', message: `Durée de la fiche non lue : ${loadError}` });
+        setSheetDuration({ status: 'error', message: loadError });
       } else if (data === null) {
         setSheetDuration({ status: 'error', message: SHEET_GONE_MESSAGE });
       } else {
@@ -216,6 +220,7 @@ function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }
         ? await updateSession(existingSessionId, fields)
         : await createSession({
             ...fields,
+            id: (sessionIdRef.current ??= randomUuid()),
             date: localDateOfTimestamp(session.startedAt),
             module: moduleKey,
             type: getModule(moduleKey).type,
@@ -256,7 +261,7 @@ function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }
         footer={
           <>
             {/* Le champ en erreur peut être hors de l'écran : le pied, toujours visible, le dit. */}
-            <FieldError message={invalidSubmit ? INVALID_DURATION_MESSAGE : error} />
+            <FieldError message={invalidSubmit ? INVALID_DURATION_MESSAGE : null} error={invalidSubmit ? null : error} />
             <Button label="Enregistrer" onPress={save} loading={saving} disabled={durationLoading} />
             {/* Abandon tant que rien n'est enregistré : fiche, ou session dont aucun test n'est enregistré. */}
             {existingSessionId === null ? (
@@ -287,7 +292,7 @@ function FinishForm({ session }: { session: ActiveSheetSession | ActiveTestRun }
             <Text style={text.body}>{`Chrono : ${formatHoursMinutes(measuredMs)} — séance oubliée ?`}</Text>
             {sheetDuration.status === 'error' ? (
               <>
-                <FieldError message={sheetDuration.message} />
+                <FieldError message="Durée de la fiche non lue." error={sheetDuration.message} />
                 <Button variant="secondary" label="Réessayer" onPress={reloadSheetDuration} />
               </>
             ) : null}

@@ -71,7 +71,7 @@ export default function EditSessionScreen() {
           {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
           {state.status === 'error' ? (
             <View style={layout.section}>
-              <FieldError message={`Erreur : ${state.message}`} />
+              <FieldError error={state.message} />
               <Button variant="secondary" label="Réessayer" onPress={reload} />
             </View>
           ) : null}

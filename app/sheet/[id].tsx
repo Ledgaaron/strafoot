@@ -18,6 +18,7 @@ import { hapticMedium } from '../../lib/haptics';
 import { DEFAULT_DIFFICULTY, getModule, SHEET_MODULE_KEY } from '../../lib/modules';
 import type { Exercise } from '../../lib/sheet-types';
 import { colors, layout, spacing, text } from '../../lib/theme';
+import { randomUuid } from '../../lib/uuid';
 
 const NO_SESSION_MESSAGE = 'Supabase n’a renvoyé ni la séance ni d’erreur : vérifier l’Accueil avant de réessayer.';
 
@@ -86,7 +87,7 @@ export default function SheetScreen() {
           {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
           {state.status === 'error' ? (
             <View style={layout.section}>
-              <FieldError message={`Erreur : ${state.message}`} />
+              <FieldError error={state.message} />
               <Button variant="secondary" label="Réessayer" onPress={reload} />
             </View>
           ) : null}
@@ -155,6 +156,8 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
   const [save, setSave] = useState<SaveState>({ status: 'idle' });
   // Garde synchrone en plus de l'état : deux taps rapprochés peuvent voir le même rendu.
   const pendingRef = useRef(false);
+  // Id de la séance « Séance faite », tiré au premier envoi et gardé pour chaque réessai : la base ignore un second envoi.
+  const sessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // Étape mémorisée à chaque changement : le bandeau des onglets y ramène.
@@ -190,7 +193,7 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
     const error = await activeSession.start({ kind: 'training', sheetId: sheet.id, title: sheet.title });
     setStarting(false);
     if (error !== null) {
-      setStartError(`La séance n’a pas démarré. ${error}`);
+      setStartError(error);
       return;
     }
     goTo(FIRST_EXERCISE_INDEX);
@@ -219,9 +222,11 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
       return;
     }
     pendingRef.current = true;
+    sessionIdRef.current ??= randomUuid();
     setSave({ status: 'saving' });
     // Jamais de user_id : la base le tire du JWT.
     const { data, error } = await createSession({
+      id: sessionIdRef.current,
       date: today,
       module: SHEET_MODULE_KEY,
       type: getModule(SHEET_MODULE_KEY).type,
@@ -266,8 +271,8 @@ function SheetReader({ loaded }: { loaded: Loaded }) {
   const footer = (
     <>
       {/* Message de l'enregistrement, au-dessus du bouton qui l'a produit : à la dernière étape seulement. */}
-      {step === lastStep && save.status === 'error' ? <FieldError message={`Erreur : ${save.message}`} /> : null}
-      {step === 0 ? <FieldError message={startError} /> : null}
+      {step === lastStep && save.status === 'error' ? <FieldError error={save.message} /> : null}
+      {step === 0 && startError !== null ? <FieldError message="La séance n’a pas démarré." error={startError} /> : null}
       {/* Séance en cours : Terminer à tout moment ; au dernier écran, l'action principale termine déjà. */}
       {isTimed && step < lastStep ? (
         <Button variant="secondary" label="Terminer" disabled={saving} onPress={finishTimed} />

@@ -38,7 +38,7 @@ export const colors = {
   onAccent: '#101013',
   /** Alertes, erreurs, régressions, choix faible : 5,7:1 sur bg, 4,8:1 sur surface2. */
   danger: '#F05A5C',
-  /** Pastille « Erreur » du quiz (chantier 13) seulement, glyphe blanc ; jamais en texte (3,6:1). */
+  /** Pastille « Erreur » du quiz (chantier 18) seulement, glyphe blanc ; jamais en texte (3,6:1). */
   error: '#C23A3D',
   /** Progression, record, coche de mesure, meilleur choix : 10,1:1 sur bg. */
   success: '#3DD68C',
@@ -50,7 +50,7 @@ export const colors = {
   quizPressed: '#8F72F0',
   /** quiz à 14 % : réponse sélectionnée, puce choisie du quiz, étiquette de thème. */
   quizTint: 'rgba(167,139,250,0.14)',
-  /** quiz à 22 % → 0 : lueur du haut des écrans quiz (chantier 13), seule lueur de l'app. */
+  /** quiz à 22 % → 0 : lueur du haut des écrans quiz (chantier 18), seule lueur de l'app. */
   quizGlow: 'rgba(167,139,250,0.22)',
   /** Lignes des schémas et du terrain par défaut ; barre d'une semaine vide du graphe de régularité (DA). */
   pitchLine: '#3A3A44',
@@ -58,7 +58,7 @@ export const colors = {
   scrim: 'rgba(16,16,19,0.6)',
 } as const;
 
-/** Dégradé réservé au quiz : barre de palier Elo (chantier 13), jamais derrière du texte. */
+/** Dégradé réservé au quiz : barre de palier Elo (chantier 18), jamais derrière du texte. */
 export const quizGradient = {
   colors: [colors.accent, colors.quiz],
   angle: 135,
@@ -210,7 +210,7 @@ export const motion = {
   base: 240,
   /** Changement d'écran ; feuille du bas (BottomSheet) : glissement et voile. */
   screen: 320,
-  /** Décompte de l'Elo après réponse (chantier 13), une seule fois. */
+  /** Décompte de l'Elo après réponse (chantier 18), une seule fois. */
   count: 600,
   /** cubic-bezier(0.2, 0, 0, 1). */
   easing: Easing.bezier(0.2, 0, 0, 1),
@@ -276,7 +276,7 @@ export const text = StyleSheet.create({
     color: colors.text,
     fontVariant: ['tabular-nums'],
   },
-  /** Chiffre héros, un par écran au plus (Elo du quiz, chantier 13). */
+  /** Chiffre héros, un par écran au plus (Elo du quiz, chantier 18). */
   hero: {
     fontSize: fontSize.hero,
     lineHeight: lineHeight.hero,

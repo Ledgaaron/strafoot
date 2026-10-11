@@ -27,6 +27,12 @@
 // contient de caractère de contrôle ni « $$ ». Le jsonb est écrit tel que lu.
 // Un diagrams_NNN.json sans questions_NNN.json est une erreur.
 //
+// Contenu partagé (chantier 14) : le SQL s'exécute avec l'UUID du compte
+// technique « contenu » (marqueur <REMPLACER_PAR_CONTENU_UUID>), après
+// supabase/transfer_content_owner.sql ; les questions insérées sont publiques
+// (is_public = true), lisibles par tout compte connecté. Un compte qui a des
+// séances, réponses ou résultats est refusé : ce n'est pas le compte technique.
+//
 // Sortie déterministe : ni date ni horodatage, fins de ligne LF, UTF-8 sans BOM,
 // retour à la ligne final. Le SQL n'est réécrit que s'il change (CRLF ramenés à
 // LF pour comparer) : relancé sur le même JSON, le script annonce « inchangé ».
@@ -53,12 +59,13 @@ const DIAGRAM_FILE_PATTERN = /^diagrams_(\d{3})\.json$/;
 const SCRIPT_PATH = 'scripts/build-seed-questions.ts';
 const MIGRATION_PATH = 'supabase/migrations/003_quiz.sql';
 const DIAGRAM_MIGRATION_PATH = 'supabase/migrations/009_question_diagrams.sql';
+const TRANSFER_PATH = 'supabase/transfer_content_owner.sql';
 const DIAGRAM_ROOT_KEYS: readonly string[] = ['_format', 'diagrams'];
 const DIAGRAM_KEYS: readonly string[] = ['situation', 'diagram'];
 /** Indentation des champs d'une ligne du values (…) des schémas. */
 const FIELD_INDENT = '      ';
-/** Remplacé par l'utilisateur dans le SQL Editor : une seule occurrence, ligne uid. */
-const UUID_MARKER = '<REMPLACER_PAR_MON_UUID>';
+/** UUID du compte technique « contenu », remplacé dans le SQL Editor : une seule occurrence, ligne uid. */
+const UUID_MARKER = '<REMPLACER_PAR_CONTENU_UUID>';
 
 const ROOT_KEYS: readonly string[] = ['_format', 'questions'];
 const QUESTION_KEYS: readonly string[] = ['situation', 'options', 'theme', 'positions', 'level', 'source'];
@@ -595,7 +602,8 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[], diagram
           `-- Fichier généré par ${SCRIPT_PATH} : ne pas modifier à la`,
           `-- main, modifier le JSON puis relancer npx tsx ${SCRIPT_PATH}.`,
           '--',
-          `-- À exécuter dans le SQL Editor APRÈS ${MIGRATION_PATH}.`,
+          `-- À exécuter dans le SQL Editor APRÈS ${MIGRATION_PATH} et`,
+          `-- ${TRANSFER_PATH} (contenu au compte technique).`,
         ]
       : [
           `-- seed_questions_${file.number}.sql : ${formatCount(total, 'question', 'questions')} du quizz depuis`,
@@ -605,8 +613,9 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[], diagram
           `-- Fichier généré par ${SCRIPT_PATH} : ne pas modifier à la`,
           `-- main, modifier les JSON puis relancer npx tsx ${SCRIPT_PATH}.`,
           '--',
-          `-- À exécuter dans le SQL Editor APRÈS ${MIGRATION_PATH} et`,
-          `-- ${DIAGRAM_MIGRATION_PATH} (colonne diagram).`,
+          `-- À exécuter dans le SQL Editor APRÈS ${MIGRATION_PATH},`,
+          `-- ${DIAGRAM_MIGRATION_PATH} (colonne diagram) et`,
+          `-- ${TRANSFER_PATH} (contenu au compte technique).`,
         ];
   const idempotence =
     diagramFile === null
@@ -635,8 +644,8 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[], diagram
     '-- =============================================================================',
     ...source,
     '--',
-    '-- 1. Récupère ton UUID : Dashboard Supabase → Authentication → Users →',
-    '--    clique sur ton utilisateur → copie « User UID ».',
+    '-- 1. Récupère l’UUID du compte technique « contenu », pas le tien : Dashboard',
+    '--    Supabase → Authentication → Users → clique sur ce compte → copie « User UID ».',
     '-- 2. Colle tout le fichier dans le SQL Editor, puis remplace par cet UUID le',
     '--    marqueur entre chevrons de la ligne uid uuid := … (une seule occurrence).',
     '--    Fais-le dans le SQL Editor, pas dans ce fichier, qui est régénéré.',
@@ -644,10 +653,12 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[], diagram
     "--    pas en « Run as authenticated » : ce rôle n'a pas accès à auth.users.",
     '--',
     ...idempotence,
+    '-- Les questions insérées sont publiques (is_public = true) : contenu partagé,',
+    '-- lisible par tout compte connecté, modifiable par le seul compte technique.',
     '--',
     "-- Le trigger set_user_id impose user_id := auth.uid(). Le SQL Editor n'a pas de",
-    "-- JWT (auth.uid() est null) : le bloc simule celui de l'utilisateur, le temps",
-    "-- de la transaction uniquement. L'insert n'envoie donc jamais user_id.",
+    "-- JWT (auth.uid() est null) : le bloc simule celui du compte technique, le",
+    "-- temps de la transaction uniquement. L'insert n'envoie donc jamais user_id.",
     '-- =============================================================================',
     '',
     'do $$',
@@ -669,11 +680,20 @@ function buildSql(file: ContentFile, questions: readonly SeedQuestion[], diagram
     "    raise exception 'Simulation du JWT inopérante : auth.uid() = %, attendu %.', auth.uid(), uid;",
     '  end if;',
     '',
+    '  -- Compte technique seulement : des séances, réponses ou résultats à son nom',
+    '  -- trahissent un compte qui joue (le tien) ; le contenu s’y doublerait.',
+    '  if exists (select 1 from public.sessions where user_id = uid)',
+    '    or exists (select 1 from public.answers where user_id = uid)',
+    '    or exists (select 1 from public.test_results where user_id = uid)',
+    '  then',
+    "    raise exception 'Le compte % a des séances, réponses ou résultats : ce n’est pas le compte technique « contenu ». Rien n’est appliqué.', uid;",
+    '  end if;',
+    '',
     '  -- ---------------------------------------------------------------------------',
     '  -- Questions : 4 options { text, score 0-3, explanation } (clé : situation)',
     '  -- ---------------------------------------------------------------------------',
     '  insert into public.questions (situation, options, theme, positions, level, source, is_public)',
-    '  select v.situation, v.options, v.theme, v.positions, v.level, v.source, false',
+    '  select v.situation, v.options, v.theme, v.positions, v.level, v.source, true',
     '  from (values',
     ...joinWithCommas(questions.map(questionLines)),
     '  ) as v(situation, options, theme, positions, level, source)',

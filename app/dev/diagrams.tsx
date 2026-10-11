@@ -142,7 +142,7 @@ export default function DiagramsPreviewScreen() {
         {state.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
         {state.status === 'error' ? (
           <View style={layout.section}>
-            <FieldError message={`Erreur : ${state.message}`} />
+            <FieldError error={state.message} />
             <Button variant="secondary" label="Réessayer" onPress={reload} />
           </View>
         ) : null}
@@ -265,7 +265,7 @@ function PreviewCard({ item }: { item: PreviewItem }) {
     <View style={styles.item}>
       <Text style={text.bodyStrong}>{item.title}</Text>
       <Text style={text.meta}>{item.caption}</Text>
-      {parsed.error !== null ? <FieldError message={`Schéma invalide :\n${parsed.error}`} /> : null}
+      {parsed.error !== null ? <FieldError message="Schéma invalide." error={parsed.error} /> : null}
       {parsed.data !== null ? (
         <>
           <Text style={text.overline}>Nu</Text>

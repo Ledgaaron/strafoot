@@ -1,11 +1,18 @@
-import type { Session } from '@supabase/supabase-js';
+import type { AuthError, Session } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { supabase } from './supabase';
 
 // Seul point d'accès à supabase.auth pour l'app (hors plomberie de lib/supabase.ts).
 
-type AuthResult = { error: string | null };
+/**
+ * Échec de connexion ou de déconnexion : l'AuthError entière (message, code,
+ * statut), que l'écran affiche par FieldError, donc traduite par describeError
+ * (lib/errors.ts), qui lit son code avant son message.
+ */
+export type AuthFailure = AuthError;
+
+type AuthResult = { error: AuthFailure | null };
 
 type AuthContextValue = {
   session: Session | null;
@@ -33,13 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string): Promise<AuthResult> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    return { error };
   }, []);
 
   const signOut = useCallback(async (): Promise<AuthResult> => {
     // scope local : ne déconnecte que cet appareil (le web et l'émulateur restent indépendants).
     const { error } = await supabase.auth.signOut({ scope: 'local' });
-    return { error: error?.message ?? null };
+    return { error };
   }, []);
 
   const value = useMemo(

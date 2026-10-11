@@ -92,6 +92,9 @@ type SheetState =
  */
 type PlanChoice = { chosen: FamilyKey | null; excluded: FamilyKey[] };
 
+/** Démarrage refusé (séance en cours non mémorisée) : « « Titre » n'a pas démarré. » et l'erreur brute. */
+type StartError = { lead: string; error: string };
+
 /**
  * Posés au retour ici par router.dismissTo : « Séance faite » d'une fiche sans
  * chrono (app/sheet/[id].tsx), fin d'une fiche ou d'une session chronométrée
@@ -118,7 +121,7 @@ export default function TestsScreen() {
   // Famille choisie et familles écartées de la vue proposition, le temps que la feuille est ouverte.
   const [choice, setChoice] = useState<PlanChoice>({ chosen: null, excluded: [] });
   // Échec de mémorisation au démarrage par ▶ ou Démarrer : rien n'a démarré.
-  const [startError, setStartError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<StartError | null>(null);
   // Garde synchrone : deux ▶ rapprochés ne démarrent qu'une séance.
   const startingRef = useRef(false);
   const activeSession = useActiveSession();
@@ -213,7 +216,7 @@ export default function TestsScreen() {
     const error = await activeSession.start({ kind: 'test', sheetId: test.id, slug: test.slug, title: test.title });
     startingRef.current = false;
     if (error !== null) {
-      setStartError(`« ${test.title} » n’a pas démarré. ${error}`);
+      setStartError({ lead: `« ${test.title} » n’a pas démarré.`, error });
       return;
     }
     router.push({ pathname: '/test/[slug]', params: { slug: test.slug } });
@@ -247,7 +250,7 @@ export default function TestsScreen() {
     });
     startingRef.current = false;
     if (error !== null) {
-      setStartError(`« ${plan.title} » n’a pas démarré. ${error}`);
+      setStartError({ lead: `« ${plan.title} » n’a pas démarré.`, error });
       return;
     }
     setSheet(null);
@@ -268,7 +271,7 @@ export default function TestsScreen() {
       {tabState.status === 'loading' ? <ActivityIndicator size="large" color={colors.accent} /> : null}
       {tabState.status === 'error' ? (
         <View style={layout.section}>
-          <FieldError message={`Erreur : ${tabState.message}`} />
+          <FieldError error={tabState.message} />
           <Button variant="secondary" label="Réessayer" onPress={reload} />
         </View>
       ) : null}
@@ -283,7 +286,7 @@ export default function TestsScreen() {
             <Button label="Proposer une session" onPress={openProposal} />
           )}
           {/* Hors de la feuille, absente ou refermée : un ▶ de la liste qui n'a pas démarré. */}
-          {sheet === null || !sheet.open ? <FieldError message={startError} /> : null}
+          {sheet === null || !sheet.open ? <StartErrorLine startError={startError} /> : null}
 
           {data.sessions.length > 0 ? (
             <View style={layout.section}>
@@ -355,7 +358,7 @@ type PlanSheetProps = {
   sheet: SheetState;
   data: TabData;
   choice: PlanChoice;
-  startError: string | null;
+  startError: StartError | null;
   /** « Changer de famille » : family, la famille montrée (proposée ou choisie), est écartée. */
   onChangeFamily: (family: FamilyKey) => void;
   /** « Choisir une famille » : la feuille passe à la vue familles. */
@@ -420,7 +423,7 @@ function sheetTitle(sheet: SheetState): string {
 type ProposalContentProps = {
   data: TabData;
   choice: PlanChoice;
-  startError: string | null;
+  startError: StartError | null;
   onStart: (plan: RunPlan) => void;
   onChangeFamily: (family: FamilyKey) => void;
   onShowFamilies: () => void;
@@ -468,7 +471,7 @@ function ProposalContent({ data, choice, startError, onStart, onChangeFamily, on
         <Text style={text.meta}>{data.familyLastLabels.get(proposal.family) ?? 'Jamais testée'}</Text>
       </View>
       <PlanTests tests={tests} durationMin={proposal.durationMin} />
-      <FieldError message={startError} />
+      <StartErrorLine startError={startError} />
       <Button
         label="Démarrer"
         onPress={() =>
@@ -519,7 +522,7 @@ function FamilyPicker({ skills, chosen, onPick }: FamilyPickerProps) {
 
 type SessionContentProps = {
   session: SessionItem;
-  startError: string | null;
+  startError: StartError | null;
   onStart: (plan: RunPlan) => void;
 };
 
@@ -528,10 +531,15 @@ function SessionContent({ session, startError, onStart }: SessionContentProps) {
   return (
     <>
       <PlanTests tests={session.tests} durationMin={session.durationMin} />
-      <FieldError message={startError} />
+      <StartErrorLine startError={startError} />
       <Button label="Démarrer" onPress={() => onStart(sessionPlan(session))} />
     </>
   );
+}
+
+/** Démarrage refusé : ce qui n'a pas démarré, puis l'erreur traduite (FieldError) ; rien sinon. */
+function StartErrorLine({ startError }: { startError: StartError | null }) {
+  return startError !== null ? <FieldError message={startError.lead} error={startError.error} /> : null;
 }
 
 /** Tests d'une session dans l'ordre de passage, puis leur nombre et la durée totale. */
