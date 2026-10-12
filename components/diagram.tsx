@@ -29,11 +29,9 @@ import {
   objectBox,
   OPPONENT_RADIUS,
   OPPONENT_RING,
-  optionStroke,
   PASTILLE_RADIUS,
   PASTILLE_RING,
   PLAYER_RADIUS,
-  playersWithRing,
   project,
   SPEED_ARROWS,
   SPOT_RADIUS,
@@ -51,7 +49,7 @@ import {
 // fieldLine, nous en disques blancs, eux en anneaux gris, toi avec un halo
 // violet, options en lettres A à D (distinctes des numéros de maillot). Aucune
 // animation : un trait apparaît ou disparaît sans transition. La géométrie
-// (cadre, traits, anneaux, cotes, places des pastilles et des étiquettes) vient
+// (cadre, traits, cotes, places des pastilles et des étiquettes) vient
 // de components/diagram-layout.ts, en pixels de la DA (schéma de 358 px de large
 // sur un écran de 390), mise à l'échelle de la largeur réelle ; cadre 722 × 646,
 // 722 × 542 (zone) ou 722 × 361 (local) : même rendu sur le web et en natif, à
@@ -65,8 +63,6 @@ const SHIRT_SIZE = 12;
 const OPTION_WIDTH = { selected: 3.5, strong: 3, weak: 2 };
 /** Passe : pointillé de la DA. */
 const OPTION_DASH = [7, 6];
-/** Anneau d'un hold : pointillé serré. */
-const RING_DASH = [4, 4];
 /** Lettre d'une pastille : 14 px gras. */
 const PASTILLE_SIZE = fontSize.meta;
 /** Trajet d'un test. */
@@ -113,7 +109,6 @@ export function Diagram({ diagram, selected, result, showAll = false, accessibil
     geometry.options.map((shape) => shape.option.id),
     state,
   );
-  const ringPlayers = playersWithRing(geometry.options, visible);
   const shown = geometry.options
     .filter((shape) => visible.includes(shape.option.id))
     .map((shape) => ({ shape, look: optionLook(shape.option.id, state) }));
@@ -154,7 +149,7 @@ export function Diagram({ diagram, selected, result, showAll = false, accessibil
           <DimensionMark key={`dimension-${index}`} dimension={dimension} />
         ))}
         {shown.map(({ shape, look }) => (
-          <OptionLine key={shape.option.id} shape={shape} look={look} fromRing={ringPlayers.has(shape.option.from)} />
+          <OptionLine key={shape.option.id} shape={shape} look={look} />
         ))}
         {geometry.speedArrows.map((arrow) => {
           const color = arrow.player.team === 'us' ? colors.text : colors.textMuted;
@@ -254,7 +249,7 @@ function stateOf(selected: OptionId | undefined, result: DiagramResult | undefin
   return selected !== undefined ? { kind: 'selected', id: selected } : { kind: 'idle' };
 }
 
-/** Couleurs d'une option dans l'état : trait et anneau, épaisseur, fond et lettre de sa pastille. */
+/** Couleurs d'une option dans l'état : trait, épaisseur, fond et lettre de sa pastille. */
 type OptionLook = {
   line: string;
   width: number;
@@ -283,29 +278,14 @@ function optionLook(id: OptionId, state: DiagramState): OptionLook {
 type OptionLineProps = {
   shape: OptionShape;
   look: OptionLook;
-  /** L'anneau du hold du joueur de départ est affiché : le trait part de son bord. */
-  fromRing: boolean;
 };
 
 /**
- * Trait et pointe d'une option, ou anneau d'un hold. La pastille coiffe
- * l'extrémité d'un trait vers un point, à la place de la pointe.
+ * Trait et pointe d'une option ; un hold n'en a pas (sa pastille suffit). La
+ * pastille coiffe l'extrémité d'un trait vers un point, à la place de la pointe.
  */
-function OptionLine({ shape, look, fromRing }: OptionLineProps) {
-  if (shape.ring !== null) {
-    return (
-      <Circle
-        cx={shape.ring.center.x}
-        cy={shape.ring.center.y}
-        r={shape.ring.r}
-        fill="none"
-        stroke={look.line}
-        strokeWidth={look.width}
-        strokeDasharray={RING_DASH}
-      />
-    );
-  }
-  const stroke = optionStroke(shape, fromRing ? new Set([shape.option.from]) : new Set());
+function OptionLine({ shape, look }: OptionLineProps) {
+  const { stroke } = shape;
   const line = stroke.cappedLine ?? stroke.line;
   const head = stroke.cappedLine !== null ? null : stroke.head;
   return (

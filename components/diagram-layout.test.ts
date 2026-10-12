@@ -17,9 +17,8 @@ import {
   outerRadius,
   PASTILLE_GAP,
   PASTILLE_OUTER,
-  playersWithRing,
+  PLAYER_RADIUS,
   project,
-  ringRadius,
   VIEW_WIDTH,
   visibleOptionIds,
   type DiagramLayout,
@@ -109,16 +108,23 @@ function placementFaults(diagram: DiagramData, layout: DiagramLayout): string[] 
     if (edge < -TOLERANCE) {
       faults.push(`${where} : pastille hors du cadre de ${(-edge).toFixed(1)} px`);
     }
+    // La pastille d'un hold touche son joueur par construction, et peut toucher son ballon (sans le recouvrir).
+    const hold = shape.option.to === null;
+    const carrier = diagram.players.find((player) => player.ball);
     for (const player of diagram.players) {
+      if (hold && player.id === shape.option.from) {
+        continue;
+      }
       const center = layout.centers.get(player.id) ?? project(layout.frame, player);
       const gap = distance(at, center) - outerRadius(player) - PASTILLE_OUTER;
       if (gap < PASTILLE_GAP - TOLERANCE) {
         faults.push(`${where} : pastille à ${gap.toFixed(1)} px du joueur ${player.id}`);
       }
     }
-    for (const ball of layout.balls) {
+    for (const [index, ball] of layout.balls.entries()) {
+      const own = hold && index === 0 && carrier !== undefined && carrier.id === shape.option.from;
       const gap = distance(at, ball) - BALL_OUTER - PASTILLE_OUTER;
-      if (gap < PASTILLE_GAP - TOLERANCE) {
+      if (gap < (own ? 0 : PASTILLE_GAP) - TOLERANCE) {
         faults.push(`${where} : pastille à ${gap.toFixed(1)} px du ballon`);
       }
     }
@@ -262,7 +268,7 @@ check('trait sans place libre : la pastille s’en écarte perpendiculairement',
   assert.deepEqual(placementFaults(diagram, layout), []);
 });
 
-check('hold : anneau juste au-delà du halo (du ballon porté s’il y en a un), pastille accolée, trait voisin parti de l’anneau', () => {
+check('hold : pas de trait ; pastille accolée au halo du joueur, sans couvrir son numéro, du côté libre', () => {
   const diagram = parsed({
     view: 'zone',
     width_m: 40,
@@ -280,19 +286,17 @@ check('hold : anneau juste au-delà du halo (du ballon porté s’il y en a un),
   const [pass, hold] = layout.options;
   const you = diagram.players[0];
   const center = project(layout.frame, you);
-  assert.ok(hold.ring !== null);
-  assert.ok(hold.ring.r > outerRadius(you), 'l’anneau entoure le halo');
-  // Le ballon, en bas à gauche du disque, reste dans l'anneau.
+  assert.deepEqual(hold.stroke, { line: [], head: null, cappedLine: null });
+  // Bord à bord avec le halo, et le numéro (disque r 11) reste découvert.
+  const gap = distance(hold.pastille, center) - outerRadius(you) - PASTILLE_OUTER;
+  assert.ok(Math.abs(gap) < TOLERANCE, `la pastille touche le halo (écart ${gap.toFixed(2)} px)`);
+  assert.ok(distance(hold.pastille, center) - PASTILLE_OUTER > PLAYER_RADIUS);
+  // Du côté libre : loin de la passe A (2 px au moins de son trait).
+  assert.ok(pass.stroke.line.length >= 2);
+  assert.ok(distanceToSegment(hold.pastille, pass.stroke.line[0], pass.stroke.line[pass.stroke.line.length - 1]) >= PASTILLE_OUTER + 2 + PASTILLE_GAP);
+  // Le ballon porté peut être touché, jamais recouvert.
   const [ball] = layout.balls;
-  assert.ok(distance(ball, center) + BALL_OUTER < hold.ring.r, 'l’anneau entoure le ballon porté');
-  assert.equal(hold.ring.r, ringRadius(you));
-  assert.ok(Math.abs(distance(hold.pastille, center) - hold.ring.r) < PASTILLE_OUTER + 3, 'la pastille est accolée à l’anneau');
-  // Sans hold affiché, la passe part du joueur ; avec, du bord de l'anneau.
-  assert.ok(pass.fromRing !== null);
-  assert.ok(distance(pass.stroke.line[0], center) < distance(pass.fromRing.line[0], center));
-  assert.ok(distance(pass.fromRing.line[0], center) > hold.ring.r);
-  assert.deepEqual([...playersWithRing(layout.options, [2])], ['us8']);
-  assert.deepEqual([...playersWithRing(layout.options, [1])], []);
+  assert.ok(distance(hold.pastille, ball) >= BALL_OUTER + PASTILLE_OUTER - TOLERANCE);
   const scores: OptionScores = { 1: 3, 2: 2, 3: 0, 4: 0 };
   for (const state of allStates([1, 2], scores)) {
     assert.deepEqual(findOverlaps(diagram, layout, state), [], describeState(state));

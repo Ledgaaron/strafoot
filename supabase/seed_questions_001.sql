@@ -1317,11 +1317,11 @@ begin
             "id": "them4",
             "team": "them",
             "number": 4,
-            "x": 83.8,
-            "y": 41.2,
+            "x": 86.6,
+            "y": 40,
             "move": {
               "dx": 1,
-              "dy": 0,
+              "dy": 0.2,
               "speed": "run"
             }
           },
@@ -1500,7 +1500,7 @@ begin
             "id": "us7",
             "team": "us",
             "number": 7,
-            "x": 76,
+            "x": 75,
             "y": 58,
             "you": true,
             "ball": true
@@ -1509,8 +1509,8 @@ begin
             "id": "us2",
             "team": "us",
             "number": 2,
-            "x": 63,
-            "y": 61,
+            "x": 65,
+            "y": 60,
             "move": {
               "dx": 1,
               "dy": 0,
@@ -1535,8 +1535,8 @@ begin
             "id": "them3",
             "team": "them",
             "number": 3,
-            "x": 83,
-            "y": 59
+            "x": 79.9,
+            "y": 57.8
           },
           {
             "id": "them4",

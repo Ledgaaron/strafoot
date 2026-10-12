@@ -222,11 +222,11 @@ qui montent du bas
 save-toast.tsx confirmation d'enregistrement qui glisse du bas en 240 ms, 2 s (micro-interaction c)
 pitch-placeholder.tsx demi-terrain SVG (lignes fieldLine) affiché quand un exercice n'a pas de schéma
 diagram.tsx schéma dessiné depuis ses données (react-native-svg, cadre de sa vue, sans animation) : terrain
-(lignes fieldLine), joueurs, flèches de vitesse, ballon, objets, trajet d'un test, cotes, options A-D (trait, ou
-anneau pointillé d'un hold) et leurs pastilles, encart score · minute ; états repos / selected / result (prop
+(lignes fieldLine), joueurs, flèches de vitesse, ballon, objets, trajet d'un test, cotes, options A-D (trait ; un
+hold : sa seule pastille) et leurs pastilles, encart score · minute ; états repos / selected / result (prop
 showAll), voir Schémas ; exporte OptionBadge, la pastille (lettre) d'une option dans les réponses du quiz
 diagram-layout.ts géométrie des schémas, sans react-native ni dessin : cadre par vue, terrain, flèches, traits des
-options (depuis le joueur, ou depuis le bord de l'anneau d'un hold affiché), anneaux, places des pastilles, cotes
+options, places des pastilles (celle d'un hold accolée au halo), cotes
 et étiquettes (règles : voir Schémas) ; états (DiagramState, visibleOptionIds, allStates, describeState) et
 détection des superpositions (findOverlaps, marge CLEARANCE) ; pur, testé par diagram-layout.test.ts sur les
 schémas pilotes de supabase/content/diagrams_001.json (scores lus dans questions_001.json), dans tous leurs états
@@ -638,19 +638,19 @@ donnée ancienne en base ne casse aucun écran.
 - **Rendu** (pixels de la DA, schéma de 358 px de large) : nous disque blanc r 11, numéro 12 px gras
   anthracite ; eux anneau gris 2,5 ; toi halo violet ; ballon cerclé collé au porteur ; vitesse
   9 / 15 / 22 px et 2 / 2,5 / 3,2 ; passe en pointillé, conduite / course / tir en trait plein ; hold :
-  anneau pointillé autour du joueur (et de son ballon s'il le porte), juste au-delà du halo, dans la
-  couleur de l'option, pastille accolée ; un trait parti d'un joueur dont le hold est affiché part du
-  bord de l'anneau ; pastille à lettre 14 px gras (disque r 11 cerclé de surface) ; trajet d'un test en
+  aucun trait, sa seule pastille, accolée au halo du joueur (bord à bord, sans couvrir son numéro), du
+  côté libre ; pastille à lettre 14 px gras (disque r 11 cerclé de surface) ; trajet d'un test en
   blanc, conduite : ballon au départ ; plots orange, objets gris ; cote : trait fin à extrémités
   marquées, décalé de 20 px du segment mesuré du côté libre (à égalité, à droite du sens from → to),
   étiquette au-delà du trait d'abord ; lignes du terrain en `colors.fieldLine` ; encart score · minute
   en `text.scoreboard`.
 - **Placement des pastilles** : à l'extrémité du trait, à la place de la pointe (vers un joueur :
   juste avant la pointe, donc avant le receveur) ; place prise : elle recule le long du trait (pas de
-  4 px), puis s'en écarte perpendiculairement (18, puis 26 px du trait) ; hold : accolée à l'anneau,
-  24 directions. Jamais : un bord de pastille à moins de 2 px d'un joueur (halo compris), d'un ballon,
-  d'une autre pastille, du trait ou de l'anneau d'une autre option, d'une flèche de vitesse ou du
-  trajet, ni hors du cadre. Options posées une à une dans chacun des 24 ordres, la répartition la
+  4 px), puis s'en écarte perpendiculairement (18, puis 26 px du trait) ; hold : accolée au halo,
+  24 directions, elle peut toucher son propre joueur et le ballon qu'il porte (sans le recouvrir), rien
+  d'autre. Jamais : un bord de pastille à moins de 2 px d'un autre joueur (halo compris), d'un autre
+  ballon, d'une autre pastille, du trait d'une autre option, d'une flèche de vitesse ou du trajet, ni
+  hors du cadre. Options posées une à une dans chacun des 24 ordres, la répartition la
   moins coûteuse l'emporte ; mêmes places dans tous les états (seules certaines pastilles sont
   dessinées, une pastille ne bouge jamais d'un état à l'autre).
 - **Étiquettes d'objets et de cotes** : objet : sous l'objet, sinon au-dessus, à droite, à gauche
@@ -671,13 +671,20 @@ donnée ancienne en base ne casse aucun écran.
   (destination = point visé, joueur visé, ou le joueur lui-même pour un hold) ; deux options du même
   joueur écartées de 30° au moins (hold exclu). Test (vue local) : aucun joueur ; 2 cotes au plus.
   Tous : aucune superposition (`findOverlaps`, marge 2 px) dans chaque état (repos, chaque sélection,
-  chaque résultat, tout afficher) : une pastille, un anneau, une étiquette ou une cote ne touche ni un
-  joueur (halo compris), ni le ballon, ni une autre pastille, étiquette, cote ou anneau, ni le trait
-  d'une autre option, ni une flèche de vitesse, ni le trajet, et reste dans le cadre ; deux traits
-  d'option ne se croisent pas hors de leur départ commun ; un trait d'option ne traverse aucun
-  joueur, hors son départ et son receveur ; deux joueurs ne se touchent pas, ni un ballon et un autre
-  joueur ; une flèche de vitesse ne touche aucun autre joueur. Une violation : le seed n'écrit rien et
-  liste chaque violation (schéma, état, éléments en cause, écart en px).
+  chaque résultat, tout afficher) : une pastille, une étiquette ou une cote ne touche ni un joueur
+  (halo compris), ni le ballon (la pastille d'un hold peut toucher son joueur et le ballon qu'il
+  porte), ni une autre pastille, étiquette ou cote, ni le trait d'une autre option, ni une flèche de
+  vitesse, ni le trajet, et reste dans le cadre ; deux traits d'option ne se croisent pas hors de leur
+  départ commun ; un trait d'option ne traverse aucun joueur, hors son départ et son receveur ; deux
+  joueurs ne se touchent pas, ni un ballon et un autre joueur ; une flèche de vitesse ne touche aucun
+  autre joueur. Une violation : le seed n'écrit rien et liste chaque violation (schéma, état,
+  éléments en cause, écart en px). Une distance donnée par le texte de la question (« à deux mètres »,
+  « à 30 m du but ») se dessine à l'échelle ; si c'est impossible sans superposition, le seed signale
+  la superposition et le livrable signale l'écart à la distance du texte, jamais d'arrondi en silence.
+  Distance minimale dessinable entre deux joueurs (centre à centre, marge comprise) : toi et un autre
+  30,5 px, deux autres 24,5 px, soit 2,95 et 2,37 m dans une zone de 30 m, 3,94 et 3,16 m pour 40 m,
+  5,90 et 4,74 m pour 60 m (échelle 310 / width_m px par mètre) ; un ballon porté, en bas à gauche du
+  porteur, interdit en plus un autre joueur à moins de 18,5 px de lui.
 - **Lien avec les réponses** : id d'une option du schéma = rang de l'option dans `questions.options`,
   à partir de 1 (`optionIdOfIndex`), affiché en lettre (`optionLetter`) ; le mélange des réponses
   (chantier 18) devra garder ce rang d'origine.

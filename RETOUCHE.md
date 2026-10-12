@@ -73,11 +73,11 @@ Objectif : l'Accueil dit quoi faire aujourd'hui et défile ; la flamme ne compte
 # Phase 2 — Les briques différenciantes
 
 ## Chantier 16 — Schémas v2 `[X]`
-Statut (11/10) : code fait (format zone / local 2:1 / cotes, états, anneau de hold, règles de contenu dans les seeds, quiz en deux temps, /dev/diagrams Dépôt + Base, lot pilote de 9 schémas, CLAUDE.md) ; à faire par moi : relecture du lot dans /dev/diagrams (Dépôt) sur la préversion, seeds, vérifications iPhone. Passe à `[x]` après ces vérifications.
+Statut (12/10) : code fait (format zone / local 2:1 / cotes, états, hold compact, règles de contenu dans les seeds, quiz en deux temps, /dev/diagrams Dépôt + Base, lot pilote de 9 schémas, CLAUDE.md) ; à faire par moi : relecture du lot dans /dev/diagrams (Dépôt) sur la préversion, seeds, vérifications iPhone. Passe à `[x]` après ces vérifications.
 Objectif : aucune superposition par construction, dans le quiz comme dans les tests.
 - [x] Quiz : aucune flèche au repos (joueurs, ballon, contexte) ; option touchée → sa seule flèche ; après réponse → ton choix et la meilleure, deux flèches au plus ; « Voir les autres choix » → toutes (état showAll prêt, bouton au chantier 18).
 - [x] Réponse en deux temps : sélection (sa flèche s'allume) puis « Valider » (avancée du chantier 18).
-- [x] Hold : anneau pointillé autour du joueur, plus d'arc.
+- [x] Hold : sa seule pastille, accolée au halo du joueur, plus d'arc ni d'anneau.
 - [x] Vue resserrée (zone de 30 à 60 m, 4:3) cadrée sur l'action.
 - [x] Règles de contenu vérifiées par les seeds : 6 à 9 joueurs utiles ; destinations des options à 8 m au moins l'une de l'autre, dans des directions distinctes ; aucune superposition dans aucun état.
 - [x] Tests : cadre paysage (2:1, ~180 pt de haut sur iPhone) ; cotes (distance entre deux points, 1 ou 2 par schéma) ; trajet existant (zigzag, ballon au départ). Aucun personnage (DA).

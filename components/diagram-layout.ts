@@ -1,6 +1,6 @@
 // Géométrie des schémas, sans dessin ni react-native : cadre, terrain, flèches
-// de vitesse, trajet d'un test, traits des options, anneau d'un hold, places des
-// pastilles, cotes et étiquettes ; états d'un schéma (repos, sélection, résultat,
+// de vitesse, trajet d'un test, traits des options, places des pastilles (celle
+// d'un hold accolée au halo), cotes et étiquettes ; états d'un schéma (repos, sélection, résultat,
 // tout afficher) et détection des superpositions, pure, que les seeds et les
 // tests appliquent au contenu. components/diagram.tsx la dessine en SVG. Tout est
 // en pixels de la DA (schéma de 358 px de large sur un écran de 390 ; cadre
@@ -63,7 +63,7 @@ export const SPEED_ARROWS: Readonly<Record<Speed, { length: number; width: numbe
 };
 /** Pointe d'une flèche de vitesse, posée 6 px au-delà du trait. */
 const SPEED_HEAD = { length: 7, halfWidth: 4.5, ahead: 6 };
-/** Écart entre un joueur (ou l'anneau de son hold) et le début de ses flèches (vitesse, options). */
+/** Écart entre un joueur et le début de ses flèches (vitesse, options). */
 const ARROW_GAP = 3;
 /** Écart entre la pointe d'une option et le joueur visé. */
 const TARGET_GAP = 5;
@@ -90,18 +90,16 @@ const SIDE_OFFSETS = [
   ARROW_HEAD.halfWidth + PASTILLE_OUTER,
   ARROW_HEAD.halfWidth + PASTILLE_OUTER + 2 * PASTILLE_STEP,
 ];
-/** Hold : anneau pointillé juste au-delà du halo (ou du ballon porté) ; 3 px d'écart. */
-const RING_GAP = 3;
 /**
- * Hold : directions essayées pour la pastille accolée à l'anneau, en degrés (0 à
+ * Hold : directions essayées pour la pastille accolée au halo, en degrés (0 à
  * droite, -90 en haut) : les diagonales, haut, bas, les côtés, puis tous les 15°.
  */
 const HOLD_ANGLES = [
   -45, -135, 45, 135, -90, 90, 0, 180, -60, -30, -120, -150, 60, 30, 120, 150, -75, -105, 75, 105, -15, -165, 15, 165,
 ];
 /**
- * Demi-épaisseur d'un trait d'option, d'un anneau, d'une flèche de vitesse ou
- * du trajet, arrondie au-dessus (3,5 px au plus).
+ * Demi-épaisseur d'un trait d'option, d'une flèche de vitesse ou du trajet,
+ * arrondie au-dessus (3,5 px au plus).
  */
 export const STROKE_HALF = 2;
 /** Cote : trait fin, décalé de 20 px du segment mesuré, extrémités marquées par un tiret de 8 px. */
@@ -178,20 +176,10 @@ export type OptionStroke = {
   cappedLine: Point[] | null;
 };
 
-/** Anneau d'un hold : centre, rayon, et le cercle échantillonné (fermé). */
-export type HoldRing = { center: Point; r: number; points: Point[] };
-
 export type OptionShape = {
   option: DiagramOption;
-  /** Trait depuis le joueur de départ (ou vide pour un hold). */
+  /** Trait depuis le joueur de départ (vide pour un hold, marqué par sa seule pastille). */
   stroke: OptionStroke;
-  /**
-   * Le même trait, parti du bord de l'anneau du hold du joueur de départ : à
-   * dessiner quand cet anneau est affiché. null si ce joueur n'a pas de hold.
-   */
-  fromRing: OptionStroke | null;
-  /** Anneau d'un hold ; null sinon. */
-  ring: HoldRing | null;
   /** Centre de la pastille. */
   pastille: Point;
 };
@@ -249,17 +237,25 @@ export function layoutDiagram(diagram: DiagramData): DiagramLayout {
     ...(diagram.ball !== null ? [project(frame, diagram.ball)] : []),
     ...(path?.ball ? [path.ball] : []),
   ];
-  // Joueurs et ballons : ni pastille, ni cote, ni étiquette ne les recouvre.
-  const discs: Disc[] = [
-    ...diagram.players.map((player) => ({ ...centerOf(centers, frame, player), r: outerRadius(player) })),
-    ...balls.map((ball) => ({ ...ball, r: BALL_OUTER })),
+  // Joueurs et ballons : ni pastille, ni cote, ni étiquette ne les recouvre
+  // (la pastille d'un hold peut toucher son joueur et le ballon qu'il porte).
+  const obstacles: ObstacleDisc[] = [
+    ...diagram.players.map((player) => ({
+      owner: player.id,
+      disc: { ...centerOf(centers, frame, player), r: outerRadius(player) },
+    })),
+    ...balls.map((ball, index) => ({
+      owner: index === 0 && carrier !== undefined ? carrier.id : null,
+      disc: { ...ball, r: BALL_OUTER },
+    })),
   ];
+  const discs = obstacles.map((obstacle) => obstacle.disc);
   // Traits fixes : flèches de vitesse et trajet.
   const fixedStrokes: Point[][] = [
     ...speedArrows.flatMap((arrow) => [[arrow.start, arrow.end], closed(arrow.head)]),
     ...(path !== null ? [path.line, ...(path.head !== null ? [closed(path.head)] : [])] : []),
   ];
-  const placed = placeOptions(diagram, frame, centers, discs, fixedStrokes);
+  const placed = placeOptions(diagram, frame, centers, obstacles, fixedStrokes);
   const pastilles = placed.shapes.map((shape) => ({ ...shape.pastille, r: PASTILLE_OUTER }));
   const objectBoxes = diagram.objects.map((object) => objectBox(object, frame));
   const dimensionLines = placeDimensions(diagram, frame, {
@@ -285,15 +281,6 @@ export function outerRadius(player: DiagramPlayer): number {
     return HALO_RADIUS + HALO_WIDTH / 2;
   }
   return player.team === 'us' ? PLAYER_RADIUS : OPPONENT_RADIUS + OPPONENT_RING / 2;
-}
-
-/** Rayon de l'anneau d'un hold : juste au-delà du halo (ou du disque), et du ballon si le joueur le porte. */
-export function ringRadius(player: DiagramPlayer): number {
-  const beyondPlayer = outerRadius(player) + RING_GAP;
-  if (!player.ball) {
-    return beyondPlayer;
-  }
-  return Math.max(beyondPlayer, Math.hypot(BALL_OFFSET.x, BALL_OFFSET.y) + BALL_OUTER + RING_GAP);
 }
 
 /** Rectangle qu'occupe un objet à l'écran : taille fixe (plot, mannequin) ou w × h mètres. */
@@ -369,22 +356,6 @@ export function allStates(ids: readonly OptionId[], scores: OptionScores | null)
   return states;
 }
 
-/** Joueurs dont un hold est affiché : leurs autres options partent du bord de l'anneau. */
-export function playersWithRing(options: readonly OptionShape[], visible: readonly OptionId[]): Set<string> {
-  const players = new Set<string>();
-  for (const shape of options) {
-    if (shape.ring !== null && visible.includes(shape.option.id)) {
-      players.add(shape.option.from);
-    }
-  }
-  return players;
-}
-
-/** Trait d'une option dans l'état : depuis l'anneau si celui du joueur de départ est affiché, sinon depuis le joueur. */
-export function optionStroke(shape: OptionShape, ringPlayers: ReadonlySet<string>): OptionStroke {
-  return shape.fromRing !== null && ringPlayers.has(shape.option.from) ? shape.fromRing : shape.stroke;
-}
-
 // Superpositions.
 
 /** Un élément du dessin et sa forme : disque, polylignes d'une épaisseur, ou rectangle. */
@@ -399,11 +370,11 @@ type LineElement = { name: string; shape: 'poly'; polys: Point[][]; half: number
 
 /**
  * Superpositions d'un schéma dans un état, règles de contenu du chantier 16 :
- * une pastille, un anneau, une étiquette ou une cote ne touche (marge CLEARANCE)
- * ni un joueur (halo compris), ni le ballon, ni une autre pastille, étiquette
- * ou cote, ni l'anneau d'un autre hold, ni le trait d'une autre option (sauf un
- * trait parti du bord de l'anneau, même joueur), ni une flèche de vitesse, ni le
- * trajet, et reste dans le cadre ; deux traits d'option
+ * une pastille, une étiquette ou une cote ne touche (marge CLEARANCE) ni un
+ * joueur (halo compris), ni le ballon (la pastille d'un hold peut toucher son
+ * joueur et le ballon qu'il porte, sans le recouvrir), ni une autre pastille,
+ * étiquette ou cote, ni le trait d'une autre option, ni une flèche de vitesse,
+ * ni le trajet, et reste dans le cadre ; deux traits d'option
  * ne se croisent pas hors de leur départ commun ; un trait d'option ne traverse
  * aucun joueur hors son départ et son receveur ; deux joueurs ne se touchent
  * pas, ni un ballon et un autre joueur ; une flèche de vitesse ne touche aucun
@@ -415,7 +386,6 @@ export function findOverlaps(diagram: DiagramData, layout: DiagramLayout, state:
     layout.options.map((shape) => shape.option.id),
     state,
   );
-  const ringPlayers = playersWithRing(layout.options, visible);
   const shown = layout.options.filter((shape) => visible.includes(shape.option.id));
   const carrier = diagram.players.find((player) => player.ball);
 
@@ -433,17 +403,16 @@ export function findOverlaps(diagram: DiagramData, layout: DiagramLayout, state:
     disc: { ...ball, r: BALL_OUTER },
   }));
   const lines: LineElement[] = shown
-    .filter((shape) => shape.ring === null)
-    .map((shape): LineElement => {
-      const stroke = optionStroke(shape, ringPlayers);
-      return {
+    .filter((shape) => shape.option.to !== null)
+    .map(
+      (shape): LineElement => ({
         option: shape.option,
         name: `trait ${optionLetter(shape.option.id)}`,
         shape: 'poly',
-        polys: [stroke.line, ...(stroke.head !== null ? [closed(stroke.head)] : [])],
+        polys: [shape.stroke.line, ...(shape.stroke.head !== null ? [closed(shape.stroke.head)] : [])],
         half: STROKE_HALF,
-      };
-    });
+      }),
+    );
   const arrows: (Element & { owner: string })[] = layout.speedArrows.map((arrow) => ({
     owner: arrow.player.id,
     name: `flèche de vitesse de ${arrow.player.id}`,
@@ -462,36 +431,21 @@ export function findOverlaps(diagram: DiagramData, layout: DiagramLayout, state:
           },
         ]
       : [];
-  // Marques : pastilles et anneaux des options affichées, étiquettes, cotes.
-  type Mark = Element & { optionId: OptionId | null; owner: string | null };
+  // Marques : pastilles des options affichées, étiquettes, cotes. owner : le
+  // joueur qu'une pastille de hold peut toucher (et son ballon).
+  type Mark = Element & { owner: string | null };
   const marks: Mark[] = [
     ...shown.map(
       (shape): Mark => ({
-        optionId: shape.option.id,
-        owner: null,
+        owner: shape.option.to === null ? shape.option.from : null,
         name: `pastille ${optionLetter(shape.option.id)}`,
         shape: 'disc',
         disc: { ...shape.pastille, r: PASTILLE_OUTER },
       }),
     ),
-    ...shown.flatMap((shape): Mark[] =>
-      shape.ring !== null
-        ? [
-            {
-              optionId: shape.option.id,
-              owner: shape.option.from,
-              name: `anneau ${optionLetter(shape.option.id)}`,
-              shape: 'poly',
-              polys: [shape.ring.points],
-              half: STROKE_HALF,
-            },
-          ]
-        : [],
-    ),
-    ...layout.labels.map((label): Mark => ({ optionId: null, owner: null, name: `étiquette « ${label.text} »`, shape: 'box', box: label.box })),
+    ...layout.labels.map((label): Mark => ({ owner: null, name: `étiquette « ${label.text} »`, shape: 'box', box: label.box })),
     ...layout.dimensions.flatMap((dimension): Mark[] => [
       {
-        optionId: null,
         owner: null,
         name: `cote « ${dimension.dimension.label} »`,
         shape: 'poly',
@@ -499,7 +453,6 @@ export function findOverlaps(diagram: DiagramData, layout: DiagramLayout, state:
         half: DIMENSION.strokeHalf,
       },
       {
-        optionId: null,
         owner: null,
         name: `étiquette de la cote « ${dimension.dimension.label} »`,
         shape: 'box',
@@ -517,25 +470,22 @@ export function findOverlaps(diagram: DiagramData, layout: DiagramLayout, state:
 
   for (const [index, mark] of marks.entries()) {
     for (const player of players) {
-      if (!(mark.shape === 'poly' && mark.owner === player.id)) {
+      // La pastille d'un hold est accolée à son joueur par construction.
+      if (mark.owner !== player.id) {
         report(mark, player, CLEARANCE);
       }
     }
     for (const ball of balls) {
-      if (!(mark.shape === 'poly' && mark.owner !== null && mark.owner === ball.owner)) {
-        report(mark, ball, CLEARANCE);
-      }
+      // Le ballon porté par le joueur d'un hold : sa pastille peut le toucher, pas le recouvrir.
+      const own = mark.owner !== null && mark.owner === ball.owner;
+      report(mark, ball, own ? 0 : CLEARANCE);
     }
     for (const other of marks.slice(index + 1)) {
-      // La pastille d'un hold est accolée à son anneau par construction.
-      if (mark.optionId === null || mark.optionId !== other.optionId) {
-        report(mark, other, CLEARANCE);
-      }
+      report(mark, other, CLEARANCE);
     }
     for (const line of lines) {
-      // Un trait parti d'un joueur dont le hold est affiché part du bord de son anneau.
-      const fromOwnRing = mark.shape === 'poly' && mark.owner !== null && mark.owner === line.option.from;
-      if (mark.optionId !== line.option.id && !fromOwnRing) {
+      // Sa propre pastille est sur son trait.
+      if (!(mark.shape === 'disc' && mark.name === `pastille ${optionLetter(line.option.id)}`)) {
         report(mark, line, CLEARANCE);
       }
     }
@@ -903,41 +853,44 @@ type Spot = {
   capped: boolean;
 };
 
+/** Disque d'un joueur (owner : son id) ou d'un ballon (owner : le porteur, null s'il est libre). */
+type ObstacleDisc = { owner: string | null; disc: Disc };
+
 /** Une option avant le choix de sa pastille. */
 type OptionPlan = {
   option: DiagramOption;
   stroke: OptionStroke;
-  fromRing: OptionStroke | null;
-  ring: HoldRing | null;
-  /** Trait, pointe ou anneau, qu'une autre pastille ne doit pas toucher. */
+  /** Trait et pointe, qu'une autre pastille ne doit pas toucher ; [] pour un hold. */
   strokes: Point[][];
+  /** Hold : le joueur (et son ballon) que la pastille peut toucher ; null pour un trait. */
+  touching: string | null;
   /** Places de la pastille, de la préférée à la dernière. */
   spots: Spot[];
 };
 
 /**
- * Traits des options, anneaux des holds et places des pastilles. Une pastille
- * se pose à l'extrémité de son trait (juste avant la pointe vers un joueur,
- * donc avant le receveur) ; si la place est prise, elle recule le long du
- * trait, puis s'en écarte perpendiculairement. Hold : anneau autour du joueur
- * (et de son ballon), pastille accolée à l'anneau, dans la première direction
- * libre. Jamais : un bord de pastille à moins de PASTILLE_GAP d'un joueur, d'un
- * ballon, d'une autre pastille, du trait ou de l'anneau d'une autre option,
- * d'une flèche de vitesse ou du trajet, ni hors du cadre. Les options sont
- * posées une à une, chacune à sa place la moins coûteuse, dans chaque ordre
- * possible (24 pour 4 options) : la répartition la moins coûteuse l'emporte, à
- * égalité le premier ordre essayé. Renvoie aussi les traits posés (traits,
- * pointes, anneaux), pour les cotes et les étiquettes.
+ * Traits des options et places des pastilles. Une pastille se pose à
+ * l'extrémité de son trait (juste avant la pointe vers un joueur, donc avant le
+ * receveur) ; si la place est prise, elle recule le long du trait, puis s'en
+ * écarte perpendiculairement. Hold : pas de trait, sa seule pastille, accolée au
+ * halo du joueur (sans couvrir son numéro), dans la première direction libre ;
+ * elle peut toucher ce joueur et son ballon, rien d'autre. Jamais : un bord de
+ * pastille à moins de PASTILLE_GAP d'un autre joueur, d'un autre ballon, d'une
+ * autre pastille, du trait d'une autre option, d'une flèche de vitesse ou du
+ * trajet, ni hors du cadre. Les options sont posées une à une, chacune à sa
+ * place la moins coûteuse, dans chaque ordre possible (24 pour 4 options) : la
+ * répartition la moins coûteuse l'emporte, à égalité le premier ordre essayé.
+ * Renvoie aussi les traits posés (traits, pointes), pour les cotes et les
+ * étiquettes.
  */
 function placeOptions(
   diagram: DiagramData,
   frame: Frame,
   centers: ReadonlyMap<string, Point>,
-  discs: readonly Disc[],
+  obstacles: readonly ObstacleDisc[],
   fixedStrokes: readonly Point[][],
 ): { shapes: OptionShape[]; strokes: Point[][] } {
   const players = new Map(diagram.players.map((player) => [player.id, player]));
-  const holders = new Set(diagram.options.filter((option) => option.to === null).map((option) => option.from));
   const plans: OptionPlan[] = [];
   for (const option of diagram.options) {
     const from = players.get(option.from);
@@ -946,41 +899,49 @@ function placeOptions(
     }
     const start = centerOf(centers, frame, from);
     if (option.to === null) {
-      plans.push(holdPlan(option, start, ringRadius(from)));
+      plans.push(holdPlan(option, start, from));
       continue;
     }
     const target = option.to.player !== null ? players.get(option.to.player) : undefined;
     const end = target !== undefined ? centerOf(centers, frame, target) : project(frame, option.to);
     const via = option.path.map((point) => project(frame, point));
     const targetRadius = target !== undefined ? outerRadius(target) : null;
-    const ringStart = holders.has(from.id) ? ringRadius(from) + STROKE_HALF : null;
-    plans.push(linePlan(option, start, outerRadius(from), ringStart, via, end, targetRadius));
+    plans.push(linePlan(option, start, outerRadius(from), via, end, targetRadius));
   }
   // Coût de chaque place sans les autres pastilles : il ne change pas d'un ordre à l'autre.
   const costs = plans.map((plan) => {
     const strokes = [...fixedStrokes, ...plans.flatMap((other) => (other === plan ? [] : other.strokes))];
-    return plan.spots.map((spot) => spot.rank + fixedCost(spot, discs, strokes, frame));
+    // Hold : son joueur ne compte pas, son ballon ne doit pas être recouvert.
+    const kept = obstacles.filter((obstacle) => plan.touching === null || obstacle.owner !== plan.touching);
+    const touchable = obstacles.filter(
+      (obstacle) => plan.touching !== null && obstacle.owner === plan.touching && obstacle.disc.r === BALL_OUTER,
+    );
+    return plan.spots.map(
+      (spot) =>
+        spot.rank +
+        fixedCost(
+          spot,
+          kept.map((obstacle) => obstacle.disc),
+          touchable.map((obstacle) => obstacle.disc),
+          strokes,
+          frame,
+        ),
+    );
   });
   const picks = bestPicks(plans, costs);
   const shapes = plans.map((plan, index): OptionShape => {
     const spot = plan.spots[picks[index]];
     const stroke = spot.capped ? plan.stroke : { ...plan.stroke, cappedLine: null };
-    const fromRing = plan.fromRing === null ? null : spot.capped ? plan.fromRing : { ...plan.fromRing, cappedLine: null };
-    return { option: plan.option, stroke, fromRing, ring: plan.ring, pastille: spot.at };
+    return { option: plan.option, stroke, pastille: spot.at };
   });
   return { shapes: shapes.sort((a, b) => a.option.id - b.option.id), strokes: plans.flatMap((plan) => plan.strokes) };
 }
 
-/**
- * Trait vers un point ou vers un joueur (targetRadius : son rayon), depuis le
- * joueur (fromRadius) et, s'il porte un hold, depuis son anneau (ringStart), et
- * les places de sa pastille.
- */
+/** Trait vers un point ou vers un joueur (targetRadius : son rayon), depuis le joueur (fromRadius), et les places de sa pastille. */
 function linePlan(
   option: DiagramOption,
   from: Point,
   fromRadius: number,
-  ringStart: number | null,
   via: readonly Point[],
   end: Point,
   targetRadius: number | null,
@@ -990,7 +951,6 @@ function linePlan(
   const endCut = targetRadius !== null ? targetRadius + TARGET_GAP : 0;
   const toPoint = targetRadius === null;
   const stroke = strokeOf(full, total, fromRadius + ARROW_GAP, endCut, toPoint);
-  const fromRing = ringStart === null ? null : strokeOf(full, total, ringStart + ARROW_GAP, endCut, toPoint);
   const startCut = Math.min(fromRadius + ARROW_GAP, total / 2);
   const drawn = slicePolyline(full, startCut, Math.max(startCut, total - endCut));
   const length = lengthOf(drawn);
@@ -1021,9 +981,8 @@ function linePlan(
   return {
     option,
     stroke,
-    fromRing,
-    ring: null,
     strokes: [drawn, ...(stroke.head !== null ? [closed(stroke.head)] : [])],
+    touching: null,
     spots: places.map((place, rank) => ({ ...place, rank })),
   };
 }
@@ -1043,29 +1002,42 @@ function strokeOf(full: readonly Point[], total: number, startCut: number, endCu
   };
 }
 
-/** Hold : anneau de rayon `radius` autour du joueur, pastille accolée ; une place par direction de HOLD_ANGLES. */
-function holdPlan(option: DiagramOption, center: Point, radius: number): OptionPlan {
-  const ring: HoldRing = { center, r: radius, points: circlePoints(center, radius) };
-  const pastilleRadius = radius + STROKE_HALF + PASTILLE_OUTER;
-  const empty: OptionStroke = { line: [], head: null, cappedLine: null };
+/**
+ * Hold : pas de trait ; pastille accolée au halo (ou au disque) du joueur, son
+ * bord sur le bord du joueur, hors du numéro ; une place par direction de HOLD_ANGLES.
+ */
+function holdPlan(option: DiagramOption, center: Point, player: DiagramPlayer): OptionPlan {
+  const pastilleRadius = outerRadius(player) + PASTILLE_OUTER;
   return {
     option,
-    stroke: empty,
-    fromRing: null,
-    ring,
-    strokes: [ring.points],
+    stroke: { line: [], head: null, cappedLine: null },
+    strokes: [],
+    touching: player.id,
     spots: HOLD_ANGLES.map((degrees, rank) => ({ at: polar(center, pastilleRadius, (degrees * Math.PI) / 180), rank, capped: false })),
   };
 }
 
-/** Coût d'une place sans les autres pastilles : chevauchements (joueurs, ballons, traits, anneaux, cadre). */
-function fixedCost(spot: Spot, discs: readonly Disc[], strokes: readonly Point[][], frame: Frame): number {
+/**
+ * Coût d'une place sans les autres pastilles : chevauchements (joueurs,
+ * ballons, traits, cadre) ; `touchable` : disques que la pastille peut toucher
+ * sans les recouvrir (le ballon du joueur d'un hold).
+ */
+function fixedCost(
+  spot: Spot,
+  discs: readonly Disc[],
+  touchable: readonly Disc[],
+  strokes: readonly Point[][],
+  frame: Frame,
+): number {
   let overlap = Math.max(
     0,
     PASTILLE_OUTER - Math.min(spot.at.x, frame.width - spot.at.x, spot.at.y, frame.height - spot.at.y) - EPSILON,
   );
   for (const disc of discs) {
     overlap += gapShortfall(distance(spot.at, disc) - disc.r - PASTILLE_OUTER);
+  }
+  for (const disc of touchable) {
+    overlap += Math.max(0, -(distance(spot.at, disc) - disc.r - PASTILLE_OUTER) - EPSILON);
   }
   for (const stroke of strokes) {
     overlap += gapShortfall(distanceToPolyline(spot.at, stroke) - STROKE_HALF - PASTILLE_OUTER);
